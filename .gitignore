@@ -1,0 +1,9 @@
+.DS_Store
+*.tar
+*.tar.gz
+*.zip
+build/
+dist/
+tmp/
+*.log
+github-token.txt

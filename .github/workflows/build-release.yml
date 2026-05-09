@@ -1,0 +1,105 @@
+name: Build patched NewAPI release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: newapi-compat-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Detect latest upstream release
+        id: upstream
+        run: |
+          set -euo pipefail
+          tag="$(curl -fsSL https://api.github.com/repos/QuantumNous/new-api/releases/latest | jq -r '.tag_name')"
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "failed to detect upstream tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if release already exists
+        id: skip
+        run: |
+          set -euo pipefail
+          release_tag="patched-${{ steps.upstream.outputs.tag }}"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}")"
+          if [ "$code" = "200" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stop early if already released
+        if: steps.skip.outputs.skip == 'true'
+        run: echo "Release already exists, nothing to do."
+
+      - name: Download upstream source
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          curl -fsSL -o work/upstream.zip "https://github.com/QuantumNous/new-api/archive/refs/tags/${{ steps.upstream.outputs.tag }}.zip"
+          unzip -q work/upstream.zip -d work
+          echo "UPSTREAM_DIR=$(find work -maxdepth 1 -type d -name 'new-api-*' | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: Apply patch
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          cd "$UPSTREAM_DIR"
+          git init -q
+          git apply --check "$GITHUB_WORKSPACE/selected-compat-v6.patch"
+          git apply "$GITHUB_WORKSPACE/selected-compat-v6.patch"
+
+      - name: Build docker image
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          cd "$UPSTREAM_DIR"
+          IMAGE_TAG="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat:${{ steps.upstream.outputs.tag }}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE_TAG" .
+
+      - name: Package image
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          docker save "$IMAGE_TAG" | gzip -9 > "out/newapi-patched-${{ steps.upstream.outputs.tag }}.tar.gz"
+          cp "$GITHUB_WORKSPACE/selected-compat-v6.patch" "out/"
+          cp "$GITHUB_WORKSPACE/SHA256SUMS.txt" "out/"
+          sha256sum "out/newapi-patched-${{ steps.upstream.outputs.tag }}.tar.gz" "out/selected-compat-v6.patch" "out/SHA256SUMS.txt" > "out/ARTIFACTS.SHA256SUMS"
+
+      - name: Publish release
+        if: steps.skip.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: patched-${{ steps.upstream.outputs.tag }}
+          name: NewAPI patched ${{ steps.upstream.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: |
+            out/newapi-patched-${{ steps.upstream.outputs.tag }}.tar.gz
+            out/selected-compat-v6.patch
+            out/SHA256SUMS.txt
+            out/ARTIFACTS.SHA256SUMS
+          body: |
+            Upstream version: ${{ steps.upstream.outputs.tag }}
+            Image tag: ${{ env.IMAGE_TAG }}
+
+            This release is built from upstream NewAPI source with the compatibility patch applied automatically.

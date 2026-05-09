@@ -1,0 +1,1386 @@
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -44,6 +44,11 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
+ 	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+ 		return string(constant.EndpointTypeOpenAIResponseCompact)
+ 	}
+-	if channel != nil && channel.Type == constant.ChannelTypeCodex {
+-		return string(constant.EndpointTypeOpenAIResponse)
++	if channel != nil {
++		if channel.Type == constant.ChannelTypeCodex {
++			return string(constant.EndpointTypeOpenAIResponse)
++		}
++		if channel.Type == constant.ChannelTypeAnthropic {
++			return string(constant.EndpointTypeAnthropic)
++		}
+ 	}
+ 	return normalized
+ }
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -93,6 +93,10 @@
+ 	}
+ 
+ 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
++
++	if shouldUseStreamForAutomaticChannelTest(channel) {
++		isStream = true
++	}
+ 
+ 	requestPath := "/v1/chat/completions"
+ 
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -420,6 +420,10 @@
+ 	var httpResp *http.Response
+ 	if resp != nil {
+ 		httpResp = resp.(*http.Response)
++		if strings.HasPrefix(strings.ToLower(httpResp.Header.Get("Content-Type")), "text/event-stream") {
++			info.IsStream = true
++			isStream = true
++		}
+ 		if httpResp.StatusCode != http.StatusOK {
+ 			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
+ 			common.SysError(fmt.Sprintf(
+diff --git a/relay/channel/codex/adaptor.go b/relay/channel/codex/adaptor.go
+--- a/relay/channel/codex/adaptor.go
++++ b/relay/channel/codex/adaptor.go
+@@ -96,14 +96,31 @@
+ 		request.Instructions = json.RawMessage(`""`)
+ 	}
+ 
++	if len(request.Input) > 0 && request.Input[0] == '"' {
++		var text string
++		if err := common.Unmarshal(request.Input, &text); err == nil {
++			inputItems := []map[string]any{{
++				"role":    "user",
++				"content": text,
++			}}
++			if b, err := common.Marshal(inputItems); err == nil {
++				request.Input = b
++			} else {
++				return nil, err
++			}
++		}
++	}
++
+ 	if isCompact {
+ 		return request, nil
+ 	}
+ 	// codex: store must be false
+ 	request.Store = json.RawMessage("false")
+ 	// rm max_output_tokens
++	// Codex backend is strict and rejects sampling params such as top_p.
+ 	request.MaxOutputTokens = nil
+ 	request.Temperature = nil
++	request.TopP = nil
+ 	return request, nil
+ }
+ 
+@@ -122,6 +139,9 @@
+ 
+ 	if info.IsStream {
+ 		return openai.OaiResponsesStreamHandler(c, info, resp)
++	}
++	if c.GetBool("responses_upstream_stream") {
++		return openai.OaiResponsesStreamToResponseHandler(c, info, resp)
+ 	}
+ 	return openai.OaiResponsesHandler(c, info, resp)
+ }
+diff --git a/relay/channel/openai/adaptor.go b/relay/channel/openai/adaptor.go
+--- a/relay/channel/openai/adaptor.go
++++ b/relay/channel/openai/adaptor.go
+@@ -619,6 +619,8 @@
+ 	case relayconstant.RelayModeResponses:
+ 		if info.IsStream {
+ 			usage, err = OaiResponsesStreamHandler(c, info, resp)
++		} else if c.GetBool("responses_upstream_stream") || (resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")) {
++			usage, err = OaiResponsesStreamToResponseHandler(c, info, resp)
+ 		} else {
+ 			usage, err = OaiResponsesHandler(c, info, resp)
+ 		}
+diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
+--- a/relay/channel/openai/chat_via_responses.go
++++ b/relay/channel/openai/chat_via_responses.go
+@@ -4,6 +4,7 @@
+ 	"fmt"
+ 	"io"
+ 	"net/http"
++	"sort"
+ 	"strings"
+ 	"time"
+ 
+@@ -86,6 +87,54 @@
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+ 	}
+ 
++	c.Header("Content-Type", "application/json; charset=utf-8")
++	service.IOCopyBytesGracefully(c, resp, responseBody)
++	return usage, nil
++}
++
++func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
++	responsesResp, usage, newAPIError := aggregateResponsesStreamToResponse(c, info, resp)
++	if newAPIError != nil {
++		return nil, newAPIError
++	}
++	chatId := helper.GetResponseID(c)
++	chatResp, chatUsage, err := service.ResponsesResponseToChatCompletionsResponse(responsesResp, chatId)
++	if err != nil {
++		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
++	}
++	if chatUsage != nil && chatUsage.TotalTokens != 0 {
++		usage = chatUsage
++	}
++	if usage == nil || usage.TotalTokens == 0 {
++		text := service.ExtractOutputTextFromResponses(responsesResp)
++		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
++		chatResp.Usage = *usage
++	}
++
++	var responseBody []byte
++	switch info.RelayFormat {
++	case types.RelayFormatClaude:
++		claudeResp := service.ResponseOpenAI2Claude(chatResp, info)
++		var err error
++		responseBody, err = common.Marshal(claudeResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	case types.RelayFormatGemini:
++		geminiResp := service.ResponseOpenAI2Gemini(chatResp, info)
++		var err error
++		responseBody, err = common.Marshal(geminiResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	default:
++		var err error
++		responseBody, err = common.Marshal(chatResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	}
++	c.Header("Content-Type", "application/json; charset=utf-8")
+ 	service.IOCopyBytesGracefully(c, resp, responseBody)
+ 	return usage, nil
+ }
+@@ -115,6 +164,7 @@
+ 	toolCallNameByID := make(map[string]string)
+ 	toolCallArgsByID := make(map[string]string)
+ 	toolCallNameSent := make(map[string]bool)
++	toolCallArgsFlushedByID := make(map[string]bool)
+ 	toolCallCanonicalIDByItemID := make(map[string]string)
+ 	hasSentReasoningSummary := false
+ 	needsReasoningSummarySeparator := false
+@@ -230,44 +280,8 @@
+ 		return true
+ 	}
+ 
+-	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
+-		if callID == "" {
+-			return true
+-		}
+-		if outputText.Len() > 0 {
+-			// Prefer streaming assistant text over tool calls to match non-stream behavior.
+-			return true
+-		}
+-		if !sendStartIfNeeded() {
+-			return false
+-		}
+-
+-		idx, ok := toolCallIndexByID[callID]
+-		if !ok {
+-			idx = len(toolCallIndexByID)
+-			toolCallIndexByID[callID] = idx
+-		}
+-		if name != "" {
+-			toolCallNameByID[callID] = name
+-		}
+-		if toolCallNameByID[callID] != "" {
+-			name = toolCallNameByID[callID]
+-		}
+-
+-		tool := dto.ToolCallResponse{
+-			ID:   callID,
+-			Type: "function",
+-			Function: dto.FunctionResponse{
+-				Arguments: argsDelta,
+-			},
+-		}
+-		tool.SetIndex(idx)
+-		if name != "" && !toolCallNameSent[callID] {
+-			tool.Function.Name = name
+-			toolCallNameSent[callID] = true
+-		}
+-
+-		chunk := &dto.ChatCompletionsStreamResponse{
++	toolCallStreamChunk := func(tool dto.ToolCallResponse) *dto.ChatCompletionsStreamResponse {
++		return &dto.ChatCompletionsStreamResponse{
+ 			Id:      responseId,
+ 			Object:  "chat.completion.chunk",
+ 			Created: createAt,
+@@ -281,6 +295,53 @@
+ 				},
+ 			},
+ 		}
++	}
++
++	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
++		if callID == "" {
++			return true
++		}
++		if outputText.Len() > 0 {
++			// Prefer streaming assistant text over tool calls to match non-stream behavior.
++			return true
++		}
++		if !sendStartIfNeeded() {
++			return false
++		}
++
++		idx, ok := toolCallIndexByID[callID]
++		if !ok {
++			idx = len(toolCallIndexByID)
++			toolCallIndexByID[callID] = idx
++		}
++		if name != "" {
++			toolCallNameByID[callID] = name
++		}
++		if toolCallNameByID[callID] != "" {
++			name = toolCallNameByID[callID]
++		}
++		if info.RelayFormat == types.RelayFormatClaude && argsDelta != "" {
++			argsDelta = ""
++		}
++		if name == "" && argsDelta == "" {
++			sawToolCall = true
++			return true
++		}
++
++		tool := dto.ToolCallResponse{
++			ID:   callID,
++			Type: "function",
++			Function: dto.FunctionResponse{
++				Arguments: argsDelta,
++			},
++		}
++		tool.SetIndex(idx)
++		if name != "" && !toolCallNameSent[callID] {
++			tool.Function.Name = name
++			toolCallNameSent[callID] = true
++		}
++
++		chunk := toolCallStreamChunk(tool)
+ 		if !sendChatChunk(chunk) {
+ 			return false
+ 		}
+@@ -292,6 +353,46 @@
+ 		}
+ 		if argsDelta != "" {
+ 			usageText.WriteString(argsDelta)
++		}
++		return true
++	}
++
++	flushClaudeToolCallArguments := func() bool {
++		if info.RelayFormat != types.RelayFormatClaude || len(toolCallArgsByID) == 0 {
++			return true
++		}
++		callIDs := make([]string, 0, len(toolCallArgsByID))
++		for callID := range toolCallArgsByID {
++			callIDs = append(callIDs, callID)
++		}
++		sort.SliceStable(callIDs, func(i, j int) bool {
++			return toolCallIndexByID[callIDs[i]] < toolCallIndexByID[callIDs[j]]
++		})
++		for _, callID := range callIDs {
++			if toolCallArgsFlushedByID[callID] {
++				continue
++			}
++			args := service.SanitizeClaudeToolArgumentsJSON(toolCallNameByID[callID], toolCallArgsByID[callID])
++			if strings.TrimSpace(args) == "" {
++				continue
++			}
++			idx := toolCallIndexByID[callID]
++			tool := dto.ToolCallResponse{
++				ID:   callID,
++				Type: "function",
++				Function: dto.FunctionResponse{
++					Arguments: args,
++				},
++			}
++			tool.SetIndex(idx)
++			if name := toolCallNameByID[callID]; name != "" && !toolCallNameSent[callID] {
++				tool.Function.Name = name
++				toolCallNameSent[callID] = true
++			}
++			if !sendChatChunk(toolCallStreamChunk(tool)) {
++				return false
++			}
++			toolCallArgsFlushedByID[callID] = true
+ 		}
+ 		return true
+ 	}
+@@ -475,6 +576,10 @@
+ 				}
+ 			}
+ 
++			if !flushClaudeToolCallArguments() {
++				sr.Stop(streamErr)
++				return
++			}
+ 			if !sendStartIfNeeded() {
+ 				sr.Stop(streamErr)
+ 				return
+@@ -525,6 +630,9 @@
+ 		}
+ 	}
+ 	if !sentStop {
++		if !flushClaudeToolCallArguments() {
++			return nil, streamErr
++		}
+ 		if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+ 			info.ClaudeConvertInfo.Usage = usage
+ 		}
+diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
+--- a/relay/channel/openai/relay_responses.go
++++ b/relay/channel/openai/relay_responses.go
+@@ -1,6 +1,7 @@
+ package openai
+ 
+ import (
++	"bufio"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -66,6 +67,167 @@
+ 		buildToolinfo.CallCount++
+ 	}
+ 	return &usage, nil
++}
++
++func OaiResponsesStreamToResponseHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
++	finalResp, usage, err := aggregateResponsesStreamToResponse(c, info, resp)
++	if err != nil {
++		return nil, err
++	}
++	responseBody, marshalErr := common.Marshal(finalResp)
++	if marshalErr != nil {
++		return nil, types.NewOpenAIError(marshalErr, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++	}
++	c.Header("Content-Type", "application/json; charset=utf-8")
++	service.IOCopyBytesGracefully(c, resp, responseBody)
++	return usage, nil
++}
++
++func aggregateResponsesStreamToResponse(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.OpenAIResponsesResponse, *dto.Usage, *types.NewAPIError) {
++	if resp == nil || resp.Body == nil {
++		return nil, nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
++	}
++	defer service.CloseResponseBodyGracefully(resp)
++
++	var (
++		finalResp       *dto.OpenAIResponsesResponse
++		outputText      strings.Builder
++		functionCallMap = make(map[string]dto.ResponsesOutput)
++		functionCallSeq []string
++	)
++
++	scanner := bufio.NewScanner(resp.Body)
++	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
++	for scanner.Scan() {
++		line := strings.TrimSpace(scanner.Text())
++		if line == "" || !strings.HasPrefix(line, "data:") {
++			continue
++		}
++		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
++		if data == "" || data == "[DONE]" {
++			continue
++		}
++		if strings.HasPrefix(data, "event:") {
++			continue
++		}
++		if strings.HasPrefix(data, "data:") {
++			data = strings.TrimSpace(strings.TrimPrefix(data, "data:"))
++		}
++		if data == "" || data == "[DONE]" {
++			continue
++		}
++
++		var streamResp dto.ResponsesStreamResponse
++		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
++			return nil, nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
++		}
++		switch streamResp.Type {
++		case "response.output_text.delta":
++			outputText.WriteString(streamResp.Delta)
++		case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
++			if streamResp.Item == nil || streamResp.Item.Type != "function_call" {
++				break
++			}
++			callID := strings.TrimSpace(streamResp.Item.CallId)
++			if callID == "" {
++				callID = strings.TrimSpace(streamResp.Item.ID)
++			}
++			if callID == "" {
++				break
++			}
++			if _, exists := functionCallMap[callID]; !exists {
++				functionCallSeq = append(functionCallSeq, callID)
++			}
++			functionCallMap[callID] = *streamResp.Item
++		case "response.function_call_arguments.delta":
++			callID := strings.TrimSpace(streamResp.ItemID)
++			if callID == "" {
++				break
++			}
++			item := functionCallMap[callID]
++			item.Type = "function_call"
++			item.CallId = callID
++			args := dto.ResponsesArgumentsString(item.Arguments) + streamResp.Delta
++			if argsData, marshalErr := common.Marshal(args); marshalErr == nil {
++				item.Arguments = argsData
++			}
++			if _, exists := functionCallMap[callID]; !exists {
++				functionCallSeq = append(functionCallSeq, callID)
++			}
++			functionCallMap[callID] = item
++		case "response.completed":
++			finalResp = streamResp.Response
++		case "response.error", "response.failed":
++			if streamResp.Response != nil {
++				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
++					return nil, nil, types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
++				}
++			}
++			return nil, nil, types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
++		}
++	}
++	if err := scanner.Err(); err != nil {
++		return nil, nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
++	}
++	if finalResp == nil {
++		finalResp = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap)
++	} else if len(finalResp.Output) == 0 && (outputText.Len() > 0 || len(functionCallMap) > 0) {
++		finalResp.Output = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap).Output
++	}
++	usage := responsesUsageFromResponse(info, finalResp, outputText.String())
++	if finalResp.Usage == nil {
++		finalResp.Usage = usage
++	}
++	return finalResp, usage, nil
++}
++
++func buildFallbackResponsesResponse(c *gin.Context, info *relaycommon.RelayInfo, text string, functionCallSeq []string, functionCallMap map[string]dto.ResponsesOutput) *dto.OpenAIResponsesResponse {
++	model := ""
++	if info != nil {
++		model = info.UpstreamModelName
++		if strings.TrimSpace(info.OriginModelName) != "" {
++			model = info.OriginModelName
++		}
++	}
++	resp := &dto.OpenAIResponsesResponse{ID: helper.GetResponseID(c), Object: "response", CreatedAt: int(common.GetTimestamp()), Model: model}
++	if text != "" {
++		resp.Output = []dto.ResponsesOutput{{Type: "message", Role: "assistant", Status: "completed", Content: []dto.ResponsesOutputContent{{Type: "output_text", Text: text}}}}
++		return resp
++	}
++	if len(functionCallMap) > 0 {
++		resp.Output = make([]dto.ResponsesOutput, 0, len(functionCallSeq))
++		seen := make(map[string]bool, len(functionCallSeq))
++		for _, callID := range functionCallSeq {
++			if seen[callID] {
++				continue
++			}
++			seen[callID] = true
++			resp.Output = append(resp.Output, functionCallMap[callID])
++		}
++	}
++	return resp
++}
++
++func responsesUsageFromResponse(info *relaycommon.RelayInfo, resp *dto.OpenAIResponsesResponse, fallbackText string) *dto.Usage {
++	usage := &dto.Usage{}
++	if resp != nil && resp.Usage != nil {
++		usage.PromptTokens = resp.Usage.InputTokens
++		usage.CompletionTokens = resp.Usage.OutputTokens
++		usage.TotalTokens = resp.Usage.TotalTokens
++		if resp.Usage.InputTokensDetails != nil {
++			usage.PromptTokensDetails.CachedTokens = resp.Usage.InputTokensDetails.CachedTokens
++		}
++	}
++	if usage.CompletionTokens == 0 && fallbackText != "" && info != nil {
++		usage.CompletionTokens = service.CountTextToken(fallbackText, info.UpstreamModelName)
++	}
++	if usage.PromptTokens == 0 && info != nil {
++		usage.PromptTokens = info.GetEstimatePromptTokens()
++	}
++	if usage.TotalTokens == 0 {
++		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
++	}
++	return usage
+ }
+ 
+ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+diff --git a/relay/chat_completions_via_responses.go b/relay/chat_completions_via_responses.go
+--- a/relay/chat_completions_via_responses.go
++++ b/relay/chat_completions_via_responses.go
+@@ -97,6 +97,10 @@
+ 	if err != nil {
+ 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+ 	}
++	clientRequestedStream := info.IsStream
++	if info.ChannelType == constant.ChannelTypeCodex {
++		responsesReq.Stream = common.GetPointer(true)
++	}
+ 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
+ 
+ 	savedRelayMode := info.RelayMode
+@@ -139,14 +143,23 @@
+ 	statusCodeMappingStr := c.GetString("status_code_mapping")
+ 
+ 	httpResp = resp.(*http.Response)
+-	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
++	upstreamIsStream := (responsesReq.Stream != nil && *responsesReq.Stream) || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+ 	if httpResp.StatusCode != http.StatusOK {
+ 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+ 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+ 		return nil, newApiErr
+ 	}
+ 
+-	if info.IsStream {
++	if upstreamIsStream && !clientRequestedStream {
++		usage, newApiErr := openaichannel.OaiResponsesStreamToChatHandler(c, info, httpResp)
++		if newApiErr != nil {
++			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
++			return nil, newApiErr
++		}
++		return usage, nil
++	}
++
++	if upstreamIsStream {
+ 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
+ 		if newApiErr != nil {
+ 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+diff --git a/relay/claude_handler.go b/relay/claude_handler.go
+--- a/relay/claude_handler.go
++++ b/relay/claude_handler.go
+@@ -130,7 +130,7 @@
+ 
+ 	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
+ 		!info.ChannelSetting.PassThroughBodyEnabled &&
+-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
++		(info.ChannelType == constant.ChannelTypeCodex || service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName)) {
+ 		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
+ 		if convErr != nil {
+ 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
+--- a/relay/compatible_handler.go
++++ b/relay/compatible_handler.go
+@@ -75,7 +75,7 @@
+ 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
+ 		!passThroughGlobal &&
+ 		!info.ChannelSetting.PassThroughBodyEnabled &&
+-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
++		(info.ChannelType == constant.ChannelTypeCodex || service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName)) {
+ 		applySystemPromptIfNeeded(c, info, request)
+ 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
+ 		if newApiErr != nil {
+diff --git a/relay/helper/valid_request.go b/relay/helper/valid_request.go
+--- a/relay/helper/valid_request.go
++++ b/relay/helper/valid_request.go
+@@ -240,11 +240,114 @@
+ 		return nil, errors.New("field model is required")
+ 	}
+ 
++	sanitizeClaudeCodeAttributionHeader(c, textRequest)
++
+ 	//if textRequest.Stream {
+ 	//	relayInfo.IsStream = true
+ 	//}
+ 
+ 	return textRequest, nil
++}
++
++func sanitizeClaudeCodeAttributionHeader(c *gin.Context, request *dto.ClaudeRequest) {
++	if request == nil || request.System == nil {
++		return
++	}
++	cleanSystem, changed := sanitizeClaudeCodeAttributionHeaderSystem(request.System)
++	if !changed {
++		return
++	}
++	request.System = cleanSystem
++	if c == nil {
++		return
++	}
++	body, err := common.Marshal(request)
++	if err != nil {
++		return
++	}
++	newStorage, err := common.CreateBodyStorage(body)
++	if err != nil {
++		return
++	}
++	if existing, ok := c.Get(common.KeyBodyStorage); ok {
++		if oldStorage, ok := existing.(common.BodyStorage); ok {
++			_ = oldStorage.Close()
++		}
++	}
++	c.Set(common.KeyBodyStorage, newStorage)
++	c.Request.ContentLength = int64(len(body))
++}
++
++func sanitizeClaudeCodeAttributionHeaderSystem(system any) (any, bool) {
++	switch typed := system.(type) {
++	case string:
++		cleaned, changed := stripClaudeCodeAttributionHeaderText(typed)
++		if !changed {
++			return system, false
++		}
++		if strings.TrimSpace(cleaned) == "" {
++			return nil, true
++		}
++		return cleaned, true
++	case []dto.ClaudeMediaMessage:
++		return sanitizeClaudeCodeAttributionHeaderMedia(typed)
++	default:
++		media, err := common.Any2Type[[]dto.ClaudeMediaMessage](system)
++		if err != nil {
++			return system, false
++		}
++		return sanitizeClaudeCodeAttributionHeaderMedia(media)
++	}
++}
++
++func sanitizeClaudeCodeAttributionHeaderMedia(system []dto.ClaudeMediaMessage) (any, bool) {
++	cleaned := make([]dto.ClaudeMediaMessage, 0, len(system))
++	changed := false
++	for _, item := range system {
++		if item.Type == "" || item.Type == dto.ContentTypeText {
++			text := item.GetText()
++			stripped, textChanged := stripClaudeCodeAttributionHeaderText(text)
++			if textChanged {
++				changed = true
++				if strings.TrimSpace(stripped) == "" {
++					continue
++				}
++				item.SetText(stripped)
++			}
++		}
++		cleaned = append(cleaned, item)
++	}
++	if !changed {
++		return system, false
++	}
++	if len(cleaned) == 0 {
++		return nil, true
++	}
++	return cleaned, true
++}
++
++func stripClaudeCodeAttributionHeaderText(text string) (string, bool) {
++	if !strings.Contains(text, "x-anthropic-billing-header:") {
++		return text, false
++	}
++	lines := strings.Split(text, "\n")
++	kept := make([]string, 0, len(lines))
++	changed := false
++	for _, line := range lines {
++		trimmed := strings.TrimSpace(line)
++		if strings.HasPrefix(trimmed, "x-anthropic-billing-header:") &&
++			(strings.Contains(trimmed, "cch=") ||
++				strings.Contains(trimmed, "cc_version=") ||
++				strings.Contains(trimmed, "cc_entrypoint=")) {
++			changed = true
++			continue
++		}
++		kept = append(kept, line)
++	}
++	if !changed {
++		return text, false
++	}
++	return strings.TrimSpace(strings.Join(kept, "\n")), true
+ }
+ 
+ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenAIRequest, error) {
+diff --git a/relay/responses_handler.go b/relay/responses_handler.go
+--- a/relay/responses_handler.go
++++ b/relay/responses_handler.go
+@@ -58,6 +58,11 @@
+ 	request, err := common.DeepCopy(responsesReq)
+ 	if err != nil {
+ 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
++	}
++
++	if info.ChannelType == appconstant.ChannelTypeCodex && !info.IsStream && info.RelayMode != relayconstant.RelayModeResponsesCompact {
++		request.Stream = common.GetPointer(true)
++		c.Set("responses_upstream_stream", true)
+ 	}
+ 
+ 	err = helper.ModelMappedHelper(c, info, request)
+diff --git a/service/convert.go b/service/convert.go
+--- a/service/convert.go
++++ b/service/convert.go
+@@ -87,6 +87,7 @@
+ 		openAITools = append(openAITools, openAITool)
+ 	}
+ 	openAIRequest.Tools = openAITools
++	openAIRequest.ToolChoice = convertClaudeToolChoiceToOpenAI(claudeRequest.ToolChoice)
+ 
+ 	// Convert messages
+ 	openAIMessages := make([]dto.Message, 0)
+@@ -171,7 +172,7 @@
+ 						Type: "function",
+ 						Function: dto.FunctionRequest{
+ 							Name:      mediaMsg.Name,
+-							Arguments: toJSONString(mediaMsg.Input),
++							Arguments: toJSONString(SanitizeClaudeToolInput(mediaMsg.Name, mediaMsg.Input)),
+ 						},
+ 					}
+ 					toolCalls = append(toolCalls, toolCall)
+@@ -211,9 +212,42 @@
+ 		}
+ 	}
+ 
++	openAIMessages = mergeConsecutiveAssistantToolUseMessages(openAIMessages)
+ 	openAIRequest.Messages = openAIMessages
+ 
+ 	return &openAIRequest, nil
++}
++
++func convertClaudeToolChoiceToOpenAI(choice any) any {
++	if choice == nil {
++		return nil
++	}
++	var tc dto.ClaudeToolChoice
++	if typed, ok := choice.(dto.ClaudeToolChoice); ok {
++		tc = typed
++	} else if typed, ok := choice.(*dto.ClaudeToolChoice); ok && typed != nil {
++		tc = *typed
++	} else {
++		parsed, err := common.Any2Type[dto.ClaudeToolChoice](choice)
++		if err != nil {
++			return choice
++		}
++		tc = parsed
++	}
++	switch strings.TrimSpace(tc.Type) {
++	case "auto", "none":
++		return tc.Type
++	case "any":
++		return "required"
++	case "tool":
++		name := strings.TrimSpace(tc.Name)
++		if name == "" {
++			return "required"
++		}
++		return map[string]any{"type": "function", "function": map[string]any{"name": name}}
++	default:
++		return choice
++	}
+ }
+ 
+ func generateStopBlock(index int) *dto.ClaudeResponse {
+@@ -418,15 +452,16 @@
+ 			if oaiUsage == nil {
+ 				oaiUsage = info.ClaudeConvertInfo.Usage
+ 			}
+-			if oaiUsage != nil {
+-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-					Type:  "message_delta",
+-					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+-					Delta: &dto.ClaudeMediaMessage{
+-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+-					},
+-				})
+-			}
++			if oaiUsage == nil {
++				oaiUsage = &dto.Usage{PromptTokens: info.GetEstimatePromptTokens()}
++			}
++			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++				Type:  "message_delta",
++				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
++				Delta: &dto.ClaudeMediaMessage{
++					StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
++				},
++			})
+ 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+ 				Type: "message_stop",
+ 			})
+@@ -465,13 +500,6 @@
+ 		doneChunk := chosenChoice.FinishReason != nil && *chosenChoice.FinishReason != ""
+ 		if doneChunk {
+ 			info.FinishReason = *chosenChoice.FinishReason
+-			oaiUsage := openAIResponse.Usage
+-			if oaiUsage == nil {
+-				oaiUsage = info.ClaudeConvertInfo.Usage
+-				// Some upstreams emit finish_reason first, then send a final usage-only chunk.
+-				// Defer closing until usage is available so the final message_delta carries it.
+-				return claudeResponses
+-			}
+ 		}
+ 
+ 		var claudeResponse dto.ClaudeResponse
+@@ -584,15 +612,16 @@
+ 			if oaiUsage == nil {
+ 				oaiUsage = info.ClaudeConvertInfo.Usage
+ 			}
+-			if oaiUsage != nil {
+-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-					Type:  "message_delta",
+-					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+-					Delta: &dto.ClaudeMediaMessage{
+-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+-					},
+-				})
+-			}
++			if oaiUsage == nil {
++				oaiUsage = &dto.Usage{PromptTokens: info.GetEstimatePromptTokens()}
++			}
++			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++				Type:  "message_delta",
++				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
++				Delta: &dto.ClaudeMediaMessage{
++					StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
++				},
++			})
+ 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+ 				Type: "message_stop",
+ 			})
+@@ -623,7 +652,7 @@
+ 				claudeContent.Name = toolUse.Function.Name
+ 				var mapParams map[string]interface{}
+ 				if err := common.Unmarshal([]byte(toolUse.Function.Arguments), &mapParams); err == nil {
+-					claudeContent.Input = mapParams
++					claudeContent.Input = SanitizeClaudeToolInput(toolUse.Function.Name, mapParams)
+ 				} else {
+ 					claudeContent.Input = toolUse.Function.Arguments
+ 				}
+@@ -645,6 +674,96 @@
+ 
+ func stopReasonOpenAI2Claude(reason string) string {
+ 	return reasonmap.OpenAIFinishReasonToClaudeStopReason(reason)
++}
++
++func SanitizeClaudeToolInput(toolName string, input any) any {
++	if !isClaudeReadTool(toolName) {
++		return input
++	}
++
++	var parsed map[string]any
++	switch v := input.(type) {
++	case map[string]any:
++		parsed = make(map[string]any, len(v))
++		for key, value := range v {
++			parsed[key] = value
++		}
++	default:
++		data, err := common.Marshal(input)
++		if err != nil || common.Unmarshal(data, &parsed) != nil {
++			return input
++		}
++	}
++
++	if value, ok := parsed["pages"]; ok {
++		deletePages := false
++		switch v := value.(type) {
++		case nil:
++			deletePages = true
++		case string:
++			deletePages = strings.TrimSpace(v) == "" || !isClaudeReadPDFTarget(parsed)
++		default:
++			deletePages = !isClaudeReadPDFTarget(parsed)
++		}
++		if deletePages {
++			delete(parsed, "pages")
++		}
++	}
++
++	return parsed
++}
++
++func isClaudeReadPDFTarget(input map[string]any) bool {
++	for _, key := range []string{"file_path", "path"} {
++		value, ok := input[key]
++		if !ok {
++			continue
++		}
++		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(common.Interface2String(value))), ".pdf") {
++			return true
++		}
++	}
++	return false
++}
++
++func SanitizeClaudeToolArgumentsJSON(toolName string, args string) string {
++	if strings.TrimSpace(args) == "" {
++		return args
++	}
++	var parsed map[string]any
++	if err := common.Unmarshal([]byte(args), &parsed); err != nil {
++		return args
++	}
++	sanitized := SanitizeClaudeToolInput(toolName, parsed)
++	data, err := common.Marshal(sanitized)
++	if err != nil {
++		return args
++	}
++	return string(data)
++}
++
++func isClaudeReadTool(toolName string) bool {
++	return strings.EqualFold(strings.TrimSpace(toolName), "Read")
++}
++
++func mergeConsecutiveAssistantToolUseMessages(messages []dto.Message) []dto.Message {
++	if len(messages) < 2 {
++		return messages
++	}
++	merged := make([]dto.Message, 0, len(messages))
++	for _, message := range messages {
++		if len(merged) > 0 && isAssistantToolOnlyMessage(merged[len(merged)-1]) && isAssistantToolOnlyMessage(message) {
++			toolCalls := append(merged[len(merged)-1].ParseToolCalls(), message.ParseToolCalls()...)
++			merged[len(merged)-1].SetToolCalls(toolCalls)
++			continue
++		}
++		merged = append(merged, message)
++	}
++	return merged
++}
++
++func isAssistantToolOnlyMessage(message dto.Message) bool {
++	return message.Role == "assistant" && message.Content == nil && len(message.ParseToolCalls()) > 0
+ }
+ 
+ func toJSONString(v interface{}) string {
+diff --git a/web/default/src/components/layout/components/mobile-drawer.tsx b/web/default/src/components/layout/components/mobile-drawer.tsx
+--- a/web/default/src/components/layout/components/mobile-drawer.tsx
++++ b/web/default/src/components/layout/components/mobile-drawer.tsx
+@@ -5,7 +5,7 @@
+ import type { AuthUser } from '@/stores/auth-store'
+ import useDialogState from '@/hooks/use-dialog'
+ import { useUserDisplay } from '@/hooks/use-user-display'
+-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
++import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+ import { Button } from '@/components/ui/button'
+ import { Skeleton } from '@/components/ui/skeleton'
+ import { SignOutDialog } from '@/components/sign-out-dialog'
+@@ -71,7 +71,6 @@
+         {/* User header - simplified */}
+         <div className='border-border flex items-center gap-2.5 border-b p-2.5'>
+           <Avatar className='size-9'>
+-            <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
+             <AvatarFallback className='text-xs'>{initials}</AvatarFallback>
+           </Avatar>
+           <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
+diff --git a/web/default/src/components/profile-dropdown.tsx b/web/default/src/components/profile-dropdown.tsx
+--- a/web/default/src/components/profile-dropdown.tsx
++++ b/web/default/src/components/profile-dropdown.tsx
+@@ -6,7 +6,7 @@
+ import { ROLE } from '@/lib/roles'
+ import useDialogState from '@/hooks/use-dialog'
+ import { useUserDisplay } from '@/hooks/use-user-display'
+-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
++import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+ import { Button } from '@/components/ui/button'
+ import {
+   Sheet,
+@@ -32,7 +32,6 @@
+         <SheetTrigger asChild>
+           <Button variant='ghost' className='relative h-9 w-9 rounded-full p-0'>
+             <Avatar className='h-9 w-9'>
+-              <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
+               <AvatarFallback>{initials}</AvatarFallback>
+             </Avatar>
+           </Button>
+@@ -50,8 +49,7 @@
+             <div className='border-b p-2.5 pb-6.5'>
+               <div className='flex items-center gap-2.5'>
+                 <Avatar className='size-9'>
+-                  <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
+-                  <AvatarFallback className='text-xs'>
++                      <AvatarFallback className='text-xs'>
+                     {initials}
+                   </AvatarFallback>
+                 </Avatar>
+diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
+--- a/web/default/src/features/playground/index.tsx
++++ b/web/default/src/features/playground/index.tsx
+@@ -5,7 +5,11 @@
+ import { PlaygroundInput } from './components/playground-input'
+ import { DEFAULT_GROUP } from './constants'
+ import { usePlaygroundState, useChatHandler } from './hooks'
+-import { createUserMessage, createLoadingAssistantMessage } from './lib'
++import {
++  createUserMessage,
++  createLoadingAssistantMessage,
++  createMessageVersion,
++} from './lib'
+ import type { Message as MessageType } from './types'
+ 
+ export function Playground() {
+@@ -124,11 +128,15 @@
+       const index = messages.findIndex((m) => m.key === editingMessageKey)
+       if (index === -1) return
+ 
+-      const updated = messages.map((m) =>
+-        m.key === editingMessageKey
+-          ? { ...m, versions: [{ ...m.versions[0], content: newContent }] }
+-          : m
+-      )
++      const updated = messages.map((m) => {
++        if (m.key !== editingMessageKey) return m
++
++        const currentVersion = Array.isArray(m.versions)
++          ? m.versions[0] || createMessageVersion('')
++          : createMessageVersion('')
++
++        return { ...m, versions: [{ ...currentVersion, content: newContent }] }
++      })
+ 
+       setEditingMessageKey(null)
+ 
+diff --git a/web/default/src/features/playground/lib/message-utils.ts b/web/default/src/features/playground/lib/message-utils.ts
+--- a/web/default/src/features/playground/lib/message-utils.ts
++++ b/web/default/src/features/playground/lib/message-utils.ts
+@@ -21,6 +21,10 @@
+  * Get current version from message (always returns the first version)
+  */
+ export function getCurrentVersion(message: Message): MessageVersion {
++  if (!Array.isArray(message.versions)) {
++    return { id: 'default', content: '' }
++  }
++
+   return message.versions[0] || { id: 'default', content: '' }
+ }
+ 
+@@ -124,7 +128,8 @@
+  * Excludes loading/streaming assistant messages and empty content
+  */
+ export function isValidMessage(message: Message): boolean {
+-  if (!message || !message.from || !message.versions.length) return false
++  if (!message || !message.from || !Array.isArray(message.versions)) return false
++  if (!message.versions.length) return false
+ 
+   const content = message.versions[0]?.content
+   if (content === undefined) return false
+@@ -227,7 +232,7 @@
+   messages: Message[],
+   updater: (message: Message) => Message
+ ): Message[] {
+-  if (messages.length === 0) return messages
++  if (!Array.isArray(messages) || messages.length === 0) return messages
+   const last = messages[messages.length - 1]
+   if (!last || last.from !== MESSAGE_ROLES.ASSISTANT) return messages
+ 
+@@ -296,6 +301,8 @@
+  * Converts stuck loading/streaming messages to stable state
+  */
+ export function sanitizeMessagesOnLoad(messages: Message[]): Message[] {
++  if (!Array.isArray(messages)) return []
++
+   let targetIndex = -1
+   for (let i = messages.length - 1; i >= 0; i--) {
+     const m = messages[i]
+diff --git a/web/default/src/features/playground/lib/storage.ts b/web/default/src/features/playground/lib/storage.ts
+--- a/web/default/src/features/playground/lib/storage.ts
++++ b/web/default/src/features/playground/lib/storage.ts
+@@ -1,17 +1,189 @@
++import { nanoid } from 'nanoid'
+ import { STORAGE_KEYS } from '../constants'
+-import type { PlaygroundConfig, ParameterEnabled, Message } from '../types'
++import type {
++  PlaygroundConfig,
++  ParameterEnabled,
++  Message,
++  MessageRole,
++  MessageStatus,
++  MessageVersion,
++} from '../types'
+ import { sanitizeMessagesOnLoad } from './message-utils'
+ 
++const MESSAGE_ROLES: MessageRole[] = ['user', 'assistant', 'system']
++const MESSAGE_STATUSES: MessageStatus[] = [
++  'loading',
++  'streaming',
++  'complete',
++  'error',
++]
++const NUMERIC_CONFIG_KEYS: Array<keyof PlaygroundConfig> = [
++  'temperature',
++  'top_p',
++  'max_tokens',
++  'frequency_penalty',
++  'presence_penalty',
++]
++const PARAMETER_KEYS: Array<keyof ParameterEnabled> = [
++  'temperature',
++  'top_p',
++  'max_tokens',
++  'frequency_penalty',
++  'presence_penalty',
++  'seed',
++]
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function removeStorageValue(key: string): void {
++  try {
++    localStorage.removeItem(key)
++  } catch {
++    // Ignore storage cleanup failures.
++  }
++}
++
++function isMessageRole(value: unknown): value is MessageRole {
++  return typeof value === 'string' && MESSAGE_ROLES.includes(value as MessageRole)
++}
++
++function isMessageStatus(value: unknown): value is MessageStatus {
++  return (
++    typeof value === 'string' &&
++    MESSAGE_STATUSES.includes(value as MessageStatus)
++  )
++}
++
++function normalizeVersion(value: unknown): MessageVersion | null {
++  if (!isRecord(value) || typeof value.content !== 'string') return null
++
++  return {
++    id:
++      typeof value.id === 'string' && value.id.trim()
++        ? value.id
++        : nanoid(),
++    content: value.content,
++  }
++}
++
++function normalizeSources(value: unknown): Message['sources'] {
++  if (!Array.isArray(value)) return undefined
++
++  const sources = value
++    .filter(isRecord)
++    .map((source) => ({
++      href: typeof source.href === 'string' ? source.href : '',
++      title: typeof source.title === 'string' ? source.title : '',
++    }))
++    .filter((source) => source.href || source.title)
++
++  return sources.length ? sources : undefined
++}
++
++function normalizeReasoning(value: unknown): Message['reasoning'] {
++  if (!isRecord(value) || typeof value.content !== 'string') return undefined
++
++  return {
++    content: value.content,
++    duration:
++      typeof value.duration === 'number' && Number.isFinite(value.duration)
++        ? value.duration
++        : 0,
++  }
++}
++
++function normalizeMessage(value: unknown): Message | null {
++  if (!isRecord(value)) return null
++
++  const role = value.from ?? value.role
++  if (!isMessageRole(role)) return null
++
++  const versions = Array.isArray(value.versions)
++    ? value.versions.map(normalizeVersion).filter((v): v is MessageVersion => !!v)
++    : []
++
++  if (versions.length === 0 && typeof value.content === 'string') {
++    versions.push({ id: nanoid(), content: value.content })
++  }
++
++  if (versions.length === 0) return null
++
++  const message: Message = {
++    key:
++      typeof value.key === 'string' && value.key.trim()
++        ? value.key
++        : nanoid(),
++    from: role,
++    versions,
++  }
++
++  const sources = normalizeSources(value.sources)
++  if (sources) message.sources = sources
++
++  const reasoning = normalizeReasoning(value.reasoning)
++  if (reasoning) message.reasoning = reasoning
++
++  if (typeof value.isReasoningStreaming === 'boolean') {
++    message.isReasoningStreaming = value.isReasoningStreaming
++  }
++  if (typeof value.isReasoningComplete === 'boolean') {
++    message.isReasoningComplete = value.isReasoningComplete
++  }
++  if (typeof value.isContentComplete === 'boolean') {
++    message.isContentComplete = value.isContentComplete
++  }
++  if (isMessageStatus(value.status)) {
++    message.status = value.status
++  }
++  if (typeof value.errorCode === 'string' || value.errorCode === null) {
++    message.errorCode = value.errorCode
++  }
++
++  return message
++}
++
+ /**
+  * Load playground config from localStorage
+  */
+ export function loadConfig(): Partial<PlaygroundConfig> {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.CONFIG)
+-    if (saved) {
+-      return JSON.parse(saved)
+-    }
+-  } catch (error) {
++    if (!saved) return {}
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!isRecord(parsed)) {
++      removeStorageValue(STORAGE_KEYS.CONFIG)
++      return {}
++    }
++
++    const config: Partial<PlaygroundConfig> = {}
++    if (typeof parsed.model === 'string' && parsed.model.trim()) {
++      config.model = parsed.model
++    }
++    if (typeof parsed.group === 'string' && parsed.group.trim()) {
++      config.group = parsed.group
++    }
++    if (typeof parsed.stream === 'boolean') {
++      config.stream = parsed.stream
++    }
++    if (parsed.seed === null) {
++      config.seed = null
++    } else if (typeof parsed.seed === 'number' && Number.isFinite(parsed.seed)) {
++      config.seed = parsed.seed
++    }
++
++    NUMERIC_CONFIG_KEYS.forEach((key) => {
++      const value = parsed[key]
++      if (typeof value === 'number' && Number.isFinite(value)) {
++        ;(config as Record<string, unknown>)[key] = value
++      }
++    })
++
++    return config
++  } catch (error) {
++    removeStorageValue(STORAGE_KEYS.CONFIG)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load config:', error)
+   }
+@@ -36,10 +208,25 @@
+ export function loadParameterEnabled(): Partial<ParameterEnabled> {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.PARAMETER_ENABLED)
+-    if (saved) {
+-      return JSON.parse(saved)
+-    }
+-  } catch (error) {
++    if (!saved) return {}
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!isRecord(parsed)) {
++      removeStorageValue(STORAGE_KEYS.PARAMETER_ENABLED)
++      return {}
++    }
++
++    const parameterEnabled: Partial<ParameterEnabled> = {}
++    PARAMETER_KEYS.forEach((key) => {
++      const value = parsed[key]
++      if (typeof value === 'boolean') {
++        parameterEnabled[key] = value
++      }
++    })
++
++    return parameterEnabled
++  } catch (error) {
++    removeStorageValue(STORAGE_KEYS.PARAMETER_ENABLED)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load parameter enabled:', error)
+   }
+@@ -69,16 +256,26 @@
+ export function loadMessages(): Message[] | null {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES)
+-    if (saved) {
+-      const parsed: Message[] = JSON.parse(saved)
+-      const sanitized = sanitizeMessagesOnLoad(parsed)
+-      // Persist sanitized result to avoid re-sanitizing on subsequent loads
+-      if (sanitized !== parsed) {
+-        saveMessages(sanitized)
+-      }
+-      return sanitized
+-    }
+-  } catch (error) {
++    if (!saved) return null
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!Array.isArray(parsed)) {
++      removeStorageValue(STORAGE_KEYS.MESSAGES)
++      return null
++    }
++
++    const normalized = parsed
++      .map(normalizeMessage)
++      .filter((message): message is Message => !!message)
++    const sanitized = sanitizeMessagesOnLoad(normalized)
++
++    if (JSON.stringify(sanitized) !== saved) {
++      saveMessages(sanitized)
++    }
++
++    return sanitized
++  } catch (error) {
++    removeStorageValue(STORAGE_KEYS.MESSAGES)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load messages:', error)
+   }
+
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -649,3 +649,3 @@ func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
+-	return channel != nil && channel.Type == constant.ChannelTypeCodex
++	return channel != nil && (channel.Type == constant.ChannelTypeCodex || channel.Id == 24)
+ }
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -897,7 +901,9 @@ func testAllChannels(notify bool) error {
+ 		}()
+ 
+ 		for _, channel := range channels {
+-			if channel.Status == common.ChannelStatusManuallyDisabled {
++			if channel.Status != common.ChannelStatusEnabled &&
++				channel.Status != common.ChannelStatusAutoDisabled &&
++				channel.Status != common.ChannelStatusManuallyDisabled {
+ 				continue
+ 			}
+ 			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+diff --git a/service/channel.go b/service/channel.go
+--- a/service/channel.go
++++ b/service/channel.go
+@@ -71,7 +71,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+ 	if newAPIError != nil {
+ 		return false
+ 	}
+-	if status != common.ChannelStatusAutoDisabled {
++	if status != common.ChannelStatusAutoDisabled && status != common.ChannelStatusManuallyDisabled {
+ 		return false
+ 	}
+ 	return true

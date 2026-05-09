@@ -1,0 +1,1 @@
+587870a8197153ffe0c2f7ba49f5de4a7472a4aee0ad7551ffd97a3715967286  selected-compat-v6.patch
