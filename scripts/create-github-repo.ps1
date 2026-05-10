@@ -42,8 +42,8 @@ try {
   Write-Host "Created repository: https://github.com/$Org/$Repo"
 }
 
-$originUrl = git remote get-url origin 2>$null
-if ($LASTEXITCODE -eq 0 -and $originUrl) {
+$remotes = @(git remote)
+if ($remotes -contains "origin") {
   git remote remove origin
 }
 git remote add origin "https://x-access-token:$Token@github.com/$Org/$Repo.git"
