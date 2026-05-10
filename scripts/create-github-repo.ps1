@@ -42,7 +42,9 @@ try {
   Write-Host "Created repository: https://github.com/$Org/$Repo"
 }
 
-git remote remove origin 2>$null
+if (git remote get-url origin 2>$null) {
+  git remote remove origin
+}
 git remote add origin "https://x-access-token:$Token@github.com/$Org/$Repo.git"
 git branch -M main
 git push -u origin main
