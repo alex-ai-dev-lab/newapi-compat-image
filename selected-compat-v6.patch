@@ -1,7 +1,7 @@
 diff --git a/controller/channel-test.go b/controller/channel-test.go
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
-@@ -44,6 +44,11 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
+@@ -44,8 +44,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
  	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
  		return string(constant.EndpointTypeOpenAIResponseCompact)
  	}
@@ -976,36 +976,6 @@ diff --git a/web/default/src/components/layout/components/mobile-drawer.tsx b/we
              <AvatarFallback className='text-xs'>{initials}</AvatarFallback>
            </Avatar>
            <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
-diff --git a/web/default/src/components/profile-dropdown.tsx b/web/default/src/components/profile-dropdown.tsx
---- a/web/default/src/components/profile-dropdown.tsx
-+++ b/web/default/src/components/profile-dropdown.tsx
-@@ -6,7 +6,7 @@
- import { ROLE } from '@/lib/roles'
- import useDialogState from '@/hooks/use-dialog'
- import { useUserDisplay } from '@/hooks/use-user-display'
--import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
- import { Button } from '@/components/ui/button'
- import {
-   Sheet,
-@@ -32,7 +32,6 @@
-         <SheetTrigger asChild>
-           <Button variant='ghost' className='relative h-9 w-9 rounded-full p-0'>
-             <Avatar className='h-9 w-9'>
--              <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
-               <AvatarFallback>{initials}</AvatarFallback>
-             </Avatar>
-           </Button>
-@@ -50,8 +49,7 @@
-             <div className='border-b p-2.5 pb-6.5'>
-               <div className='flex items-center gap-2.5'>
-                 <Avatar className='size-9'>
--                  <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
--                  <AvatarFallback className='text-xs'>
-+                      <AvatarFallback className='text-xs'>
-                     {initials}
-                   </AvatarFallback>
-                 </Avatar>
 diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
 --- a/web/default/src/features/playground/index.tsx
 +++ b/web/default/src/features/playground/index.tsx
@@ -1354,7 +1324,7 @@ diff --git a/web/default/src/features/playground/lib/storage.ts b/web/default/sr
 diff --git a/controller/channel-test.go b/controller/channel-test.go
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
-@@ -649,3 +649,3 @@ func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
+@@ -649,2 +649,2 @@ func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
 -	return channel != nil && channel.Type == constant.ChannelTypeCodex
 +	return channel != nil && (channel.Type == constant.ChannelTypeCodex || channel.Id == 24)
  }
