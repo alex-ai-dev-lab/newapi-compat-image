@@ -55,7 +55,8 @@ chmod +x deploy-newapi-compat.sh
 ./deploy-newapi-compat.sh \
   /path/to/upstream/new-api-source \
   ./selected-compat-v6.patch \
-  newapi-compat:custom
+  newapi-compat:custom \
+  v1.0.0-rc.5
 ```
 
 构建完成后运行：
