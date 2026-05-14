@@ -1,1 +1,1 @@
-b8870761272fe9b60a75de51a9573bd26afc9a0eca9e51bb990ce2bd34b7ef5d  selected-compat-v6.patch
+41c9246586bc21cd727029861575896e3a5d576f410b75183d5be27d4dd1dd49  selected-compat-v6.patch

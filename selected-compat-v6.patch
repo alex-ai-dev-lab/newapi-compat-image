@@ -1,5 +1,5 @@
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index b225585..6f79a6e 100644
+index b225585..06da7a4 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -51,8 +51,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
@@ -29,18 +29,60 @@ index b225585..6f79a6e 100644
  	requestPath := "/v1/chat/completions"
  
  	// 如果指定了端点类型，使用指定的端点类型
-@@ -426,6 +435,10 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+@@ -424,8 +433,12 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 		}
+ 	}
  	var httpResp *http.Response
++	responseContentTypeSSE := false
  	if resp != nil {
  		httpResp = resp.(*http.Response)
 +		if strings.HasPrefix(strings.ToLower(httpResp.Header.Get("Content-Type")), "text/event-stream") {
-+			info.IsStream = true
-+			isStream = true
++			responseContentTypeSSE = true
 +		}
  		if httpResp.StatusCode != http.StatusOK {
  			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
  			common.SysError(fmt.Sprintf(
-@@ -647,7 +660,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
+@@ -453,16 +466,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 			newAPIError: respErr,
+ 		}
+ 	}
+-	usage, usageErr := coerceTestUsage(usageA, isStream, info.GetEstimatePromptTokens())
+-	if usageErr != nil {
+-		return testResult{
+-			context:     c,
+-			localErr:    usageErr,
+-			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
+-		}
+-	}
+ 	result := w.Result()
+-	respBody, err := readTestResponseBody(result.Body, isStream)
++	respBody, err := readTestResponseBody(result.Body, isStream || responseContentTypeSSE)
+ 	if err != nil {
+ 		return testResult{
+ 			context:     c,
+@@ -470,7 +475,20 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
+ 		}
+ 	}
+-	if bodyErr := validateTestResponseBody(respBody, isStream); bodyErr != nil {
++	actualStream := isStream
++	if !actualStream && responseContentTypeSSE && validateStreamTestResponseBody(respBody) == nil {
++		actualStream = true
++		info.IsStream = true
++	}
++	usage, usageErr := coerceTestUsage(usageA, actualStream, info.GetEstimatePromptTokens())
++	if usageErr != nil {
++		return testResult{
++			context:     c,
++			localErr:    usageErr,
++			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
++		}
++	}
++	if bodyErr := validateTestResponseBody(respBody, actualStream); bodyErr != nil {
+ 		return testResult{
+ 			context:     c,
+ 			localErr:    bodyErr,
+@@ -647,7 +665,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
  }
  
  func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
@@ -49,7 +91,7 @@ index b225585..6f79a6e 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -897,7 +910,9 @@ func testAllChannels(notify bool) error {
+@@ -897,7 +915,9 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
