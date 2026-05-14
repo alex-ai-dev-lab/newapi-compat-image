@@ -2,6 +2,11 @@ name: Build patched NewAPI release
 
 on:
   workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional upstream NewAPI tag, for example v1.0.0-rc.5"
+        required: false
+        type: string
   schedule:
     - cron: "0 */6 * * *"
 
@@ -21,6 +26,7 @@ jobs:
       - name: Build and publish patched image
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
         run: |
           set -euo pipefail
 
@@ -68,8 +74,12 @@ jobs:
           cd ..
 
           echo "Detecting latest upstream NewAPI release"
-          upstream_json="$(api_get "${GH_API}/repos/QuantumNous/new-api/releases/latest")"
-          upstream_tag="$(jq -r '.tag_name // empty' <<<"${upstream_json}")"
+          if [ -n "${REQUESTED_UPSTREAM_TAG:-}" ]; then
+            upstream_tag="${REQUESTED_UPSTREAM_TAG}"
+          else
+            upstream_json="$(api_get "${GH_API}/repos/QuantumNous/new-api/releases/latest")"
+            upstream_tag="$(jq -r '.tag_name // empty' <<<"${upstream_json}")"
+          fi
           if [ -z "${upstream_tag}" ]; then
             echo "Failed to detect upstream release tag" >&2
             exit 1
