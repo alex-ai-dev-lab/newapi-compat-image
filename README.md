@@ -18,7 +18,7 @@ newapi-patched-v1.0.0-rc.4.tar.gz
 导入 Docker：
 
 ```bash
-docker load -i newapi-patched-v1.0.0-rc.4.tar.gz
+docker load -i newapi-patched-v1.0.0-rc.7.tar.gz
 ```
 
 查看导入后的镜像名：
@@ -32,7 +32,7 @@ docker images | grep newapi-compat
 ```yaml
 services:
   newapi:
-    image: ghcr.io/alex-ai-dev-lab/newapi-compat:v1.0.0-rc.4
+    image: ghcr.io/alex-ai-dev-lab/newapi-compat:v1.0.0-rc.7
     volumes:
       - ./data:/data
     ports:
@@ -56,7 +56,7 @@ chmod +x deploy-newapi-compat.sh
   /path/to/upstream/new-api-source \
   ./selected-compat-v6.patch \
   newapi-compat:custom \
-  v1.0.0-rc.5
+  v1.0.0-rc.7
 ```
 
 构建完成后运行：
@@ -124,3 +124,9 @@ docker compose up -d
 - 一些客户端 base_url 写重复时，能少踩坑
 - 对 OpenAI / Claude / Responses 这几条链路做了兼容修正
 - 尽量让客户端“照着原来的写法就能跑”
+
+### 6. 429 / 额度不足时尽量自动换渠道
+
+- Codex / Claude Code / Responses 这类长任务遇到上游 429、余额不足、额度不足时，会尽量在服务端换下一个可用渠道重试
+- 尽量避免把 429 直接返回给本地 Codex，导致本地任务中断
+- 如果渠道开启了自动禁用，补丁会把明显失败的渠道标记掉，让同一次请求更容易切到其他渠道

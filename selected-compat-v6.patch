@@ -102,6 +102,141 @@ index b225585..06da7a4 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+diff --git a/controller/relay.go b/controller/relay.go
+index 5e2db44..728ef37 100644
+--- a/controller/relay.go
++++ b/controller/relay.go
+@@ -186,8 +186,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 	}
+ 	relayInfo.RetryIndex = 0
+ 	relayInfo.LastError = nil
++	maxRetryTimes := compatRelayRetryBudget(relayInfo, relayFormat)
+ 
+-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
++	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
+ 		relayInfo.RetryIndex = retryParam.GetRetry()
+ 		channel, channelErr := getChannel(c, relayInfo, retryParam)
+ 		if channelErr != nil {
+@@ -230,9 +231,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 
+ 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+ 
+-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
++		remainingRetries := maxRetryTimes - retryParam.GetRetry()
++		if !shouldRetry(c, newAPIError, remainingRetries) {
+ 			break
+ 		}
++		disableChannelForCompatRetry(c, channel, newAPIError, remainingRetries)
+ 	}
+ 
+ 	useChannel := c.GetStringSlice("use_channel")
+@@ -347,12 +350,106 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+ 	if code < 100 || code > 599 {
+ 		return true
+ 	}
++	if shouldCompatRetryByError(openaiErr) {
++		return true
++	}
+ 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+ 		return false
+ 	}
+ 	return operation_setting.ShouldRetryByStatusCode(code)
+ }
+ 
++func compatRelayRetryBudget(info *relaycommon.RelayInfo, relayFormat types.RelayFormat) int {
++	if info == nil || relayFormat == types.RelayFormatOpenAIRealtime {
++		return common.RetryTimes
++	}
++	switch info.RelayMode {
++	case relayconstant.RelayModeChatCompletions,
++		relayconstant.RelayModeCompletions,
++		relayconstant.RelayModeResponses,
++		relayconstant.RelayModeResponsesCompact:
++		return maxInt(common.RetryTimes, 3)
++	}
++	switch relayFormat {
++	case types.RelayFormatClaude, types.RelayFormatGemini:
++		return maxInt(common.RetryTimes, 3)
++	default:
++		return common.RetryTimes
++	}
++}
++
++func shouldCompatRetryByError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusTooManyRequests, http.StatusPaymentRequired:
++		return true
++	case http.StatusUnauthorized, http.StatusForbidden:
++		return isQuotaOrRateLimitError(openaiErr)
++	default:
++		return false
++	}
++}
++
++func disableChannelForCompatRetry(c *gin.Context, channel *model.Channel, openaiErr *types.NewAPIError, remainingRetries int) {
++	if remainingRetries <= 0 || channel == nil || openaiErr == nil {
++		return
++	}
++	if !shouldCompatRetryByError(openaiErr) {
++		return
++	}
++	if openaiErr.StatusCode != http.StatusTooManyRequests &&
++		openaiErr.StatusCode != http.StatusPaymentRequired &&
++		!isQuotaOrRateLimitError(openaiErr) {
++		return
++	}
++	channelError := *types.NewChannelError(
++		channel.Id,
++		channel.Type,
++		channel.Name,
++		channel.ChannelInfo.IsMultiKey,
++		common.GetContextKeyString(c, constant.ContextKeyChannelKey),
++		channel.GetAutoBan(),
++	)
++	service.DisableChannel(channelError, openaiErr.ErrorWithStatusCode())
++}
++
++func isQuotaOrRateLimitError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	msg := strings.ToLower(openaiErr.Error())
++	keywords := []string{
++		"quota",
++		"credit",
++		"balance",
++		"billing",
++		"insufficient",
++		"rate limit",
++		"rate_limit",
++		"too many requests",
++		"exceeded",
++		"额度",
++		"余额",
++		"限流",
++		"账单",
++	}
++	for _, keyword := range keywords {
++		if strings.Contains(msg, keyword) {
++			return true
++		}
++	}
++	return false
++}
++
++func maxInt(a, b int) int {
++	if a > b {
++		return a
++	}
++	return b
++}
++
+ func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+ 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
+ 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 diff --git a/relay/channel/codex/adaptor.go b/relay/channel/codex/adaptor.go
 index ef4d4fa..62adb1f 100644
 --- a/relay/channel/codex/adaptor.go
@@ -149,7 +284,7 @@ index ef4d4fa..62adb1f 100644
  }
  
 diff --git a/relay/channel/openai/adaptor.go b/relay/channel/openai/adaptor.go
-index 6941ca5..bf42905 100644
+index 581ae19..b619fd7 100644
 --- a/relay/channel/openai/adaptor.go
 +++ b/relay/channel/openai/adaptor.go
 @@ -629,6 +629,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
@@ -586,10 +721,10 @@ index 7a2eb9a..f98cfbd 100644
  		if newApiErr != nil {
  			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 diff --git a/relay/claude_handler.go b/relay/claude_handler.go
-index 54f8ced..cd07790 100644
+index ec028c7..b183c81 100644
 --- a/relay/claude_handler.go
 +++ b/relay/claude_handler.go
-@@ -130,7 +130,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
+@@ -131,7 +131,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
  
  	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
  		!info.ChannelSetting.PassThroughBodyEnabled &&
@@ -599,7 +734,7 @@ index 54f8ced..cd07790 100644
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
-index 7a5624e..a15e25c 100644
+index fdd54f3..04e9df6 100644
 --- a/relay/compatible_handler.go
 +++ b/relay/compatible_handler.go
 @@ -75,7 +75,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
@@ -733,10 +868,10 @@ index 2581b28..b2272f0 100644
  	textRequest := &dto.GeneralOpenAIRequest{}
  	err := common.UnmarshalBodyReusable(c, textRequest)
 diff --git a/relay/responses_handler.go b/relay/responses_handler.go
-index 58324aa..37e3ca6 100644
+index 54ca3cb..63872f8 100644
 --- a/relay/responses_handler.go
 +++ b/relay/responses_handler.go
-@@ -60,6 +60,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
+@@ -61,6 +61,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
  		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
  	}
  
