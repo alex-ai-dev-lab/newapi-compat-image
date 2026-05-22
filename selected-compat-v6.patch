@@ -206,10 +206,10 @@ index 0000000..66530b2
 +}
 diff --git a/controller/compat_channel_failover_test.go b/controller/compat_channel_failover_test.go
 new file mode 100644
-index 0000000..721a1bc
+index 0000000..44f4f75
 --- /dev/null
 +++ b/controller/compat_channel_failover_test.go
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,107 @@
 +package controller
 +
 +import (
@@ -286,8 +286,39 @@ index 0000000..721a1bc
 +		t.Fatalf("failure count after TTL expiry = %d, want 1", got)
 +	}
 +}
++
++func TestCompatStreamRetryError_ClaudeEmptyAssistantNormalEndRetries(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("empty claude assistant stream")
++	status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:          true,
++		RelayFormat:       types.RelayFormatClaude,
++		StreamStatus:      status,
++		ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{},
++	}
++
++	err := compatStreamRetryError(info)
++	if err == nil {
++		t.Fatal("empty claude assistant stream should trigger retry")
++	}
++	if err.StatusCode != http.StatusBadGateway {
++		t.Fatalf("status = %d, want %d", err.StatusCode, http.StatusBadGateway)
++	}
++}
++
++func TestShouldCompatDisableChannel_DoesNotImmediatelyDisableTransientTransport502(t *testing.T) {
++	err := types.NewOpenAIError(errors.New("do request failed: unexpected EOF"), types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
++
++	if shouldCompatDisableChannel(err) {
++		t.Fatal("transient transport 502 should be tracked/excluded first, not auto-disabled immediately")
++	}
++	if !shouldTrackCompatUpstream5xxFailure(err) {
++		t.Fatal("transient transport 502 should still be tracked for repeated-failure auto-disable")
++	}
++}
 diff --git a/controller/relay.go b/controller/relay.go
-index 5e2db44..f4fbd5e 100644
+index 5e2db44..2e3479a 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -340,7 +371,7 @@ index 5e2db44..f4fbd5e 100644
  	}
  
  	useChannel := c.GetStringSlice("use_channel")
-@@ -347,12 +356,211 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,12 +356,223 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -354,7 +385,20 @@ index 5e2db44..f4fbd5e 100644
  }
  
 +func compatStreamRetryError(info *relaycommon.RelayInfo) *types.NewAPIError {
-+	if info == nil || !info.IsStream || info.StreamStatus == nil || info.StreamStatus.IsNormalEnd() {
++	if info == nil || !info.IsStream || info.StreamStatus == nil {
++		return nil
++	}
++	if info.StreamStatus.IsNormalEnd() {
++		if info.RelayFormat == types.RelayFormatClaude &&
++			info.ClaudeConvertInfo != nil &&
++			!info.ClaudeConvertInfo.HasOutput &&
++			info.StreamStatus.HasErrors() {
++			return types.NewOpenAIError(
++				fmt.Errorf("empty claude assistant stream from upstream"),
++				types.ErrorCodeEmptyResponse,
++				http.StatusBadGateway,
++			)
++		}
 +		return nil
 +	}
 +	switch info.StreamStatus.EndReason {
@@ -483,8 +527,7 @@ index 5e2db44..f4fbd5e 100644
 +		return true
 +	default:
 +		return openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded ||
-+			isQuotaOrRateLimitError(openaiErr) ||
-+			isTransportFailureError(openaiErr)
++			isQuotaOrRateLimitError(openaiErr)
 +	}
 +}
 +
@@ -1189,6 +1232,19 @@ index ec028c7..b183c81 100644
  		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
+index 64d4d4e..86778a3 100644
+--- a/relay/common/relay_info.go
++++ b/relay/common/relay_info.go
+@@ -39,6 +39,8 @@ type ClaudeConvertInfo struct {
+ 	Usage            *dto.Usage
+ 	FinishReason     string
+ 	Done             bool
++	MessageStarted   bool
++	HasOutput        bool
+ 
+ 	ToolCallBaseIndex      int
+ 	ToolCallMaxIndexOffset int
 diff --git a/relay/common/stream_status.go b/relay/common/stream_status.go
 index 57b0bb9..ac5ba90 100644
 --- a/relay/common/stream_status.go
@@ -1673,7 +1729,7 @@ index a3710ef..1aa23c6 100644
  			return nil, param.TokenGroup, err
  		}
 diff --git a/service/convert.go b/service/convert.go
-index 95acf83..7d1244c 100644
+index 95acf83..2a5de8c 100644
 --- a/service/convert.go
 +++ b/service/convert.go
 @@ -87,6 +87,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
@@ -1738,7 +1794,101 @@ index 95acf83..7d1244c 100644
  func generateStopBlock(index int) *dto.ClaudeResponse {
  	return &dto.ClaudeResponse{
  		Type:  "content_block_stop",
-@@ -418,15 +452,16 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+@@ -258,6 +292,41 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 	}
+ 
+ 	var claudeResponses []*dto.ClaudeResponse
++	emitMessageStart := func() {
++		if info.ClaudeConvertInfo.MessageStarted {
++			return
++		}
++		msg := &dto.ClaudeMediaMessage{
++			Id:    openAIResponse.Id,
++			Model: openAIResponse.Model,
++			Type:  "message",
++			Role:  "assistant",
++			Usage: &dto.ClaudeUsage{
++				InputTokens:  info.GetEstimatePromptTokens(),
++				OutputTokens: 0,
++			},
++		}
++		msg.SetContent(make([]any, 0))
++		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++			Type:    "message_start",
++			Message: msg,
++		})
++		info.ClaudeConvertInfo.MessageStarted = true
++	}
++	markClaudeOutput := func() {
++		info.ClaudeConvertInfo.HasOutput = true
++		emitMessageStart()
++	}
++	isEmptyClaudeAssistantEnd := func() bool {
++		if info.ClaudeConvertInfo.HasOutput {
++			return false
++		}
++		if info.StreamStatus != nil {
++			info.StreamStatus.RecordError("empty claude assistant stream: upstream ended without text, thinking, or tool_use")
++		}
++		info.ClaudeConvertInfo.Done = true
++		return true
++	}
+ 	// stopOpenBlocks emits the required content_block_stop event(s) for the currently open block(s)
+ 	// according to Anthropic's SSE streaming state machine:
+ 	// content_block_start -> content_block_delta* -> content_block_stop (per index).
+@@ -297,25 +366,8 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
+ 	}
+ 	if info.SendResponseCount == 1 {
+-		msg := &dto.ClaudeMediaMessage{
+-			Id:    openAIResponse.Id,
+-			Model: openAIResponse.Model,
+-			Type:  "message",
+-			Role:  "assistant",
+-			Usage: &dto.ClaudeUsage{
+-				InputTokens:  info.GetEstimatePromptTokens(),
+-				OutputTokens: 0,
+-			},
+-		}
+-		msg.SetContent(make([]any, 0))
+-		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-			Type:    "message_start",
+-			Message: msg,
+-		})
+-		//claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-		//	Type: "ping",
+-		//})
+ 		if openAIResponse.IsToolCall() {
++			markClaudeOutput()
+ 			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
+ 			info.ClaudeConvertInfo.ToolCallBaseIndex = 0
+ 			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
+@@ -362,6 +414,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			content := openAIResponse.Choices[0].Delta.GetContentString()
+ 
+ 			if reasoning != "" {
++				markClaudeOutput()
+ 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
+ 					stopOpenBlocksAndAdvance()
+ 				}
+@@ -385,6 +438,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 				})
+ 				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
+ 			} else if content != "" {
++				markClaudeOutput()
+ 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeText {
+ 					stopOpenBlocksAndAdvance()
+ 				}
+@@ -412,21 +466,25 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 
+ 		// 如果首块就带 finish_reason，需要立即发送停止块
+ 		if len(openAIResponse.Choices) > 0 && openAIResponse.Choices[0].FinishReason != nil && *openAIResponse.Choices[0].FinishReason != "" {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			info.FinishReason = *openAIResponse.Choices[0].FinishReason
+ 			stopOpenBlocks()
+ 			oaiUsage := openAIResponse.Usage
  			if oaiUsage == nil {
  				oaiUsage = info.ClaudeConvertInfo.Usage
  			}
@@ -1763,7 +1913,17 @@ index 95acf83..7d1244c 100644
  			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
  				Type: "message_stop",
  			})
-@@ -465,13 +500,6 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+@@ -442,6 +500,9 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			oaiUsage = info.ClaudeConvertInfo.Usage
+ 		}
+ 		if oaiUsage != nil {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			stopOpenBlocks()
+ 			stopReason := stopReasonOpenAI2Claude(info.FinishReason)
+ 			if stopReason == "" {
+@@ -465,19 +526,13 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
  		doneChunk := chosenChoice.FinishReason != nil && *chosenChoice.FinishReason != ""
  		if doneChunk {
  			info.FinishReason = *chosenChoice.FinishReason
@@ -1777,7 +1937,30 @@ index 95acf83..7d1244c 100644
  		}
  
  		var claudeResponse dto.ClaudeResponse
-@@ -584,15 +612,16 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		var isEmpty bool
+ 		claudeResponse.Type = "content_block_delta"
+ 		if len(chosenChoice.Delta.ToolCalls) > 0 {
++			markClaudeOutput()
+ 			toolCalls := chosenChoice.Delta.ToolCalls
+ 			if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeTools {
+ 				stopOpenBlocksAndAdvance()
+@@ -531,6 +586,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			reasoning := chosenChoice.Delta.GetReasoningContent()
+ 			textContent := chosenChoice.Delta.GetContentString()
+ 			if reasoning != "" || textContent != "" {
++				markClaudeOutput()
+ 				if reasoning != "" {
+ 					if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
+ 						stopOpenBlocksAndAdvance()
+@@ -579,20 +635,24 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		}
+ 
+ 		if doneChunk || info.ClaudeConvertInfo.Done {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			stopOpenBlocks()
+ 			oaiUsage := openAIResponse.Usage
  			if oaiUsage == nil {
  				oaiUsage = info.ClaudeConvertInfo.Usage
  			}
@@ -1802,7 +1985,7 @@ index 95acf83..7d1244c 100644
  			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
  				Type: "message_stop",
  			})
-@@ -623,7 +652,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
+@@ -623,7 +683,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
  				claudeContent.Name = toolUse.Function.Name
  				var mapParams map[string]interface{}
  				if err := common.Unmarshal([]byte(toolUse.Function.Arguments), &mapParams); err == nil {
@@ -1811,7 +1994,7 @@ index 95acf83..7d1244c 100644
  				} else {
  					claudeContent.Input = toolUse.Function.Arguments
  				}
-@@ -647,6 +676,96 @@ func stopReasonOpenAI2Claude(reason string) string {
+@@ -647,6 +707,96 @@ func stopReasonOpenAI2Claude(reason string) string {
  	return reasonmap.OpenAIFinishReasonToClaudeStopReason(reason)
  }
  
