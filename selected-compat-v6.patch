@@ -1,3 +1,29 @@
+diff --git a/common/constants.go b/common/constants.go
+index c7d5637..91ee03b 100644
+--- a/common/constants.go
++++ b/common/constants.go
+@@ -168,7 +168,8 @@ var SyncFrequency int // unit is second
+ var BatchUpdateEnabled = false
+ var BatchUpdateInterval int
+ 
+-var RelayTimeout int // unit is second
++var RelayTimeout int          // unit is second
++var RelayFirstByteTimeout int // unit is second
+ 
+ var RelayMaxIdleConns int
+ var RelayMaxIdleConnsPerHost int
+diff --git a/common/init.go b/common/init.go
+index 35b4c6b..c11568f 100644
+--- a/common/init.go
++++ b/common/init.go
+@@ -102,6 +102,7 @@ func InitEnv() {
+ 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
+ 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
+ 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
++	RelayFirstByteTimeout = GetEnvOrDefault("RELAY_FIRST_BYTE_TIMEOUT", 15)
+ 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
+ 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
+ 
 diff --git a/controller/channel-test.go b/controller/channel-test.go
 index b225585..06da7a4 100644
 --- a/controller/channel-test.go
@@ -103,10 +129,22 @@ index b225585..06da7a4 100644
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 diff --git a/controller/relay.go b/controller/relay.go
-index 5e2db44..728ef37 100644
+index 5e2db44..3c7b0c8 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
-@@ -186,8 +186,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 	}()
+ 
+ 	retryParam := &service.RetryParam{
+-		Ctx:        c,
+-		TokenGroup: relayInfo.TokenGroup,
+-		ModelName:  relayInfo.OriginModelName,
+-		Retry:      common.GetPointer(0),
++		Ctx:                c,
++		TokenGroup:         relayInfo.TokenGroup,
++		ModelName:          relayInfo.OriginModelName,
++		Retry:              common.GetPointer(0),
++		ExcludedChannelIds: make(map[int]bool),
  	}
  	relayInfo.RetryIndex = 0
  	relayInfo.LastError = nil
@@ -117,7 +155,17 @@ index 5e2db44..728ef37 100644
  		relayInfo.RetryIndex = retryParam.GetRetry()
  		channel, channelErr := getChannel(c, relayInfo, retryParam)
  		if channelErr != nil {
-@@ -230,9 +231,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -220,6 +222,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 			newAPIError = relayHandler(c, relayInfo)
+ 		}
+ 
++		if newAPIError == nil {
++			newAPIError = compatStreamRetryError(relayInfo)
++		}
+ 		if newAPIError == nil {
+ 			relayInfo.LastError = nil
+ 			return
+@@ -230,9 +235,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  
  		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  
@@ -127,10 +175,11 @@ index 5e2db44..728ef37 100644
  			break
  		}
 +		disableChannelForCompatRetry(c, channel, newAPIError, remainingRetries)
++		markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
  	}
  
  	useChannel := c.GetStringSlice("use_channel")
-@@ -347,12 +350,106 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,12 +355,206 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -143,6 +192,42 @@ index 5e2db44..728ef37 100644
  	return operation_setting.ShouldRetryByStatusCode(code)
  }
  
++func compatStreamRetryError(info *relaycommon.RelayInfo) *types.NewAPIError {
++	if info == nil || !info.IsStream || info.StreamStatus == nil || info.StreamStatus.IsNormalEnd() {
++		return nil
++	}
++	switch info.StreamStatus.EndReason {
++	case relaycommon.StreamEndReasonFirstByteTimeout:
++		return types.NewOpenAIError(
++			fmt.Errorf("first byte timeout after %ds", common.RelayFirstByteTimeout),
++			types.ErrorCodeChannelResponseTimeExceeded,
++			http.StatusRequestTimeout,
++		)
++	case relaycommon.StreamEndReasonTimeout:
++		if info.ReceivedResponseCount == 0 {
++			return types.NewOpenAIError(
++				fmt.Errorf("stream timeout before first response"),
++				types.ErrorCodeChannelResponseTimeExceeded,
++				http.StatusRequestTimeout,
++			)
++		}
++	}
++	return nil
++}
++
++func markChannelExcludedForCompatRetry(retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError) {
++	if retryParam == nil || channel == nil || openaiErr == nil {
++		return
++	}
++	if !shouldCompatExcludeChannelForRetry(openaiErr) {
++		return
++	}
++	if retryParam.ExcludedChannelIds == nil {
++		retryParam.ExcludedChannelIds = make(map[int]bool)
++	}
++	retryParam.ExcludedChannelIds[channel.Id] = true
++}
++
 +func compatRelayRetryBudget(info *relaycommon.RelayInfo, relayFormat types.RelayFormat) int {
 +	if info == nil || relayFormat == types.RelayFormatOpenAIRealtime {
 +		return common.RetryTimes
@@ -152,11 +237,11 @@ index 5e2db44..728ef37 100644
 +		relayconstant.RelayModeCompletions,
 +		relayconstant.RelayModeResponses,
 +		relayconstant.RelayModeResponsesCompact:
-+		return maxInt(common.RetryTimes, 3)
++		return maxInt(common.RetryTimes, 10)
 +	}
 +	switch relayFormat {
 +	case types.RelayFormatClaude, types.RelayFormatGemini:
-+		return maxInt(common.RetryTimes, 3)
++		return maxInt(common.RetryTimes, 10)
 +	default:
 +		return common.RetryTimes
 +	}
@@ -167,11 +252,17 @@ index 5e2db44..728ef37 100644
 +		return false
 +	}
 +	switch openaiErr.StatusCode {
-+	case http.StatusTooManyRequests, http.StatusPaymentRequired:
++	case http.StatusTooManyRequests, http.StatusPaymentRequired,
++		http.StatusRequestTimeout, http.StatusInternalServerError,
++		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 +		return true
 +	case http.StatusUnauthorized, http.StatusForbidden:
-+		return isQuotaOrRateLimitError(openaiErr)
++		return true
 +	default:
++		if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed ||
++			openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
++			return true
++		}
 +		return false
 +	}
 +}
@@ -183,9 +274,7 @@ index 5e2db44..728ef37 100644
 +	if !shouldCompatRetryByError(openaiErr) {
 +		return
 +	}
-+	if openaiErr.StatusCode != http.StatusTooManyRequests &&
-+		openaiErr.StatusCode != http.StatusPaymentRequired &&
-+		!isQuotaOrRateLimitError(openaiErr) {
++	if !shouldCompatDisableChannel(openaiErr) {
 +		return
 +	}
 +	channelError := *types.NewChannelError(
@@ -197,6 +286,40 @@ index 5e2db44..728ef37 100644
 +		channel.GetAutoBan(),
 +	)
 +	service.DisableChannel(channelError, openaiErr.ErrorWithStatusCode())
++}
++
++func shouldCompatExcludeChannelForRetry(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	if shouldCompatDisableChannel(openaiErr) {
++		return true
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusRequestTimeout, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
++		return true
++	case http.StatusInternalServerError:
++		return openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed
++	default:
++		return openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed ||
++			openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded
++	}
++}
++
++func shouldCompatDisableChannel(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusPaymentRequired:
++		return true
++	case http.StatusRequestTimeout:
++		return true
++	default:
++		return openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded ||
++			isQuotaOrRateLimitError(openaiErr) ||
++			isTransportFailureError(openaiErr)
++	}
 +}
 +
 +func isQuotaOrRateLimitError(openaiErr *types.NewAPIError) bool {
@@ -227,6 +350,32 @@ index 5e2db44..728ef37 100644
 +	return false
 +}
 +
++func isTransportFailureError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed {
++		return true
++	}
++	msg := strings.ToLower(openaiErr.Error())
++	keywords := []string{
++		"do request failed",
++		"unexpected eof",
++		"connection reset",
++		"handshake failure",
++		"failed to verify certificate",
++		"no such host",
++		"proxyconnect",
++		"context deadline exceeded",
++	}
++	for _, keyword := range keywords {
++		if strings.Contains(msg, keyword) {
++			return true
++		}
++	}
++	return false
++}
++
 +func maxInt(a, b int) int {
 +	if a > b {
 +		return a
@@ -237,6 +386,147 @@ index 5e2db44..728ef37 100644
  func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
  	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
  	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
+diff --git a/model/ability.go b/model/ability.go
+index 1d7c53f..f3d86db 100644
+--- a/model/ability.go
++++ b/model/ability.go
+@@ -104,21 +104,51 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
+ }
+ 
+ func GetChannel(group string, model string, retry int) (*Channel, error) {
++	return GetChannelExcluding(group, model, retry, nil)
++}
++
++func GetChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+ 	var abilities []Ability
+ 
+ 	var err error = nil
+-	channelQuery, err := getChannelQuery(group, model, retry)
+-	if err != nil {
+-		return nil, err
+-	}
+-	if common.UsingSQLite || common.UsingPostgreSQL {
+-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
++	if len(excluded) > 0 {
++		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
++			Order("priority DESC, weight DESC").
++			Find(&abilities).Error
+ 	} else {
+-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		channelQuery, queryErr := getChannelQuery(group, model, retry)
++		if queryErr != nil {
++			return nil, queryErr
++		}
++		if common.UsingSQLite || common.UsingPostgreSQL {
++			err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		} else {
++			err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		}
+ 	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if len(excluded) > 0 {
++		filtered := abilities[:0]
++		for _, ability := range abilities {
++			if excluded[ability.ChannelId] {
++				continue
++			}
++			filtered = append(filtered, ability)
++		}
++		abilities = filtered
++	}
++	if len(excluded) > 0 && len(abilities) > 0 {
++		targetPriority := abilityPriority(abilities[0])
++		filtered := abilities[:0]
++		for _, ability := range abilities {
++			if abilityPriority(ability) == targetPriority {
++				filtered = append(filtered, ability)
++			}
++		}
++		abilities = filtered
++	}
+ 	channel := Channel{}
+ 	if len(abilities) > 0 {
+ 		// Randomly choose one
+@@ -143,6 +173,13 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
+ 	return &channel, err
+ }
+ 
++func abilityPriority(ability Ability) int64 {
++	if ability.Priority == nil {
++		return 0
++	}
++	return *ability.Priority
++}
++
+ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
+ 	models_ := strings.Split(channel.Models, ",")
+ 	groups_ := strings.Split(channel.Group, ",")
+diff --git a/model/channel_cache.go b/model/channel_cache.go
+index 03740d2..8909b7d 100644
+--- a/model/channel_cache.go
++++ b/model/channel_cache.go
+@@ -95,9 +95,13 @@ func SyncChannelCache(frequency int) {
+ }
+ 
+ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
++	return GetRandomSatisfiedChannelExcluding(group, model, retry, nil)
++}
++
++func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+ 	// if memory cache is disabled, get channel directly from database
+ 	if !common.MemoryCacheEnabled {
+-		return GetChannel(group, model, retry)
++		return GetChannelExcluding(group, model, retry, excluded)
+ 	}
+ 
+ 	channelSyncLock.RLock()
+@@ -105,17 +109,23 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
+ 
+ 	// First, try to find channels with the exact model name.
+ 	channels := group2model2channels[group][model]
++	channels = filterExcludedChannelIDs(channels, excluded)
+ 
+ 	// If no channels found, try to find channels with the normalized model name.
+ 	if len(channels) == 0 {
+ 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
+ 		channels = group2model2channels[group][normalizedModel]
++		channels = filterExcludedChannelIDs(channels, excluded)
+ 	}
+ 
+ 	if len(channels) == 0 {
+ 		return nil, nil
+ 	}
+ 
++	if len(excluded) > 0 {
++		retry = 0
++	}
++
+ 	if len(channels) == 1 {
+ 		if channel, ok := channelsIDM[channels[0]]; ok {
+ 			return channel, nil
+@@ -191,6 +201,20 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
+ 	return nil, errors.New("channel not found")
+ }
+ 
++func filterExcludedChannelIDs(channels []int, excluded map[int]bool) []int {
++	if len(channels) == 0 || len(excluded) == 0 {
++		return channels
++	}
++	filtered := make([]int, 0, len(channels))
++	for _, channelID := range channels {
++		if excluded[channelID] {
++			continue
++		}
++		filtered = append(filtered, channelID)
++	}
++	return filtered
++}
++
+ func CacheGetChannel(id int) (*Channel, error) {
+ 	if !common.MemoryCacheEnabled {
+ 		return GetChannelById(id, true)
 diff --git a/relay/channel/codex/adaptor.go b/relay/channel/codex/adaptor.go
 index ef4d4fa..62adb1f 100644
 --- a/relay/channel/codex/adaptor.go
@@ -733,6 +1023,110 @@ index ec028c7..b183c81 100644
  		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+diff --git a/relay/common/stream_status.go b/relay/common/stream_status.go
+index 57b0bb9..ac5ba90 100644
+--- a/relay/common/stream_status.go
++++ b/relay/common/stream_status.go
+@@ -10,15 +10,16 @@ import (
+ type StreamEndReason string
+ 
+ const (
+-	StreamEndReasonNone        StreamEndReason = ""
+-	StreamEndReasonDone        StreamEndReason = "done"
+-	StreamEndReasonTimeout     StreamEndReason = "timeout"
+-	StreamEndReasonClientGone  StreamEndReason = "client_gone"
+-	StreamEndReasonScannerErr  StreamEndReason = "scanner_error"
+-	StreamEndReasonHandlerStop StreamEndReason = "handler_stop"
+-	StreamEndReasonEOF         StreamEndReason = "eof"
+-	StreamEndReasonPanic       StreamEndReason = "panic"
+-	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
++	StreamEndReasonNone             StreamEndReason = ""
++	StreamEndReasonDone             StreamEndReason = "done"
++	StreamEndReasonTimeout          StreamEndReason = "timeout"
++	StreamEndReasonFirstByteTimeout StreamEndReason = "first_byte_timeout"
++	StreamEndReasonClientGone       StreamEndReason = "client_gone"
++	StreamEndReasonScannerErr       StreamEndReason = "scanner_error"
++	StreamEndReasonHandlerStop      StreamEndReason = "handler_stop"
++	StreamEndReasonEOF              StreamEndReason = "eof"
++	StreamEndReasonPanic            StreamEndReason = "panic"
++	StreamEndReasonPingFail         StreamEndReason = "ping_fail"
+ )
+ 
+ const maxStreamErrorEntries = 20
+@@ -29,9 +30,9 @@ type StreamErrorEntry struct {
+ }
+ 
+ type StreamStatus struct {
+-	EndReason  StreamEndReason
+-	EndError   error
+-	endOnce    sync.Once
++	EndReason StreamEndReason
++	EndError  error
++	endOnce   sync.Once
+ 
+ 	mu         sync.Mutex
+ 	Errors     []StreamErrorEntry
+@@ -42,6 +43,20 @@ func NewStreamStatus() *StreamStatus {
+ 	return &StreamStatus{}
+ }
+ 
++func NewStreamStatusFromExisting(existing *StreamStatus) *StreamStatus {
++	next := NewStreamStatus()
++	if existing == nil {
++		return next
++	}
++	existing.mu.Lock()
++	defer existing.mu.Unlock()
++	next.ErrorCount = existing.ErrorCount
++	if len(existing.Errors) > 0 {
++		next.Errors = append(next.Errors, existing.Errors...)
++	}
++	return next
++}
++
+ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
+ 	if s == nil {
+ 		return
+diff --git a/relay/common/stream_status_test.go b/relay/common/stream_status_test.go
+index 4a31cb7..fd917ca 100644
+--- a/relay/common/stream_status_test.go
++++ b/relay/common/stream_status_test.go
+@@ -50,6 +50,7 @@ func TestStreamStatus_SetEndReason_Concurrent(t *testing.T) {
+ 		StreamEndReasonEOF,
+ 		StreamEndReasonPanic,
+ 		StreamEndReasonPingFail,
++		StreamEndReasonFirstByteTimeout,
+ 	}
+ 
+ 	var wg sync.WaitGroup
+@@ -114,6 +115,19 @@ func TestStreamStatus_RecordError_Concurrent(t *testing.T) {
+ 	assert.LessOrEqual(t, len(s.Errors), maxStreamErrorEntries)
+ }
+ 
++func TestNewStreamStatusFromExisting_PreservesErrors(t *testing.T) {
++	t.Parallel()
++	existing := NewStreamStatus()
++	existing.RecordError("pre-existing error")
++	existing.SetEndReason(StreamEndReasonDone, nil)
++
++	next := NewStreamStatusFromExisting(existing)
++
++	assert.Equal(t, StreamEndReasonNone, next.EndReason)
++	assert.Equal(t, 1, next.TotalErrorCount())
++	assert.True(t, next.HasErrors())
++}
++
+ func TestStreamStatus_HasErrors_Empty(t *testing.T) {
+ 	t.Parallel()
+ 	s := NewStreamStatus()
+@@ -138,6 +152,7 @@ func TestStreamStatus_IsNormalEnd(t *testing.T) {
+ 		{StreamEndReasonEOF, true},
+ 		{StreamEndReasonHandlerStop, true},
+ 		{StreamEndReasonTimeout, false},
++		{StreamEndReasonFirstByteTimeout, false},
+ 		{StreamEndReasonClientGone, false},
+ 		{StreamEndReasonScannerErr, false},
+ 		{StreamEndReasonPanic, false},
 diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
 index fdd54f3..04e9df6 100644
 --- a/relay/compatible_handler.go
@@ -746,6 +1140,172 @@ index fdd54f3..04e9df6 100644
  		applySystemPromptIfNeeded(c, info, request)
  		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
  		if newApiErr != nil {
+diff --git a/relay/helper/stream_scanner.go b/relay/helper/stream_scanner.go
+index 1d44b80..bb5a879 100644
+--- a/relay/helper/stream_scanner.go
++++ b/relay/helper/stream_scanner.go
+@@ -40,8 +40,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		return
+ 	}
+ 
+-	// 无条件新建 StreamStatus
+-	info.StreamStatus = relaycommon.NewStreamStatus()
++	info.StreamStatus = relaycommon.NewStreamStatusFromExisting(info.StreamStatus)
+ 
+ 	// 确保响应体总是被关闭
+ 	defer func() {
+@@ -51,14 +50,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	}()
+ 
+ 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
++	firstByteTimeout := time.Duration(common.RelayFirstByteTimeout) * time.Second
++	if firstByteTimeout <= 0 {
++		firstByteTimeout = 15 * time.Second
++	}
+ 
+ 	var (
+-		stopChan   = make(chan bool, 3) // 增加缓冲区避免阻塞
+-		scanner    = bufio.NewScanner(resp.Body)
+-		ticker     = time.NewTicker(streamingTimeout)
+-		pingTicker *time.Ticker
+-		writeMutex sync.Mutex     // Mutex to protect concurrent writes
+-		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
++		stopChan       = make(chan bool, 3) // 增加缓冲区避免阻塞
++		scanner        = bufio.NewScanner(resp.Body)
++		ticker         = time.NewTicker(streamingTimeout)
++		firstByteTimer = time.NewTimer(firstByteTimeout)
++		pingTicker     *time.Ticker
++		writeMutex     sync.Mutex     // Mutex to protect concurrent writes
++		wg             sync.WaitGroup // 用于等待所有 goroutine 退出
+ 	)
+ 
+ 	generalSettings := operation_setting.GetGeneralSetting()
+@@ -84,6 +88,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		common.SafeSendBool(stopChan, true)
+ 
+ 		ticker.Stop()
++		if firstByteTimer != nil {
++			firstByteTimer.Stop()
++		}
+ 		if pingTicker != nil {
+ 			pingTicker.Stop()
+ 		}
+@@ -175,6 +182,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		})
+ 	}
+ 
++	firstResponseObserved := false
++
+ 	dataChan := make(chan string, 10)
+ 
+ 	wg.Add(1)
+@@ -242,6 +251,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 				continue
+ 			}
+ 			if !strings.HasPrefix(data, "[DONE]") {
++				if !firstResponseObserved {
++					firstResponseObserved = true
++					if firstByteTimer != nil {
++						if !firstByteTimer.Stop() {
++							select {
++							case <-firstByteTimer.C:
++							default:
++							}
++						}
++					}
++				}
+ 				info.SetFirstResponseTime()
+ 				info.ReceivedResponseCount++
+ 
+@@ -272,6 +292,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	select {
+ 	case <-ticker.C:
+ 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
++	case <-firstByteTimer.C:
++		if info.ReceivedResponseCount == 0 {
++			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonFirstByteTimeout, nil)
++		} else {
++			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
++		}
+ 	case <-stopChan:
+ 		// EndReason already set by the goroutine that triggered stopChan
+ 	case <-c.Request.Context().Done():
+diff --git a/relay/helper/stream_scanner_test.go b/relay/helper/stream_scanner_test.go
+index 9d6f3bb..44a02c9 100644
+--- a/relay/helper/stream_scanner_test.go
++++ b/relay/helper/stream_scanner_test.go
+@@ -11,6 +11,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/constant"
+ 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+ 	"github.com/QuantumNous/new-api/setting/operation_setting"
+@@ -511,8 +512,13 @@ func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
+ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
+ 	// Not parallel: modifies global constant.StreamingTimeout
+ 	oldTimeout := constant.StreamingTimeout
++	oldFirstByteTimeout := common.RelayFirstByteTimeout
+ 	constant.StreamingTimeout = 2
+-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
++	common.RelayFirstByteTimeout = 15
++	t.Cleanup(func() {
++		constant.StreamingTimeout = oldTimeout
++		common.RelayFirstByteTimeout = oldFirstByteTimeout
++	})
+ 
+ 	pr, pw := io.Pipe()
+ 	go func() {
+@@ -545,6 +551,48 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
+ 	assert.False(t, info.StreamStatus.IsNormalEnd())
+ }
+ 
++func TestStreamScannerHandler_StreamStatus_FirstByteTimeout(t *testing.T) {
++	oldTimeout := constant.StreamingTimeout
++	oldFirstByteTimeout := common.RelayFirstByteTimeout
++	constant.StreamingTimeout = 30
++	common.RelayFirstByteTimeout = 1
++	t.Cleanup(func() {
++		constant.StreamingTimeout = oldTimeout
++		common.RelayFirstByteTimeout = oldFirstByteTimeout
++	})
++
++	pr, pw := io.Pipe()
++	go func() {
++		time.Sleep(3 * time.Second)
++		fmt.Fprint(pw, "data: {\"id\":1}\n")
++		pw.Close()
++	}()
++
++	recorder := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(recorder)
++	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
++
++	resp := &http.Response{Body: pr}
++	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
++
++	done := make(chan struct{})
++	go func() {
++		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
++		close(done)
++	}()
++
++	select {
++	case <-done:
++	case <-time.After(8 * time.Second):
++		t.Fatal("timed out waiting for first byte timeout")
++	}
++
++	require.NotNil(t, info.StreamStatus)
++	assert.Equal(t, relaycommon.StreamEndReasonFirstByteTimeout, info.StreamStatus.EndReason)
++	assert.Equal(t, 0, info.ReceivedResponseCount)
++	assert.False(t, info.StreamStatus.IsNormalEnd())
++}
++
+ func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
+ 	t.Parallel()
+ 
 diff --git a/relay/helper/valid_request.go b/relay/helper/valid_request.go
 index 2581b28..b2272f0 100644
 --- a/relay/helper/valid_request.go
@@ -884,10 +1444,20 @@ index 54ca3cb..63872f8 100644
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/service/channel.go b/service/channel.go
-index 3fde6e2..d5d009e 100644
+index 3fde6e2..46b5531 100644
 --- a/service/channel.go
 +++ b/service/channel.go
-@@ -71,7 +71,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+@@ -58,6 +58,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
+ 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
+ 		return true
+ 	}
++	if err.StatusCode == 402 || err.StatusCode == 403 || err.StatusCode == 429 {
++		return true
++	}
+ 
+ 	lowerMessage := strings.ToLower(err.Error())
+ 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
+@@ -71,7 +74,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
  	if newAPIError != nil {
  		return false
  	}
@@ -896,6 +1466,46 @@ index 3fde6e2..d5d009e 100644
  		return false
  	}
  	return true
+diff --git a/service/channel_select.go b/service/channel_select.go
+index a3710ef..1aa23c6 100644
+--- a/service/channel_select.go
++++ b/service/channel_select.go
+@@ -12,11 +12,12 @@ import (
+ )
+ 
+ type RetryParam struct {
+-	Ctx          *gin.Context
+-	TokenGroup   string
+-	ModelName    string
+-	Retry        *int
+-	resetNextTry bool
++	Ctx                *gin.Context
++	TokenGroup         string
++	ModelName          string
++	Retry              *int
++	resetNextTry       bool
++	ExcludedChannelIds map[int]bool
+ }
+ 
+ func (p *RetryParam) GetRetry() int {
+@@ -115,7 +116,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+ 			}
+ 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
+ 
+-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
++			channel, _ = model.GetRandomSatisfiedChannelExcluding(autoGroup, param.ModelName, priorityRetry, param.ExcludedChannelIds)
+ 			if channel == nil {
+ 				// Current group has no available channel for this model, try next group
+ 				// 当前分组没有该模型的可用渠道，尝试下一个分组
+@@ -153,7 +154,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+ 			break
+ 		}
+ 	} else {
+-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
++		channel, err = model.GetRandomSatisfiedChannelExcluding(param.TokenGroup, param.ModelName, param.GetRetry(), param.ExcludedChannelIds)
+ 		if err != nil {
+ 			return nil, param.TokenGroup, err
+ 		}
 diff --git a/service/convert.go b/service/convert.go
 index 95acf83..7d1244c 100644
 --- a/service/convert.go

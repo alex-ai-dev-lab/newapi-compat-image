@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 concurrency:
   group: newapi-compat-release
@@ -51,6 +52,16 @@ jobs:
               "$url"
           }
 
+          api_delete() {
+            local url="$1"
+            curl -fsSL \
+              -X DELETE \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$url"
+          }
+
           upload_asset() {
             local upload_url="$1"
             local file="$2"
@@ -86,14 +97,22 @@ jobs:
           fi
 
           release_tag="patched-${upstream_tag}"
-          release_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          release_lookup_file="$(mktemp)"
+          release_code="$(curl -sS -o "${release_lookup_file}" -w '%{http_code}' \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${GH_API}/repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}")"
           if [ "${release_code}" = "200" ]; then
-            echo "Release ${release_tag} already exists, nothing to do."
-            exit 0
+            if [ -n "${REQUESTED_UPSTREAM_TAG:-}" ]; then
+              echo "Release ${release_tag} already exists; manual run will replace it."
+              release_id="$(jq -r '.id' "${release_lookup_file}")"
+              api_delete "${GH_API}/repos/${GITHUB_REPOSITORY}/releases/${release_id}" || true
+              api_delete "${GH_API}/repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" || true
+            else
+              echo "Release ${release_tag} already exists, nothing to do."
+              exit 0
+            fi
           fi
 
           echo "Downloading upstream source ${upstream_tag}"
@@ -121,6 +140,8 @@ jobs:
           echo "Building Docker image"
           image_tag="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat:${upstream_tag}"
           docker build -t "${image_tag}" .
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${image_tag}"
 
           echo "Packaging artifacts"
           cd "${GITHUB_WORKSPACE}"
