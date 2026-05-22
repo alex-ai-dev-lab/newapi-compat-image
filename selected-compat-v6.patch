@@ -128,8 +128,166 @@ index b225585..06da7a4 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+diff --git a/controller/compat_channel_failover.go b/controller/compat_channel_failover.go
+new file mode 100644
+index 0000000..66530b2
+--- /dev/null
++++ b/controller/compat_channel_failover.go
+@@ -0,0 +1,70 @@
++package controller
++
++import (
++	"fmt"
++	"net/http"
++	"sync"
++	"time"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/types"
++)
++
++const (
++	compatUpstream5xxFailureThreshold = 2
++	compatUpstream5xxFailureTTL       = 10 * time.Minute
++)
++
++type compatChannelFailureState struct {
++	count       int
++	lastFailure time.Time
++}
++
++var compatChannelFailureTracker = struct {
++	sync.Mutex
++	items map[string]compatChannelFailureState
++}{
++	items: make(map[string]compatChannelFailureState),
++}
++
++func compatChannelFailureKey(channelID int, info *relaycommon.RelayInfo) string {
++	if info == nil {
++		return fmt.Sprintf("%d", channelID)
++	}
++	return fmt.Sprintf("%d|%s|%d|%t", channelID, info.OriginModelName, info.RelayMode, info.IsStream)
++}
++
++func clearCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) {
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++	delete(compatChannelFailureTracker.items, compatChannelFailureKey(channelID, info))
++}
++
++func recordCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) int {
++	now := time.Now()
++	key := compatChannelFailureKey(channelID, info)
++
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++
++	state := compatChannelFailureTracker.items[key]
++	if !state.lastFailure.IsZero() && now.Sub(state.lastFailure) > compatUpstream5xxFailureTTL {
++		state.count = 0
++	}
++	state.count++
++	state.lastFailure = now
++	compatChannelFailureTracker.items[key] = state
++	return state.count
++}
++
++func shouldTrackCompatUpstream5xxFailure(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
++		return true
++	default:
++		return false
++	}
++}
+diff --git a/controller/compat_channel_failover_test.go b/controller/compat_channel_failover_test.go
+new file mode 100644
+index 0000000..721a1bc
+--- /dev/null
++++ b/controller/compat_channel_failover_test.go
+@@ -0,0 +1,76 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++	"time"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	relayconstant "github.com/QuantumNous/new-api/relay/constant"
++	"github.com/QuantumNous/new-api/types"
++)
++
++func resetCompatChannelFailureTrackerForTest() {
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++	compatChannelFailureTracker.items = make(map[string]compatChannelFailureState)
++}
++
++func TestCompatUpstream5xxFailureThreshold(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++	err := types.NewOpenAIError(errors.New("bad gateway"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
++
++	if !shouldTrackCompatUpstream5xxFailure(err) {
++		t.Fatal("502 should be tracked as transient upstream failure")
++	}
++	if got := recordCompatChannelFailure(52, info); got != 1 {
++		t.Fatalf("first failure count = %d, want 1", got)
++	}
++	if got := recordCompatChannelFailure(52, info); got != compatUpstream5xxFailureThreshold {
++		t.Fatalf("second failure count = %d, want %d", got, compatUpstream5xxFailureThreshold)
++	}
++}
++
++func TestCompatChannelFailureSuccessClearsCount(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++
++	recordCompatChannelFailure(56, info)
++	clearCompatChannelFailure(56, info)
++
++	if got := recordCompatChannelFailure(56, info); got != 1 {
++		t.Fatalf("failure count after success clear = %d, want 1", got)
++	}
++}
++
++func TestCompatChannelFailureTTLResetsCount(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++	key := compatChannelFailureKey(52, info)
++
++	recordCompatChannelFailure(52, info)
++	compatChannelFailureTracker.Lock()
++	compatChannelFailureTracker.items[key] = compatChannelFailureState{
++		count:       1,
++		lastFailure: time.Now().Add(-compatUpstream5xxFailureTTL - time.Second),
++	}
++	compatChannelFailureTracker.Unlock()
++
++	if got := recordCompatChannelFailure(52, info); got != 1 {
++		t.Fatalf("failure count after TTL expiry = %d, want 1", got)
++	}
++}
 diff --git a/controller/relay.go b/controller/relay.go
-index 5e2db44..3c7b0c8 100644
+index 5e2db44..f4fbd5e 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -155,7 +313,7 @@ index 5e2db44..3c7b0c8 100644
  		relayInfo.RetryIndex = retryParam.GetRetry()
  		channel, channelErr := getChannel(c, relayInfo, retryParam)
  		if channelErr != nil {
-@@ -220,6 +222,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -220,8 +222,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  			newAPIError = relayHandler(c, relayInfo)
  		}
  
@@ -164,8 +322,11 @@ index 5e2db44..3c7b0c8 100644
 +		}
  		if newAPIError == nil {
  			relayInfo.LastError = nil
++			clearCompatChannelFailure(channel.Id, relayInfo)
  			return
-@@ -230,9 +235,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 		}
+ 
+@@ -230,9 +236,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  
  		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  
@@ -174,12 +335,12 @@ index 5e2db44..3c7b0c8 100644
 +		if !shouldRetry(c, newAPIError, remainingRetries) {
  			break
  		}
-+		disableChannelForCompatRetry(c, channel, newAPIError, remainingRetries)
++		disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
 +		markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
  	}
  
  	useChannel := c.GetStringSlice("use_channel")
-@@ -347,12 +355,206 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,12 +356,211 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -267,14 +428,19 @@ index 5e2db44..3c7b0c8 100644
 +	}
 +}
 +
-+func disableChannelForCompatRetry(c *gin.Context, channel *model.Channel, openaiErr *types.NewAPIError, remainingRetries int) {
++func disableChannelForCompatRetry(c *gin.Context, channel *model.Channel, relayInfo *relaycommon.RelayInfo, openaiErr *types.NewAPIError, remainingRetries int) {
 +	if remainingRetries <= 0 || channel == nil || openaiErr == nil {
 +		return
 +	}
 +	if !shouldCompatRetryByError(openaiErr) {
 +		return
 +	}
-+	if !shouldCompatDisableChannel(openaiErr) {
++	shouldDisable := shouldCompatDisableChannel(openaiErr)
++	if !shouldDisable && shouldTrackCompatUpstream5xxFailure(openaiErr) {
++		failures := recordCompatChannelFailure(channel.Id, relayInfo)
++		shouldDisable = failures >= compatUpstream5xxFailureThreshold
++	}
++	if !shouldDisable {
 +		return
 +	}
 +	channelError := *types.NewChannelError(
