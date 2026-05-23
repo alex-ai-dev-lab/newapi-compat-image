@@ -1,95 +1,116 @@
-﻿# NewAPI 兼容补丁镜像
+# NewAPI 兼容补丁镜像
 
-这是基于原版 NewAPI 自动打补丁后构建出来的 Docker 镜像。
-主要用途是让 NewAPI 更好兼容 Claude Code、Codex、OpenAI Responses、Claude Messages 等调用方式。
-上游 NewAPI 发布新版后，GitHub Actions 会自动尝试重新打补丁、构建镜像，并把镜像包放到 Releases。
-如果补丁和新版代码冲突，Actions 会失败，需要更新补丁后再重新构建。
+这里会自动基于原版 NewAPI 构建两个镜像：一个只打功能兼容补丁，一个在功能补丁基础上再加首页美化。
+功能补丁主要解决 Claude Code、Codex、OpenAI Responses、Claude Messages、渠道测试、流式转换和 429 自动换渠道这些兼容问题。
+首页美化版额外替换公开首页，并微调顶栏 logo 和底栏样式，不改后台逻辑和数据库。
+上游 NewAPI 更新后，Actions 会自动尝试重新打补丁并发布镜像包；如果补丁冲突，Actions 会失败，需要手动更新补丁。
 
 ## 使用方式
 
-### 方式一：使用 Releases 里的离线镜像包
+### 1. 只要功能补丁
 
-在 Releases 里下载类似下面这个文件：
+镜像：
 
 ```text
-newapi-patched-v1.0.0-rc.4.tar.gz
+ghcr.io/alex-ai-dev-lab/newapi-compat:版本号
 ```
 
-导入 Docker：
-
-```bash
-docker load -i newapi-patched-v1.0.0-rc.7.tar.gz
-```
-
-查看导入后的镜像名：
-
-```bash
-docker images | grep newapi-compat
-```
-
-然后把你的 `docker-compose.yml` 里的 NewAPI 镜像改成导入后的镜像，例如：
+例如：
 
 ```yaml
 services:
-  newapi:
-    image: ghcr.io/alex-ai-dev-lab/newapi-compat:v1.0.0-rc.7
+  new-api:
+    image: ghcr.io/alex-ai-dev-lab/newapi-compat:v1.0.0-rc.8
     volumes:
       - ./data:/data
     ports:
       - "3000:3000"
 ```
 
-最后重启：
+也可以在 Releases 下载离线包：
+
+```text
+newapi-patched-v1.0.0-rc.8.tar.gz
+```
+
+导入：
 
 ```bash
+docker load -i newapi-patched-v1.0.0-rc.8.tar.gz
 docker compose up -d
 ```
 
-### 方式二：自己在本地源码上打补丁构建
+### 2. 功能补丁 + 首页美化
 
-先准备一份原版 NewAPI 源码，然后执行：
+镜像：
+
+```text
+ghcr.io/alex-ai-dev-lab/newapi-compat-home:版本号
+```
+
+例如：
+
+```yaml
+services:
+  new-api:
+    image: ghcr.io/alex-ai-dev-lab/newapi-compat-home:v1.0.0-rc.8
+    volumes:
+      - ./data:/data
+    ports:
+      - "3000:3000"
+```
+
+也可以在 Releases 下载离线包：
+
+```text
+newapi-patched-home-v1.0.0-rc.8.tar.gz
+```
+
+导入：
 
 ```bash
-chmod +x deploy-newapi-compat.sh
+docker load -i newapi-patched-home-v1.0.0-rc.8.tar.gz
+docker compose up -d
+```
 
+### 3. 两个 Actions 分别做什么
+
+- `Build patched NewAPI release`：只应用 `selected-compat-v6.patch`，发布 `newapi-compat` 镜像。
+- `Build patched NewAPI + home release`：应用 `selected-compat-v7.patch`，发布 `newapi-compat-home` 镜像。
+
+`selected-compat-v7.patch` 等于“功能补丁 + 首页美化补丁”。`iz-home.patch` 是单独的首页美化补丁，保留它是为了以后需要拆分或重做 UI 时更方便。
+
+### 4. 自己本地打补丁构建
+
+只打功能补丁：
+
+```bash
 ./deploy-newapi-compat.sh \
   /path/to/upstream/new-api-source \
   ./selected-compat-v6.patch \
   newapi-compat:custom \
-  v1.0.0-rc.7
+  v1.0.0-rc.8
 ```
 
-构建完成后运行：
+功能补丁 + 首页美化：
 
 ```bash
-docker run -d \
-  --name newapi \
-  -p 3000:3000 \
-  -v ./data:/data \
-  newapi-compat:custom
+./deploy-newapi-compat.sh \
+  /path/to/upstream/new-api-source \
+  ./selected-compat-v7.patch \
+  newapi-compat-home:custom \
+  v1.0.0-rc.8
 ```
 
-### 更新到新版补丁镜像
+### 5. 更新和回滚
 
-下载新的 Release 镜像包后：
-
-```bash
-docker load -i newapi-patched-新版本.tar.gz
-```
-
-然后把 `docker-compose.yml` 里的镜像 tag 改成新版本，再执行：
+更新时把 `docker-compose.yml` 里的镜像 tag 改成新版本，然后：
 
 ```bash
 docker compose up -d
 ```
 
-### 回滚
-
-如果新版有问题，直接把 `docker-compose.yml` 里的镜像 tag 改回旧版本，然后：
-
-```bash
-docker compose up -d
-```
+回滚时把镜像 tag 改回旧版本，再执行同一条命令即可。两个镜像都不改数据库结构，通常可以直接互相切换。
 
 ## 这个镜像主要改了什么
 
@@ -99,6 +120,7 @@ docker compose up -d
 - 修正 Claude / OpenAI 流式和非流式之间的转换
 - 清理 Claude attribution / `cch` / `cc_version` / `cc_entrypoint`
 - 避免一些工具参数被错误传递，导致调用中断
+- 避免上游返回空 assistant 回合导致 Claude Code 自己停下
 
 ### 2. Codex 相关兼容
 
@@ -130,3 +152,10 @@ docker compose up -d
 - Codex / Claude Code / Responses 这类长任务遇到上游 429、余额不足、额度不足时，会尽量在服务端换下一个可用渠道重试
 - 尽量避免把 429 直接返回给本地 Codex，导致本地任务中断
 - 如果渠道开启了自动禁用，补丁会把明显失败的渠道标记掉，让同一次请求更容易切到其他渠道
+
+### 7. 首页美化版额外改了什么
+
+- 替换公开首页，增加更现代的 Hero、能力卡片、端点展示、Quickstart 和 CTA
+- 顶栏 logo 增加徽章感边框和内嵌阴影，站点名换成轻微渐变文字
+- 底栏增加渐变细线、状态点和更紧凑的排版
+- 所有首页样式都用 `.iz-*` 作用域包住，不影响后台页面

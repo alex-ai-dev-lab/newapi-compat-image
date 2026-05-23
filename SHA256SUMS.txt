@@ -1,1 +1,3 @@
 c445a6350d16c8b24b579e424e3777fb9006fe0d7b5a685fdaf5859d0c990c8a  selected-compat-v6.patch
+2137609a0e4362f36264f8f2c8123c0923b8dfe8b8bc77566dbbe461ae647da9  selected-compat-v7.patch
+ab4e8cf6cdc3156b9c587c4f8a5be0c04c420e56dc07b3b664f17eebaaac74bd  iz-home.patch

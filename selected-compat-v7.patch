@@ -1,0 +1,3285 @@
+diff --git a/common/constants.go b/common/constants.go
+index c7d5637..91ee03b 100644
+--- a/common/constants.go
++++ b/common/constants.go
+@@ -168,7 +168,8 @@ var SyncFrequency int // unit is second
+ var BatchUpdateEnabled = false
+ var BatchUpdateInterval int
+ 
+-var RelayTimeout int // unit is second
++var RelayTimeout int          // unit is second
++var RelayFirstByteTimeout int // unit is second
+ 
+ var RelayMaxIdleConns int
+ var RelayMaxIdleConnsPerHost int
+diff --git a/common/init.go b/common/init.go
+index 35b4c6b..c11568f 100644
+--- a/common/init.go
++++ b/common/init.go
+@@ -102,6 +102,7 @@ func InitEnv() {
+ 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
+ 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
+ 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
++	RelayFirstByteTimeout = GetEnvOrDefault("RELAY_FIRST_BYTE_TIMEOUT", 15)
+ 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
+ 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
+ 
+diff --git a/controller/channel-test.go b/controller/channel-test.go
+index b225585..06da7a4 100644
+--- a/controller/channel-test.go
++++ b/controller/channel-test.go
+@@ -51,8 +51,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
+ 	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+ 		return string(constant.EndpointTypeOpenAIResponseCompact)
+ 	}
+-	if channel != nil && channel.Type == constant.ChannelTypeCodex {
+-		return string(constant.EndpointTypeOpenAIResponse)
++	if channel != nil {
++		if channel.Type == constant.ChannelTypeCodex {
++			return string(constant.EndpointTypeOpenAIResponse)
++		}
++		if channel.Type == constant.ChannelTypeAnthropic {
++			return string(constant.EndpointTypeAnthropic)
++		}
+ 	}
+ 	return normalized
+ }
+@@ -94,6 +99,10 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 
+ 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+ 
++	if shouldUseStreamForAutomaticChannelTest(channel) {
++		isStream = true
++	}
++
+ 	requestPath := "/v1/chat/completions"
+ 
+ 	// 如果指定了端点类型，使用指定的端点类型
+@@ -424,8 +433,12 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 		}
+ 	}
+ 	var httpResp *http.Response
++	responseContentTypeSSE := false
+ 	if resp != nil {
+ 		httpResp = resp.(*http.Response)
++		if strings.HasPrefix(strings.ToLower(httpResp.Header.Get("Content-Type")), "text/event-stream") {
++			responseContentTypeSSE = true
++		}
+ 		if httpResp.StatusCode != http.StatusOK {
+ 			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
+ 			common.SysError(fmt.Sprintf(
+@@ -453,16 +466,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 			newAPIError: respErr,
+ 		}
+ 	}
+-	usage, usageErr := coerceTestUsage(usageA, isStream, info.GetEstimatePromptTokens())
+-	if usageErr != nil {
+-		return testResult{
+-			context:     c,
+-			localErr:    usageErr,
+-			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
+-		}
+-	}
+ 	result := w.Result()
+-	respBody, err := readTestResponseBody(result.Body, isStream)
++	respBody, err := readTestResponseBody(result.Body, isStream || responseContentTypeSSE)
+ 	if err != nil {
+ 		return testResult{
+ 			context:     c,
+@@ -470,7 +475,20 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+ 			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
+ 		}
+ 	}
+-	if bodyErr := validateTestResponseBody(respBody, isStream); bodyErr != nil {
++	actualStream := isStream
++	if !actualStream && responseContentTypeSSE && validateStreamTestResponseBody(respBody) == nil {
++		actualStream = true
++		info.IsStream = true
++	}
++	usage, usageErr := coerceTestUsage(usageA, actualStream, info.GetEstimatePromptTokens())
++	if usageErr != nil {
++		return testResult{
++			context:     c,
++			localErr:    usageErr,
++			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
++		}
++	}
++	if bodyErr := validateTestResponseBody(respBody, actualStream); bodyErr != nil {
+ 		return testResult{
+ 			context:     c,
+ 			localErr:    bodyErr,
+@@ -647,7 +665,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
+ }
+ 
+ func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
+-	return channel != nil && channel.Type == constant.ChannelTypeCodex
++	return channel != nil && (channel.Type == constant.ChannelTypeCodex || channel.Id == 24)
+ }
+ 
+ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
+@@ -897,7 +915,9 @@ func testAllChannels(notify bool) error {
+ 		}()
+ 
+ 		for _, channel := range channels {
+-			if channel.Status == common.ChannelStatusManuallyDisabled {
++			if channel.Status != common.ChannelStatusEnabled &&
++				channel.Status != common.ChannelStatusAutoDisabled &&
++				channel.Status != common.ChannelStatusManuallyDisabled {
+ 				continue
+ 			}
+ 			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+diff --git a/controller/relay.go b/controller/relay.go
+index 5e2db44..2e3479a 100644
+--- a/controller/relay.go
++++ b/controller/relay.go
+@@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 	}()
+ 
+ 	retryParam := &service.RetryParam{
+-		Ctx:        c,
+-		TokenGroup: relayInfo.TokenGroup,
+-		ModelName:  relayInfo.OriginModelName,
+-		Retry:      common.GetPointer(0),
++		Ctx:                c,
++		TokenGroup:         relayInfo.TokenGroup,
++		ModelName:          relayInfo.OriginModelName,
++		Retry:              common.GetPointer(0),
++		ExcludedChannelIds: make(map[int]bool),
+ 	}
+ 	relayInfo.RetryIndex = 0
+ 	relayInfo.LastError = nil
++	maxRetryTimes := compatRelayRetryBudget(relayInfo, relayFormat)
+ 
+-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
++	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
+ 		relayInfo.RetryIndex = retryParam.GetRetry()
+ 		channel, channelErr := getChannel(c, relayInfo, retryParam)
+ 		if channelErr != nil {
+@@ -220,8 +222,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 			newAPIError = relayHandler(c, relayInfo)
+ 		}
+ 
++		if newAPIError == nil {
++			newAPIError = compatStreamRetryError(relayInfo)
++		}
+ 		if newAPIError == nil {
+ 			relayInfo.LastError = nil
++			clearCompatChannelFailure(channel.Id, relayInfo)
+ 			return
+ 		}
+ 
+@@ -230,9 +236,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 
+ 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+ 
+-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
++		remainingRetries := maxRetryTimes - retryParam.GetRetry()
++		if !shouldRetry(c, newAPIError, remainingRetries) {
+ 			break
+ 		}
++		disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
++		markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
+ 	}
+ 
+ 	useChannel := c.GetStringSlice("use_channel")
+@@ -347,12 +356,223 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+ 	if code < 100 || code > 599 {
+ 		return true
+ 	}
++	if shouldCompatRetryByError(openaiErr) {
++		return true
++	}
+ 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+ 		return false
+ 	}
+ 	return operation_setting.ShouldRetryByStatusCode(code)
+ }
+ 
++func compatStreamRetryError(info *relaycommon.RelayInfo) *types.NewAPIError {
++	if info == nil || !info.IsStream || info.StreamStatus == nil {
++		return nil
++	}
++	if info.StreamStatus.IsNormalEnd() {
++		if info.RelayFormat == types.RelayFormatClaude &&
++			info.ClaudeConvertInfo != nil &&
++			!info.ClaudeConvertInfo.HasOutput &&
++			info.StreamStatus.HasErrors() {
++			return types.NewOpenAIError(
++				fmt.Errorf("empty claude assistant stream from upstream"),
++				types.ErrorCodeEmptyResponse,
++				http.StatusBadGateway,
++			)
++		}
++		return nil
++	}
++	switch info.StreamStatus.EndReason {
++	case relaycommon.StreamEndReasonFirstByteTimeout:
++		return types.NewOpenAIError(
++			fmt.Errorf("first byte timeout after %ds", common.RelayFirstByteTimeout),
++			types.ErrorCodeChannelResponseTimeExceeded,
++			http.StatusRequestTimeout,
++		)
++	case relaycommon.StreamEndReasonTimeout:
++		if info.ReceivedResponseCount == 0 {
++			return types.NewOpenAIError(
++				fmt.Errorf("stream timeout before first response"),
++				types.ErrorCodeChannelResponseTimeExceeded,
++				http.StatusRequestTimeout,
++			)
++		}
++	}
++	return nil
++}
++
++func markChannelExcludedForCompatRetry(retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError) {
++	if retryParam == nil || channel == nil || openaiErr == nil {
++		return
++	}
++	if !shouldCompatExcludeChannelForRetry(openaiErr) {
++		return
++	}
++	if retryParam.ExcludedChannelIds == nil {
++		retryParam.ExcludedChannelIds = make(map[int]bool)
++	}
++	retryParam.ExcludedChannelIds[channel.Id] = true
++}
++
++func compatRelayRetryBudget(info *relaycommon.RelayInfo, relayFormat types.RelayFormat) int {
++	if info == nil || relayFormat == types.RelayFormatOpenAIRealtime {
++		return common.RetryTimes
++	}
++	switch info.RelayMode {
++	case relayconstant.RelayModeChatCompletions,
++		relayconstant.RelayModeCompletions,
++		relayconstant.RelayModeResponses,
++		relayconstant.RelayModeResponsesCompact:
++		return maxInt(common.RetryTimes, 10)
++	}
++	switch relayFormat {
++	case types.RelayFormatClaude, types.RelayFormatGemini:
++		return maxInt(common.RetryTimes, 10)
++	default:
++		return common.RetryTimes
++	}
++}
++
++func shouldCompatRetryByError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusTooManyRequests, http.StatusPaymentRequired,
++		http.StatusRequestTimeout, http.StatusInternalServerError,
++		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
++		return true
++	case http.StatusUnauthorized, http.StatusForbidden:
++		return true
++	default:
++		if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed ||
++			openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
++			return true
++		}
++		return false
++	}
++}
++
++func disableChannelForCompatRetry(c *gin.Context, channel *model.Channel, relayInfo *relaycommon.RelayInfo, openaiErr *types.NewAPIError, remainingRetries int) {
++	if remainingRetries <= 0 || channel == nil || openaiErr == nil {
++		return
++	}
++	if !shouldCompatRetryByError(openaiErr) {
++		return
++	}
++	shouldDisable := shouldCompatDisableChannel(openaiErr)
++	if !shouldDisable && shouldTrackCompatUpstream5xxFailure(openaiErr) {
++		failures := recordCompatChannelFailure(channel.Id, relayInfo)
++		shouldDisable = failures >= compatUpstream5xxFailureThreshold
++	}
++	if !shouldDisable {
++		return
++	}
++	channelError := *types.NewChannelError(
++		channel.Id,
++		channel.Type,
++		channel.Name,
++		channel.ChannelInfo.IsMultiKey,
++		common.GetContextKeyString(c, constant.ContextKeyChannelKey),
++		channel.GetAutoBan(),
++	)
++	service.DisableChannel(channelError, openaiErr.ErrorWithStatusCode())
++}
++
++func shouldCompatExcludeChannelForRetry(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	if shouldCompatDisableChannel(openaiErr) {
++		return true
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusRequestTimeout, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
++		return true
++	case http.StatusInternalServerError:
++		return openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed
++	default:
++		return openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed ||
++			openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded
++	}
++}
++
++func shouldCompatDisableChannel(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusPaymentRequired:
++		return true
++	case http.StatusRequestTimeout:
++		return true
++	default:
++		return openaiErr.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded ||
++			isQuotaOrRateLimitError(openaiErr)
++	}
++}
++
++func isQuotaOrRateLimitError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	msg := strings.ToLower(openaiErr.Error())
++	keywords := []string{
++		"quota",
++		"credit",
++		"balance",
++		"billing",
++		"insufficient",
++		"rate limit",
++		"rate_limit",
++		"too many requests",
++		"exceeded",
++		"额度",
++		"余额",
++		"限流",
++		"账单",
++	}
++	for _, keyword := range keywords {
++		if strings.Contains(msg, keyword) {
++			return true
++		}
++	}
++	return false
++}
++
++func isTransportFailureError(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed {
++		return true
++	}
++	msg := strings.ToLower(openaiErr.Error())
++	keywords := []string{
++		"do request failed",
++		"unexpected eof",
++		"connection reset",
++		"handshake failure",
++		"failed to verify certificate",
++		"no such host",
++		"proxyconnect",
++		"context deadline exceeded",
++	}
++	for _, keyword := range keywords {
++		if strings.Contains(msg, keyword) {
++			return true
++		}
++	}
++	return false
++}
++
++func maxInt(a, b int) int {
++	if a > b {
++		return a
++	}
++	return b
++}
++
+ func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+ 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
+ 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
+diff --git a/model/ability.go b/model/ability.go
+index 1d7c53f..f3d86db 100644
+--- a/model/ability.go
++++ b/model/ability.go
+@@ -104,21 +104,51 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
+ }
+ 
+ func GetChannel(group string, model string, retry int) (*Channel, error) {
++	return GetChannelExcluding(group, model, retry, nil)
++}
++
++func GetChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+ 	var abilities []Ability
+ 
+ 	var err error = nil
+-	channelQuery, err := getChannelQuery(group, model, retry)
+-	if err != nil {
+-		return nil, err
+-	}
+-	if common.UsingSQLite || common.UsingPostgreSQL {
+-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
++	if len(excluded) > 0 {
++		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
++			Order("priority DESC, weight DESC").
++			Find(&abilities).Error
+ 	} else {
+-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		channelQuery, queryErr := getChannelQuery(group, model, retry)
++		if queryErr != nil {
++			return nil, queryErr
++		}
++		if common.UsingSQLite || common.UsingPostgreSQL {
++			err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		} else {
++			err = channelQuery.Order("weight DESC").Find(&abilities).Error
++		}
+ 	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if len(excluded) > 0 {
++		filtered := abilities[:0]
++		for _, ability := range abilities {
++			if excluded[ability.ChannelId] {
++				continue
++			}
++			filtered = append(filtered, ability)
++		}
++		abilities = filtered
++	}
++	if len(excluded) > 0 && len(abilities) > 0 {
++		targetPriority := abilityPriority(abilities[0])
++		filtered := abilities[:0]
++		for _, ability := range abilities {
++			if abilityPriority(ability) == targetPriority {
++				filtered = append(filtered, ability)
++			}
++		}
++		abilities = filtered
++	}
+ 	channel := Channel{}
+ 	if len(abilities) > 0 {
+ 		// Randomly choose one
+@@ -143,6 +173,13 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
+ 	return &channel, err
+ }
+ 
++func abilityPriority(ability Ability) int64 {
++	if ability.Priority == nil {
++		return 0
++	}
++	return *ability.Priority
++}
++
+ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
+ 	models_ := strings.Split(channel.Models, ",")
+ 	groups_ := strings.Split(channel.Group, ",")
+diff --git a/model/channel_cache.go b/model/channel_cache.go
+index 03740d2..8909b7d 100644
+--- a/model/channel_cache.go
++++ b/model/channel_cache.go
+@@ -95,9 +95,13 @@ func SyncChannelCache(frequency int) {
+ }
+ 
+ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
++	return GetRandomSatisfiedChannelExcluding(group, model, retry, nil)
++}
++
++func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+ 	// if memory cache is disabled, get channel directly from database
+ 	if !common.MemoryCacheEnabled {
+-		return GetChannel(group, model, retry)
++		return GetChannelExcluding(group, model, retry, excluded)
+ 	}
+ 
+ 	channelSyncLock.RLock()
+@@ -105,17 +109,23 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
+ 
+ 	// First, try to find channels with the exact model name.
+ 	channels := group2model2channels[group][model]
++	channels = filterExcludedChannelIDs(channels, excluded)
+ 
+ 	// If no channels found, try to find channels with the normalized model name.
+ 	if len(channels) == 0 {
+ 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
+ 		channels = group2model2channels[group][normalizedModel]
++		channels = filterExcludedChannelIDs(channels, excluded)
+ 	}
+ 
+ 	if len(channels) == 0 {
+ 		return nil, nil
+ 	}
+ 
++	if len(excluded) > 0 {
++		retry = 0
++	}
++
+ 	if len(channels) == 1 {
+ 		if channel, ok := channelsIDM[channels[0]]; ok {
+ 			return channel, nil
+@@ -191,6 +201,20 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
+ 	return nil, errors.New("channel not found")
+ }
+ 
++func filterExcludedChannelIDs(channels []int, excluded map[int]bool) []int {
++	if len(channels) == 0 || len(excluded) == 0 {
++		return channels
++	}
++	filtered := make([]int, 0, len(channels))
++	for _, channelID := range channels {
++		if excluded[channelID] {
++			continue
++		}
++		filtered = append(filtered, channelID)
++	}
++	return filtered
++}
++
+ func CacheGetChannel(id int) (*Channel, error) {
+ 	if !common.MemoryCacheEnabled {
+ 		return GetChannelById(id, true)
+diff --git a/relay/channel/codex/adaptor.go b/relay/channel/codex/adaptor.go
+index ef4d4fa..62adb1f 100644
+--- a/relay/channel/codex/adaptor.go
++++ b/relay/channel/codex/adaptor.go
+@@ -96,14 +96,31 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
+ 		request.Instructions = json.RawMessage(`""`)
+ 	}
+ 
++	if len(request.Input) > 0 && request.Input[0] == '"' {
++		var text string
++		if err := common.Unmarshal(request.Input, &text); err == nil {
++			inputItems := []map[string]any{{
++				"role":    "user",
++				"content": text,
++			}}
++			if b, err := common.Marshal(inputItems); err == nil {
++				request.Input = b
++			} else {
++				return nil, err
++			}
++		}
++	}
++
+ 	if isCompact {
+ 		return request, nil
+ 	}
+ 	// codex: store must be false
+ 	request.Store = json.RawMessage("false")
+ 	// rm max_output_tokens
++	// Codex backend is strict and rejects sampling params such as top_p.
+ 	request.MaxOutputTokens = nil
+ 	request.Temperature = nil
++	request.TopP = nil
+ 	return request, nil
+ }
+ 
+@@ -123,6 +140,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
+ 	if info.IsStream {
+ 		return openai.OaiResponsesStreamHandler(c, info, resp)
+ 	}
++	if c.GetBool("responses_upstream_stream") {
++		return openai.OaiResponsesStreamToResponseHandler(c, info, resp)
++	}
+ 	return openai.OaiResponsesHandler(c, info, resp)
+ }
+ 
+diff --git a/relay/channel/openai/adaptor.go b/relay/channel/openai/adaptor.go
+index 581ae19..b619fd7 100644
+--- a/relay/channel/openai/adaptor.go
++++ b/relay/channel/openai/adaptor.go
+@@ -629,6 +629,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
+ 	case relayconstant.RelayModeResponses:
+ 		if info.IsStream {
+ 			usage, err = OaiResponsesStreamHandler(c, info, resp)
++		} else if c.GetBool("responses_upstream_stream") || (resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")) {
++			usage, err = OaiResponsesStreamToResponseHandler(c, info, resp)
+ 		} else {
+ 			usage, err = OaiResponsesHandler(c, info, resp)
+ 		}
+diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
+index 2c07522..a0f15eb 100644
+--- a/relay/channel/openai/chat_via_responses.go
++++ b/relay/channel/openai/chat_via_responses.go
+@@ -4,6 +4,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"net/http"
++	"sort"
+ 	"strings"
+ 	"time"
+ 
+@@ -86,6 +87,54 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+ 	}
+ 
++	c.Header("Content-Type", "application/json; charset=utf-8")
++	service.IOCopyBytesGracefully(c, resp, responseBody)
++	return usage, nil
++}
++
++func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
++	responsesResp, usage, newAPIError := aggregateResponsesStreamToResponse(c, info, resp)
++	if newAPIError != nil {
++		return nil, newAPIError
++	}
++	chatId := helper.GetResponseID(c)
++	chatResp, chatUsage, err := service.ResponsesResponseToChatCompletionsResponse(responsesResp, chatId)
++	if err != nil {
++		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
++	}
++	if chatUsage != nil && chatUsage.TotalTokens != 0 {
++		usage = chatUsage
++	}
++	if usage == nil || usage.TotalTokens == 0 {
++		text := service.ExtractOutputTextFromResponses(responsesResp)
++		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
++		chatResp.Usage = *usage
++	}
++
++	var responseBody []byte
++	switch info.RelayFormat {
++	case types.RelayFormatClaude:
++		claudeResp := service.ResponseOpenAI2Claude(chatResp, info)
++		var err error
++		responseBody, err = common.Marshal(claudeResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	case types.RelayFormatGemini:
++		geminiResp := service.ResponseOpenAI2Gemini(chatResp, info)
++		var err error
++		responseBody, err = common.Marshal(geminiResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	default:
++		var err error
++		responseBody, err = common.Marshal(chatResp)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	}
++	c.Header("Content-Type", "application/json; charset=utf-8")
+ 	service.IOCopyBytesGracefully(c, resp, responseBody)
+ 	return usage, nil
+ }
+@@ -115,6 +164,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 	toolCallNameByID := make(map[string]string)
+ 	toolCallArgsByID := make(map[string]string)
+ 	toolCallNameSent := make(map[string]bool)
++	toolCallArgsFlushedByID := make(map[string]bool)
+ 	toolCallCanonicalIDByItemID := make(map[string]string)
+ 	hasSentReasoningSummary := false
+ 	needsReasoningSummarySeparator := false
+@@ -230,6 +280,23 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		return true
+ 	}
+ 
++	toolCallStreamChunk := func(tool dto.ToolCallResponse) *dto.ChatCompletionsStreamResponse {
++		return &dto.ChatCompletionsStreamResponse{
++			Id:      responseId,
++			Object:  "chat.completion.chunk",
++			Created: createAt,
++			Model:   model,
++			Choices: []dto.ChatCompletionsStreamResponseChoice{
++				{
++					Index: 0,
++					Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
++						ToolCalls: []dto.ToolCallResponse{tool},
++					},
++				},
++			},
++		}
++	}
++
+ 	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
+ 		if callID == "" {
+ 			return true
+@@ -253,6 +320,13 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		if toolCallNameByID[callID] != "" {
+ 			name = toolCallNameByID[callID]
+ 		}
++		if info.RelayFormat == types.RelayFormatClaude && argsDelta != "" {
++			argsDelta = ""
++		}
++		if name == "" && argsDelta == "" {
++			sawToolCall = true
++			return true
++		}
+ 
+ 		tool := dto.ToolCallResponse{
+ 			ID:   callID,
+@@ -267,20 +341,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 			toolCallNameSent[callID] = true
+ 		}
+ 
+-		chunk := &dto.ChatCompletionsStreamResponse{
+-			Id:      responseId,
+-			Object:  "chat.completion.chunk",
+-			Created: createAt,
+-			Model:   model,
+-			Choices: []dto.ChatCompletionsStreamResponseChoice{
+-				{
+-					Index: 0,
+-					Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+-						ToolCalls: []dto.ToolCallResponse{tool},
+-					},
+-				},
+-			},
+-		}
++		chunk := toolCallStreamChunk(tool)
+ 		if !sendChatChunk(chunk) {
+ 			return false
+ 		}
+@@ -296,6 +357,46 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		return true
+ 	}
+ 
++	flushClaudeToolCallArguments := func() bool {
++		if info.RelayFormat != types.RelayFormatClaude || len(toolCallArgsByID) == 0 {
++			return true
++		}
++		callIDs := make([]string, 0, len(toolCallArgsByID))
++		for callID := range toolCallArgsByID {
++			callIDs = append(callIDs, callID)
++		}
++		sort.SliceStable(callIDs, func(i, j int) bool {
++			return toolCallIndexByID[callIDs[i]] < toolCallIndexByID[callIDs[j]]
++		})
++		for _, callID := range callIDs {
++			if toolCallArgsFlushedByID[callID] {
++				continue
++			}
++			args := service.SanitizeClaudeToolArgumentsJSON(toolCallNameByID[callID], toolCallArgsByID[callID])
++			if strings.TrimSpace(args) == "" {
++				continue
++			}
++			idx := toolCallIndexByID[callID]
++			tool := dto.ToolCallResponse{
++				ID:   callID,
++				Type: "function",
++				Function: dto.FunctionResponse{
++					Arguments: args,
++				},
++			}
++			tool.SetIndex(idx)
++			if name := toolCallNameByID[callID]; name != "" && !toolCallNameSent[callID] {
++				tool.Function.Name = name
++				toolCallNameSent[callID] = true
++			}
++			if !sendChatChunk(toolCallStreamChunk(tool)) {
++				return false
++			}
++			toolCallArgsFlushedByID[callID] = true
++		}
++		return true
++	}
++
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+ 		if streamErr != nil {
+ 			sr.Stop(streamErr)
+@@ -475,6 +576,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 				}
+ 			}
+ 
++			if !flushClaudeToolCallArguments() {
++				sr.Stop(streamErr)
++				return
++			}
+ 			if !sendStartIfNeeded() {
+ 				sr.Stop(streamErr)
+ 				return
+@@ -525,6 +630,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		}
+ 	}
+ 	if !sentStop {
++		if !flushClaudeToolCallArguments() {
++			return nil, streamErr
++		}
+ 		if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+ 			info.ClaudeConvertInfo.Usage = usage
+ 		}
+diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
+index 2665b8d..2f8ab59 100644
+--- a/relay/channel/openai/relay_responses.go
++++ b/relay/channel/openai/relay_responses.go
+@@ -1,6 +1,7 @@
+ package openai
+ 
+ import (
++	"bufio"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -68,6 +69,167 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
+ 	return &usage, nil
+ }
+ 
++func OaiResponsesStreamToResponseHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
++	finalResp, usage, err := aggregateResponsesStreamToResponse(c, info, resp)
++	if err != nil {
++		return nil, err
++	}
++	responseBody, marshalErr := common.Marshal(finalResp)
++	if marshalErr != nil {
++		return nil, types.NewOpenAIError(marshalErr, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++	}
++	c.Header("Content-Type", "application/json; charset=utf-8")
++	service.IOCopyBytesGracefully(c, resp, responseBody)
++	return usage, nil
++}
++
++func aggregateResponsesStreamToResponse(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.OpenAIResponsesResponse, *dto.Usage, *types.NewAPIError) {
++	if resp == nil || resp.Body == nil {
++		return nil, nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
++	}
++	defer service.CloseResponseBodyGracefully(resp)
++
++	var (
++		finalResp       *dto.OpenAIResponsesResponse
++		outputText      strings.Builder
++		functionCallMap = make(map[string]dto.ResponsesOutput)
++		functionCallSeq []string
++	)
++
++	scanner := bufio.NewScanner(resp.Body)
++	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
++	for scanner.Scan() {
++		line := strings.TrimSpace(scanner.Text())
++		if line == "" || !strings.HasPrefix(line, "data:") {
++			continue
++		}
++		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
++		if data == "" || data == "[DONE]" {
++			continue
++		}
++		if strings.HasPrefix(data, "event:") {
++			continue
++		}
++		if strings.HasPrefix(data, "data:") {
++			data = strings.TrimSpace(strings.TrimPrefix(data, "data:"))
++		}
++		if data == "" || data == "[DONE]" {
++			continue
++		}
++
++		var streamResp dto.ResponsesStreamResponse
++		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
++			return nil, nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
++		}
++		switch streamResp.Type {
++		case "response.output_text.delta":
++			outputText.WriteString(streamResp.Delta)
++		case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
++			if streamResp.Item == nil || streamResp.Item.Type != "function_call" {
++				break
++			}
++			callID := strings.TrimSpace(streamResp.Item.CallId)
++			if callID == "" {
++				callID = strings.TrimSpace(streamResp.Item.ID)
++			}
++			if callID == "" {
++				break
++			}
++			if _, exists := functionCallMap[callID]; !exists {
++				functionCallSeq = append(functionCallSeq, callID)
++			}
++			functionCallMap[callID] = *streamResp.Item
++		case "response.function_call_arguments.delta":
++			callID := strings.TrimSpace(streamResp.ItemID)
++			if callID == "" {
++				break
++			}
++			item := functionCallMap[callID]
++			item.Type = "function_call"
++			item.CallId = callID
++			args := dto.ResponsesArgumentsString(item.Arguments) + streamResp.Delta
++			if argsData, marshalErr := common.Marshal(args); marshalErr == nil {
++				item.Arguments = argsData
++			}
++			if _, exists := functionCallMap[callID]; !exists {
++				functionCallSeq = append(functionCallSeq, callID)
++			}
++			functionCallMap[callID] = item
++		case "response.completed":
++			finalResp = streamResp.Response
++		case "response.error", "response.failed":
++			if streamResp.Response != nil {
++				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
++					return nil, nil, types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
++				}
++			}
++			return nil, nil, types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
++		}
++	}
++	if err := scanner.Err(); err != nil {
++		return nil, nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
++	}
++	if finalResp == nil {
++		finalResp = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap)
++	} else if len(finalResp.Output) == 0 && (outputText.Len() > 0 || len(functionCallMap) > 0) {
++		finalResp.Output = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap).Output
++	}
++	usage := responsesUsageFromResponse(info, finalResp, outputText.String())
++	if finalResp.Usage == nil {
++		finalResp.Usage = usage
++	}
++	return finalResp, usage, nil
++}
++
++func buildFallbackResponsesResponse(c *gin.Context, info *relaycommon.RelayInfo, text string, functionCallSeq []string, functionCallMap map[string]dto.ResponsesOutput) *dto.OpenAIResponsesResponse {
++	model := ""
++	if info != nil {
++		model = info.UpstreamModelName
++		if strings.TrimSpace(info.OriginModelName) != "" {
++			model = info.OriginModelName
++		}
++	}
++	resp := &dto.OpenAIResponsesResponse{ID: helper.GetResponseID(c), Object: "response", CreatedAt: int(common.GetTimestamp()), Model: model}
++	if text != "" {
++		resp.Output = []dto.ResponsesOutput{{Type: "message", Role: "assistant", Status: "completed", Content: []dto.ResponsesOutputContent{{Type: "output_text", Text: text}}}}
++		return resp
++	}
++	if len(functionCallMap) > 0 {
++		resp.Output = make([]dto.ResponsesOutput, 0, len(functionCallSeq))
++		seen := make(map[string]bool, len(functionCallSeq))
++		for _, callID := range functionCallSeq {
++			if seen[callID] {
++				continue
++			}
++			seen[callID] = true
++			resp.Output = append(resp.Output, functionCallMap[callID])
++		}
++	}
++	return resp
++}
++
++func responsesUsageFromResponse(info *relaycommon.RelayInfo, resp *dto.OpenAIResponsesResponse, fallbackText string) *dto.Usage {
++	usage := &dto.Usage{}
++	if resp != nil && resp.Usage != nil {
++		usage.PromptTokens = resp.Usage.InputTokens
++		usage.CompletionTokens = resp.Usage.OutputTokens
++		usage.TotalTokens = resp.Usage.TotalTokens
++		if resp.Usage.InputTokensDetails != nil {
++			usage.PromptTokensDetails.CachedTokens = resp.Usage.InputTokensDetails.CachedTokens
++		}
++	}
++	if usage.CompletionTokens == 0 && fallbackText != "" && info != nil {
++		usage.CompletionTokens = service.CountTextToken(fallbackText, info.UpstreamModelName)
++	}
++	if usage.PromptTokens == 0 && info != nil {
++		usage.PromptTokens = info.GetEstimatePromptTokens()
++	}
++	if usage.TotalTokens == 0 {
++		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
++	}
++	return usage
++}
++
+ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+ 	if resp == nil || resp.Body == nil {
+ 		logger.LogError(c, "invalid response or response body")
+diff --git a/relay/chat_completions_via_responses.go b/relay/chat_completions_via_responses.go
+index 7a2eb9a..f98cfbd 100644
+--- a/relay/chat_completions_via_responses.go
++++ b/relay/chat_completions_via_responses.go
+@@ -97,6 +97,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
+ 	if err != nil {
+ 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+ 	}
++	clientRequestedStream := info.IsStream
++	if info.ChannelType == constant.ChannelTypeCodex {
++		responsesReq.Stream = common.GetPointer(true)
++	}
+ 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
+ 
+ 	savedRelayMode := info.RelayMode
+@@ -139,14 +143,23 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
+ 	statusCodeMappingStr := c.GetString("status_code_mapping")
+ 
+ 	httpResp = resp.(*http.Response)
+-	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
++	upstreamIsStream := (responsesReq.Stream != nil && *responsesReq.Stream) || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+ 	if httpResp.StatusCode != http.StatusOK {
+ 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+ 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+ 		return nil, newApiErr
+ 	}
+ 
+-	if info.IsStream {
++	if upstreamIsStream && !clientRequestedStream {
++		usage, newApiErr := openaichannel.OaiResponsesStreamToChatHandler(c, info, httpResp)
++		if newApiErr != nil {
++			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
++			return nil, newApiErr
++		}
++		return usage, nil
++	}
++
++	if upstreamIsStream {
+ 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
+ 		if newApiErr != nil {
+ 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+diff --git a/relay/claude_handler.go b/relay/claude_handler.go
+index ec028c7..b183c81 100644
+--- a/relay/claude_handler.go
++++ b/relay/claude_handler.go
+@@ -131,7 +131,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
+ 
+ 	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
+ 		!info.ChannelSetting.PassThroughBodyEnabled &&
+-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
++		(info.ChannelType == constant.ChannelTypeCodex || service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName)) {
+ 		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
+ 		if convErr != nil {
+ 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
+index 8a6c471..6406c64 100644
+--- a/relay/common/relay_info.go
++++ b/relay/common/relay_info.go
+@@ -40,6 +40,8 @@ type ClaudeConvertInfo struct {
+ 	Usage            *dto.Usage
+ 	FinishReason     string
+ 	Done             bool
++	MessageStarted   bool
++	HasOutput        bool
+ 
+ 	ToolCallBaseIndex      int
+ 	ToolCallMaxIndexOffset int
+diff --git a/relay/common/stream_status.go b/relay/common/stream_status.go
+index 57b0bb9..ac5ba90 100644
+--- a/relay/common/stream_status.go
++++ b/relay/common/stream_status.go
+@@ -10,15 +10,16 @@ import (
+ type StreamEndReason string
+ 
+ const (
+-	StreamEndReasonNone        StreamEndReason = ""
+-	StreamEndReasonDone        StreamEndReason = "done"
+-	StreamEndReasonTimeout     StreamEndReason = "timeout"
+-	StreamEndReasonClientGone  StreamEndReason = "client_gone"
+-	StreamEndReasonScannerErr  StreamEndReason = "scanner_error"
+-	StreamEndReasonHandlerStop StreamEndReason = "handler_stop"
+-	StreamEndReasonEOF         StreamEndReason = "eof"
+-	StreamEndReasonPanic       StreamEndReason = "panic"
+-	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
++	StreamEndReasonNone             StreamEndReason = ""
++	StreamEndReasonDone             StreamEndReason = "done"
++	StreamEndReasonTimeout          StreamEndReason = "timeout"
++	StreamEndReasonFirstByteTimeout StreamEndReason = "first_byte_timeout"
++	StreamEndReasonClientGone       StreamEndReason = "client_gone"
++	StreamEndReasonScannerErr       StreamEndReason = "scanner_error"
++	StreamEndReasonHandlerStop      StreamEndReason = "handler_stop"
++	StreamEndReasonEOF              StreamEndReason = "eof"
++	StreamEndReasonPanic            StreamEndReason = "panic"
++	StreamEndReasonPingFail         StreamEndReason = "ping_fail"
+ )
+ 
+ const maxStreamErrorEntries = 20
+@@ -29,9 +30,9 @@ type StreamErrorEntry struct {
+ }
+ 
+ type StreamStatus struct {
+-	EndReason  StreamEndReason
+-	EndError   error
+-	endOnce    sync.Once
++	EndReason StreamEndReason
++	EndError  error
++	endOnce   sync.Once
+ 
+ 	mu         sync.Mutex
+ 	Errors     []StreamErrorEntry
+@@ -42,6 +43,20 @@ func NewStreamStatus() *StreamStatus {
+ 	return &StreamStatus{}
+ }
+ 
++func NewStreamStatusFromExisting(existing *StreamStatus) *StreamStatus {
++	next := NewStreamStatus()
++	if existing == nil {
++		return next
++	}
++	existing.mu.Lock()
++	defer existing.mu.Unlock()
++	next.ErrorCount = existing.ErrorCount
++	if len(existing.Errors) > 0 {
++		next.Errors = append(next.Errors, existing.Errors...)
++	}
++	return next
++}
++
+ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
+ 	if s == nil {
+ 		return
+diff --git a/relay/common/stream_status_test.go b/relay/common/stream_status_test.go
+index 4a31cb7..fd917ca 100644
+--- a/relay/common/stream_status_test.go
++++ b/relay/common/stream_status_test.go
+@@ -50,6 +50,7 @@ func TestStreamStatus_SetEndReason_Concurrent(t *testing.T) {
+ 		StreamEndReasonEOF,
+ 		StreamEndReasonPanic,
+ 		StreamEndReasonPingFail,
++		StreamEndReasonFirstByteTimeout,
+ 	}
+ 
+ 	var wg sync.WaitGroup
+@@ -114,6 +115,19 @@ func TestStreamStatus_RecordError_Concurrent(t *testing.T) {
+ 	assert.LessOrEqual(t, len(s.Errors), maxStreamErrorEntries)
+ }
+ 
++func TestNewStreamStatusFromExisting_PreservesErrors(t *testing.T) {
++	t.Parallel()
++	existing := NewStreamStatus()
++	existing.RecordError("pre-existing error")
++	existing.SetEndReason(StreamEndReasonDone, nil)
++
++	next := NewStreamStatusFromExisting(existing)
++
++	assert.Equal(t, StreamEndReasonNone, next.EndReason)
++	assert.Equal(t, 1, next.TotalErrorCount())
++	assert.True(t, next.HasErrors())
++}
++
+ func TestStreamStatus_HasErrors_Empty(t *testing.T) {
+ 	t.Parallel()
+ 	s := NewStreamStatus()
+@@ -138,6 +152,7 @@ func TestStreamStatus_IsNormalEnd(t *testing.T) {
+ 		{StreamEndReasonEOF, true},
+ 		{StreamEndReasonHandlerStop, true},
+ 		{StreamEndReasonTimeout, false},
++		{StreamEndReasonFirstByteTimeout, false},
+ 		{StreamEndReasonClientGone, false},
+ 		{StreamEndReasonScannerErr, false},
+ 		{StreamEndReasonPanic, false},
+diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
+index fdd54f3..04e9df6 100644
+--- a/relay/compatible_handler.go
++++ b/relay/compatible_handler.go
+@@ -75,7 +75,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
+ 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
+ 		!passThroughGlobal &&
+ 		!info.ChannelSetting.PassThroughBodyEnabled &&
+-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
++		(info.ChannelType == constant.ChannelTypeCodex || service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName)) {
+ 		applySystemPromptIfNeeded(c, info, request)
+ 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
+ 		if newApiErr != nil {
+diff --git a/relay/helper/stream_scanner.go b/relay/helper/stream_scanner.go
+index 1d44b80..bb5a879 100644
+--- a/relay/helper/stream_scanner.go
++++ b/relay/helper/stream_scanner.go
+@@ -40,8 +40,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		return
+ 	}
+ 
+-	// 无条件新建 StreamStatus
+-	info.StreamStatus = relaycommon.NewStreamStatus()
++	info.StreamStatus = relaycommon.NewStreamStatusFromExisting(info.StreamStatus)
+ 
+ 	// 确保响应体总是被关闭
+ 	defer func() {
+@@ -51,14 +50,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	}()
+ 
+ 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
++	firstByteTimeout := time.Duration(common.RelayFirstByteTimeout) * time.Second
++	if firstByteTimeout <= 0 {
++		firstByteTimeout = 15 * time.Second
++	}
+ 
+ 	var (
+-		stopChan   = make(chan bool, 3) // 增加缓冲区避免阻塞
+-		scanner    = bufio.NewScanner(resp.Body)
+-		ticker     = time.NewTicker(streamingTimeout)
+-		pingTicker *time.Ticker
+-		writeMutex sync.Mutex     // Mutex to protect concurrent writes
+-		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
++		stopChan       = make(chan bool, 3) // 增加缓冲区避免阻塞
++		scanner        = bufio.NewScanner(resp.Body)
++		ticker         = time.NewTicker(streamingTimeout)
++		firstByteTimer = time.NewTimer(firstByteTimeout)
++		pingTicker     *time.Ticker
++		writeMutex     sync.Mutex     // Mutex to protect concurrent writes
++		wg             sync.WaitGroup // 用于等待所有 goroutine 退出
+ 	)
+ 
+ 	generalSettings := operation_setting.GetGeneralSetting()
+@@ -84,6 +88,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		common.SafeSendBool(stopChan, true)
+ 
+ 		ticker.Stop()
++		if firstByteTimer != nil {
++			firstByteTimer.Stop()
++		}
+ 		if pingTicker != nil {
+ 			pingTicker.Stop()
+ 		}
+@@ -175,6 +182,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 		})
+ 	}
+ 
++	firstResponseObserved := false
++
+ 	dataChan := make(chan string, 10)
+ 
+ 	wg.Add(1)
+@@ -242,6 +251,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 				continue
+ 			}
+ 			if !strings.HasPrefix(data, "[DONE]") {
++				if !firstResponseObserved {
++					firstResponseObserved = true
++					if firstByteTimer != nil {
++						if !firstByteTimer.Stop() {
++							select {
++							case <-firstByteTimer.C:
++							default:
++							}
++						}
++					}
++				}
+ 				info.SetFirstResponseTime()
+ 				info.ReceivedResponseCount++
+ 
+@@ -272,6 +292,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	select {
+ 	case <-ticker.C:
+ 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
++	case <-firstByteTimer.C:
++		if info.ReceivedResponseCount == 0 {
++			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonFirstByteTimeout, nil)
++		} else {
++			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
++		}
+ 	case <-stopChan:
+ 		// EndReason already set by the goroutine that triggered stopChan
+ 	case <-c.Request.Context().Done():
+diff --git a/relay/helper/stream_scanner_test.go b/relay/helper/stream_scanner_test.go
+index 9d6f3bb..44a02c9 100644
+--- a/relay/helper/stream_scanner_test.go
++++ b/relay/helper/stream_scanner_test.go
+@@ -11,6 +11,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/constant"
+ 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+ 	"github.com/QuantumNous/new-api/setting/operation_setting"
+@@ -511,8 +512,13 @@ func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
+ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
+ 	// Not parallel: modifies global constant.StreamingTimeout
+ 	oldTimeout := constant.StreamingTimeout
++	oldFirstByteTimeout := common.RelayFirstByteTimeout
+ 	constant.StreamingTimeout = 2
+-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
++	common.RelayFirstByteTimeout = 15
++	t.Cleanup(func() {
++		constant.StreamingTimeout = oldTimeout
++		common.RelayFirstByteTimeout = oldFirstByteTimeout
++	})
+ 
+ 	pr, pw := io.Pipe()
+ 	go func() {
+@@ -545,6 +551,48 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
+ 	assert.False(t, info.StreamStatus.IsNormalEnd())
+ }
+ 
++func TestStreamScannerHandler_StreamStatus_FirstByteTimeout(t *testing.T) {
++	oldTimeout := constant.StreamingTimeout
++	oldFirstByteTimeout := common.RelayFirstByteTimeout
++	constant.StreamingTimeout = 30
++	common.RelayFirstByteTimeout = 1
++	t.Cleanup(func() {
++		constant.StreamingTimeout = oldTimeout
++		common.RelayFirstByteTimeout = oldFirstByteTimeout
++	})
++
++	pr, pw := io.Pipe()
++	go func() {
++		time.Sleep(3 * time.Second)
++		fmt.Fprint(pw, "data: {\"id\":1}\n")
++		pw.Close()
++	}()
++
++	recorder := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(recorder)
++	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
++
++	resp := &http.Response{Body: pr}
++	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
++
++	done := make(chan struct{})
++	go func() {
++		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
++		close(done)
++	}()
++
++	select {
++	case <-done:
++	case <-time.After(8 * time.Second):
++		t.Fatal("timed out waiting for first byte timeout")
++	}
++
++	require.NotNil(t, info.StreamStatus)
++	assert.Equal(t, relaycommon.StreamEndReasonFirstByteTimeout, info.StreamStatus.EndReason)
++	assert.Equal(t, 0, info.ReceivedResponseCount)
++	assert.False(t, info.StreamStatus.IsNormalEnd())
++}
++
+ func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/relay/helper/valid_request.go b/relay/helper/valid_request.go
+index 2581b28..b2272f0 100644
+--- a/relay/helper/valid_request.go
++++ b/relay/helper/valid_request.go
+@@ -239,6 +239,8 @@ func GetAndValidateClaudeRequest(c *gin.Context) (textRequest *dto.ClaudeRequest
+ 		return nil, errors.New("field model is required")
+ 	}
+ 
++	sanitizeClaudeCodeAttributionHeader(c, textRequest)
++
+ 	//if textRequest.Stream {
+ 	//	relayInfo.IsStream = true
+ 	//}
+@@ -246,6 +248,107 @@ func GetAndValidateClaudeRequest(c *gin.Context) (textRequest *dto.ClaudeRequest
+ 	return textRequest, nil
+ }
+ 
++func sanitizeClaudeCodeAttributionHeader(c *gin.Context, request *dto.ClaudeRequest) {
++	if request == nil || request.System == nil {
++		return
++	}
++	cleanSystem, changed := sanitizeClaudeCodeAttributionHeaderSystem(request.System)
++	if !changed {
++		return
++	}
++	request.System = cleanSystem
++	if c == nil {
++		return
++	}
++	body, err := common.Marshal(request)
++	if err != nil {
++		return
++	}
++	newStorage, err := common.CreateBodyStorage(body)
++	if err != nil {
++		return
++	}
++	if existing, ok := c.Get(common.KeyBodyStorage); ok {
++		if oldStorage, ok := existing.(common.BodyStorage); ok {
++			_ = oldStorage.Close()
++		}
++	}
++	c.Set(common.KeyBodyStorage, newStorage)
++	c.Request.ContentLength = int64(len(body))
++}
++
++func sanitizeClaudeCodeAttributionHeaderSystem(system any) (any, bool) {
++	switch typed := system.(type) {
++	case string:
++		cleaned, changed := stripClaudeCodeAttributionHeaderText(typed)
++		if !changed {
++			return system, false
++		}
++		if strings.TrimSpace(cleaned) == "" {
++			return nil, true
++		}
++		return cleaned, true
++	case []dto.ClaudeMediaMessage:
++		return sanitizeClaudeCodeAttributionHeaderMedia(typed)
++	default:
++		media, err := common.Any2Type[[]dto.ClaudeMediaMessage](system)
++		if err != nil {
++			return system, false
++		}
++		return sanitizeClaudeCodeAttributionHeaderMedia(media)
++	}
++}
++
++func sanitizeClaudeCodeAttributionHeaderMedia(system []dto.ClaudeMediaMessage) (any, bool) {
++	cleaned := make([]dto.ClaudeMediaMessage, 0, len(system))
++	changed := false
++	for _, item := range system {
++		if item.Type == "" || item.Type == dto.ContentTypeText {
++			text := item.GetText()
++			stripped, textChanged := stripClaudeCodeAttributionHeaderText(text)
++			if textChanged {
++				changed = true
++				if strings.TrimSpace(stripped) == "" {
++					continue
++				}
++				item.SetText(stripped)
++			}
++		}
++		cleaned = append(cleaned, item)
++	}
++	if !changed {
++		return system, false
++	}
++	if len(cleaned) == 0 {
++		return nil, true
++	}
++	return cleaned, true
++}
++
++func stripClaudeCodeAttributionHeaderText(text string) (string, bool) {
++	if !strings.Contains(text, "x-anthropic-billing-header:") {
++		return text, false
++	}
++	lines := strings.Split(text, "\n")
++	kept := make([]string, 0, len(lines))
++	changed := false
++	for _, line := range lines {
++		trimmed := strings.TrimSpace(line)
++		if strings.HasPrefix(trimmed, "x-anthropic-billing-header:") &&
++			(strings.Contains(trimmed, "cch=") ||
++				strings.Contains(trimmed, "cc_version=") ||
++				strings.Contains(trimmed, "cc_entrypoint=")) {
++			changed = true
++			continue
++		}
++		kept = append(kept, line)
++	}
++	if !changed {
++		return text, false
++	}
++	return strings.TrimSpace(strings.Join(kept, "\n")), true
++}
++
+ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenAIRequest, error) {
+ 	textRequest := &dto.GeneralOpenAIRequest{}
+ 	err := common.UnmarshalBodyReusable(c, textRequest)
+diff --git a/relay/responses_handler.go b/relay/responses_handler.go
+index 54ca3cb..63872f8 100644
+--- a/relay/responses_handler.go
++++ b/relay/responses_handler.go
+@@ -61,6 +61,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
+ 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+ 	}
+ 
++	if info.ChannelType == appconstant.ChannelTypeCodex && !info.IsStream && info.RelayMode != relayconstant.RelayModeResponsesCompact {
++		request.Stream = common.GetPointer(true)
++		c.Set("responses_upstream_stream", true)
++	}
++
+ 	err = helper.ModelMappedHelper(c, info, request)
+ 	if err != nil {
+ 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+diff --git a/service/channel.go b/service/channel.go
+index 3fde6e2..46b5531 100644
+--- a/service/channel.go
++++ b/service/channel.go
+@@ -58,6 +58,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
+ 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
+ 		return true
+ 	}
++	if err.StatusCode == 402 || err.StatusCode == 403 || err.StatusCode == 429 {
++		return true
++	}
+ 
+ 	lowerMessage := strings.ToLower(err.Error())
+ 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
+@@ -71,7 +74,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+ 	if newAPIError != nil {
+ 		return false
+ 	}
+-	if status != common.ChannelStatusAutoDisabled {
++	if status != common.ChannelStatusAutoDisabled && status != common.ChannelStatusManuallyDisabled {
+ 		return false
+ 	}
+ 	return true
+diff --git a/service/channel_select.go b/service/channel_select.go
+index a3710ef..1aa23c6 100644
+--- a/service/channel_select.go
++++ b/service/channel_select.go
+@@ -12,11 +12,12 @@ import (
+ )
+ 
+ type RetryParam struct {
+-	Ctx          *gin.Context
+-	TokenGroup   string
+-	ModelName    string
+-	Retry        *int
+-	resetNextTry bool
++	Ctx                *gin.Context
++	TokenGroup         string
++	ModelName          string
++	Retry              *int
++	resetNextTry       bool
++	ExcludedChannelIds map[int]bool
+ }
+ 
+ func (p *RetryParam) GetRetry() int {
+@@ -115,7 +116,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+ 			}
+ 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
+ 
+-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
++			channel, _ = model.GetRandomSatisfiedChannelExcluding(autoGroup, param.ModelName, priorityRetry, param.ExcludedChannelIds)
+ 			if channel == nil {
+ 				// Current group has no available channel for this model, try next group
+ 				// 当前分组没有该模型的可用渠道，尝试下一个分组
+@@ -153,7 +154,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+ 			break
+ 		}
+ 	} else {
+-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
++		channel, err = model.GetRandomSatisfiedChannelExcluding(param.TokenGroup, param.ModelName, param.GetRetry(), param.ExcludedChannelIds)
+ 		if err != nil {
+ 			return nil, param.TokenGroup, err
+ 		}
+diff --git a/service/convert.go b/service/convert.go
+index 95acf83..2a5de8c 100644
+--- a/service/convert.go
++++ b/service/convert.go
+@@ -87,6 +87,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
+ 		openAITools = append(openAITools, openAITool)
+ 	}
+ 	openAIRequest.Tools = openAITools
++	openAIRequest.ToolChoice = convertClaudeToolChoiceToOpenAI(claudeRequest.ToolChoice)
+ 
+ 	// Convert messages
+ 	openAIMessages := make([]dto.Message, 0)
+@@ -171,7 +172,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
+ 						Type: "function",
+ 						Function: dto.FunctionRequest{
+ 							Name:      mediaMsg.Name,
+-							Arguments: toJSONString(mediaMsg.Input),
++							Arguments: toJSONString(SanitizeClaudeToolInput(mediaMsg.Name, mediaMsg.Input)),
+ 						},
+ 					}
+ 					toolCalls = append(toolCalls, toolCall)
+@@ -211,11 +212,44 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
+ 		}
+ 	}
+ 
++	openAIMessages = mergeConsecutiveAssistantToolUseMessages(openAIMessages)
+ 	openAIRequest.Messages = openAIMessages
+ 
+ 	return &openAIRequest, nil
+ }
+ 
++func convertClaudeToolChoiceToOpenAI(choice any) any {
++	if choice == nil {
++		return nil
++	}
++	var tc dto.ClaudeToolChoice
++	if typed, ok := choice.(dto.ClaudeToolChoice); ok {
++		tc = typed
++	} else if typed, ok := choice.(*dto.ClaudeToolChoice); ok && typed != nil {
++		tc = *typed
++	} else {
++		parsed, err := common.Any2Type[dto.ClaudeToolChoice](choice)
++		if err != nil {
++			return choice
++		}
++		tc = parsed
++	}
++	switch strings.TrimSpace(tc.Type) {
++	case "auto", "none":
++		return tc.Type
++	case "any":
++		return "required"
++	case "tool":
++		name := strings.TrimSpace(tc.Name)
++		if name == "" {
++			return "required"
++		}
++		return map[string]any{"type": "function", "function": map[string]any{"name": name}}
++	default:
++		return choice
++	}
++}
++
+ func generateStopBlock(index int) *dto.ClaudeResponse {
+ 	return &dto.ClaudeResponse{
+ 		Type:  "content_block_stop",
+@@ -258,6 +292,41 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 	}
+ 
+ 	var claudeResponses []*dto.ClaudeResponse
++	emitMessageStart := func() {
++		if info.ClaudeConvertInfo.MessageStarted {
++			return
++		}
++		msg := &dto.ClaudeMediaMessage{
++			Id:    openAIResponse.Id,
++			Model: openAIResponse.Model,
++			Type:  "message",
++			Role:  "assistant",
++			Usage: &dto.ClaudeUsage{
++				InputTokens:  info.GetEstimatePromptTokens(),
++				OutputTokens: 0,
++			},
++		}
++		msg.SetContent(make([]any, 0))
++		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++			Type:    "message_start",
++			Message: msg,
++		})
++		info.ClaudeConvertInfo.MessageStarted = true
++	}
++	markClaudeOutput := func() {
++		info.ClaudeConvertInfo.HasOutput = true
++		emitMessageStart()
++	}
++	isEmptyClaudeAssistantEnd := func() bool {
++		if info.ClaudeConvertInfo.HasOutput {
++			return false
++		}
++		if info.StreamStatus != nil {
++			info.StreamStatus.RecordError("empty claude assistant stream: upstream ended without text, thinking, or tool_use")
++		}
++		info.ClaudeConvertInfo.Done = true
++		return true
++	}
+ 	// stopOpenBlocks emits the required content_block_stop event(s) for the currently open block(s)
+ 	// according to Anthropic's SSE streaming state machine:
+ 	// content_block_start -> content_block_delta* -> content_block_stop (per index).
+@@ -297,25 +366,8 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
+ 	}
+ 	if info.SendResponseCount == 1 {
+-		msg := &dto.ClaudeMediaMessage{
+-			Id:    openAIResponse.Id,
+-			Model: openAIResponse.Model,
+-			Type:  "message",
+-			Role:  "assistant",
+-			Usage: &dto.ClaudeUsage{
+-				InputTokens:  info.GetEstimatePromptTokens(),
+-				OutputTokens: 0,
+-			},
+-		}
+-		msg.SetContent(make([]any, 0))
+-		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-			Type:    "message_start",
+-			Message: msg,
+-		})
+-		//claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-		//	Type: "ping",
+-		//})
+ 		if openAIResponse.IsToolCall() {
++			markClaudeOutput()
+ 			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
+ 			info.ClaudeConvertInfo.ToolCallBaseIndex = 0
+ 			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
+@@ -362,6 +414,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			content := openAIResponse.Choices[0].Delta.GetContentString()
+ 
+ 			if reasoning != "" {
++				markClaudeOutput()
+ 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
+ 					stopOpenBlocksAndAdvance()
+ 				}
+@@ -385,6 +438,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 				})
+ 				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
+ 			} else if content != "" {
++				markClaudeOutput()
+ 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeText {
+ 					stopOpenBlocksAndAdvance()
+ 				}
+@@ -412,21 +466,25 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 
+ 		// 如果首块就带 finish_reason，需要立即发送停止块
+ 		if len(openAIResponse.Choices) > 0 && openAIResponse.Choices[0].FinishReason != nil && *openAIResponse.Choices[0].FinishReason != "" {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			info.FinishReason = *openAIResponse.Choices[0].FinishReason
+ 			stopOpenBlocks()
+ 			oaiUsage := openAIResponse.Usage
+ 			if oaiUsage == nil {
+ 				oaiUsage = info.ClaudeConvertInfo.Usage
+ 			}
+-			if oaiUsage != nil {
+-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-					Type:  "message_delta",
+-					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+-					Delta: &dto.ClaudeMediaMessage{
+-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+-					},
+-				})
++			if oaiUsage == nil {
++				oaiUsage = &dto.Usage{PromptTokens: info.GetEstimatePromptTokens()}
+ 			}
++			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++				Type:  "message_delta",
++				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
++				Delta: &dto.ClaudeMediaMessage{
++					StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
++				},
++			})
+ 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+ 				Type: "message_stop",
+ 			})
+@@ -442,6 +500,9 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			oaiUsage = info.ClaudeConvertInfo.Usage
+ 		}
+ 		if oaiUsage != nil {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			stopOpenBlocks()
+ 			stopReason := stopReasonOpenAI2Claude(info.FinishReason)
+ 			if stopReason == "" {
+@@ -465,19 +526,13 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		doneChunk := chosenChoice.FinishReason != nil && *chosenChoice.FinishReason != ""
+ 		if doneChunk {
+ 			info.FinishReason = *chosenChoice.FinishReason
+-			oaiUsage := openAIResponse.Usage
+-			if oaiUsage == nil {
+-				oaiUsage = info.ClaudeConvertInfo.Usage
+-				// Some upstreams emit finish_reason first, then send a final usage-only chunk.
+-				// Defer closing until usage is available so the final message_delta carries it.
+-				return claudeResponses
+-			}
+ 		}
+ 
+ 		var claudeResponse dto.ClaudeResponse
+ 		var isEmpty bool
+ 		claudeResponse.Type = "content_block_delta"
+ 		if len(chosenChoice.Delta.ToolCalls) > 0 {
++			markClaudeOutput()
+ 			toolCalls := chosenChoice.Delta.ToolCalls
+ 			if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeTools {
+ 				stopOpenBlocksAndAdvance()
+@@ -531,6 +586,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 			reasoning := chosenChoice.Delta.GetReasoningContent()
+ 			textContent := chosenChoice.Delta.GetContentString()
+ 			if reasoning != "" || textContent != "" {
++				markClaudeOutput()
+ 				if reasoning != "" {
+ 					if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
+ 						stopOpenBlocksAndAdvance()
+@@ -579,20 +635,24 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
+ 		}
+ 
+ 		if doneChunk || info.ClaudeConvertInfo.Done {
++			if isEmptyClaudeAssistantEnd() {
++				return nil
++			}
+ 			stopOpenBlocks()
+ 			oaiUsage := openAIResponse.Usage
+ 			if oaiUsage == nil {
+ 				oaiUsage = info.ClaudeConvertInfo.Usage
+ 			}
+-			if oaiUsage != nil {
+-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+-					Type:  "message_delta",
+-					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
+-					Delta: &dto.ClaudeMediaMessage{
+-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+-					},
+-				})
++			if oaiUsage == nil {
++				oaiUsage = &dto.Usage{PromptTokens: info.GetEstimatePromptTokens()}
+ 			}
++			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
++				Type:  "message_delta",
++				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
++				Delta: &dto.ClaudeMediaMessage{
++					StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
++				},
++			})
+ 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+ 				Type: "message_stop",
+ 			})
+@@ -623,7 +683,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
+ 				claudeContent.Name = toolUse.Function.Name
+ 				var mapParams map[string]interface{}
+ 				if err := common.Unmarshal([]byte(toolUse.Function.Arguments), &mapParams); err == nil {
+-					claudeContent.Input = mapParams
++					claudeContent.Input = SanitizeClaudeToolInput(toolUse.Function.Name, mapParams)
+ 				} else {
+ 					claudeContent.Input = toolUse.Function.Arguments
+ 				}
+@@ -647,6 +707,96 @@ func stopReasonOpenAI2Claude(reason string) string {
+ 	return reasonmap.OpenAIFinishReasonToClaudeStopReason(reason)
+ }
+ 
++func SanitizeClaudeToolInput(toolName string, input any) any {
++	if !isClaudeReadTool(toolName) {
++		return input
++	}
++
++	var parsed map[string]any
++	switch v := input.(type) {
++	case map[string]any:
++		parsed = make(map[string]any, len(v))
++		for key, value := range v {
++			parsed[key] = value
++		}
++	default:
++		data, err := common.Marshal(input)
++		if err != nil || common.Unmarshal(data, &parsed) != nil {
++			return input
++		}
++	}
++
++	if value, ok := parsed["pages"]; ok {
++		deletePages := false
++		switch v := value.(type) {
++		case nil:
++			deletePages = true
++		case string:
++			deletePages = strings.TrimSpace(v) == "" || !isClaudeReadPDFTarget(parsed)
++		default:
++			deletePages = !isClaudeReadPDFTarget(parsed)
++		}
++		if deletePages {
++			delete(parsed, "pages")
++		}
++	}
++
++	return parsed
++}
++
++func isClaudeReadPDFTarget(input map[string]any) bool {
++	for _, key := range []string{"file_path", "path"} {
++		value, ok := input[key]
++		if !ok {
++			continue
++		}
++		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(common.Interface2String(value))), ".pdf") {
++			return true
++		}
++	}
++	return false
++}
++
++func SanitizeClaudeToolArgumentsJSON(toolName string, args string) string {
++	if strings.TrimSpace(args) == "" {
++		return args
++	}
++	var parsed map[string]any
++	if err := common.Unmarshal([]byte(args), &parsed); err != nil {
++		return args
++	}
++	sanitized := SanitizeClaudeToolInput(toolName, parsed)
++	data, err := common.Marshal(sanitized)
++	if err != nil {
++		return args
++	}
++	return string(data)
++}
++
++func isClaudeReadTool(toolName string) bool {
++	return strings.EqualFold(strings.TrimSpace(toolName), "Read")
++}
++
++func mergeConsecutiveAssistantToolUseMessages(messages []dto.Message) []dto.Message {
++	if len(messages) < 2 {
++		return messages
++	}
++	merged := make([]dto.Message, 0, len(messages))
++	for _, message := range messages {
++		if len(merged) > 0 && isAssistantToolOnlyMessage(merged[len(merged)-1]) && isAssistantToolOnlyMessage(message) {
++			toolCalls := append(merged[len(merged)-1].ParseToolCalls(), message.ParseToolCalls()...)
++			merged[len(merged)-1].SetToolCalls(toolCalls)
++			continue
++		}
++		merged = append(merged, message)
++	}
++	return merged
++}
++
++func isAssistantToolOnlyMessage(message dto.Message) bool {
++	return message.Role == "assistant" && message.Content == nil && len(message.ParseToolCalls()) > 0
++}
++
+ func toJSONString(v interface{}) string {
+ 	b, err := json.Marshal(v)
+ 	if err != nil {
+diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
+index 4e18e67..20a1b9d 100644
+--- a/web/default/src/components/layout/components/footer.tsx
++++ b/web/default/src/components/layout/components/footer.tsx
+@@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
+     <footer
+       className={cn('border-border/40 relative z-10 border-t', props.className)}
+     >
+-      <div className='mx-auto max-w-6xl px-6 py-12 md:py-16'>
+-        <div className='flex flex-col justify-between gap-10 md:flex-row md:gap-16'>
++      <div className='from-foreground/10 absolute inset-x-0 top-0 h-px bg-gradient-to-r via-transparent to-transparent' />
++      <div className='mx-auto max-w-6xl px-6 py-10 md:py-14'>
++        <div
++          className={cn(
++            'flex flex-col gap-10',
++            isDemoSiteMode
++              ? 'md:flex-row md:justify-between md:gap-16'
++              : 'md:flex-row md:items-end md:justify-between md:gap-8'
++          )}
++        >
+           {/* Brand column */}
+           <div className='shrink-0'>
+-            <Link to='/' className='group flex items-center gap-2.5'>
+-              <img
+-                src={displayLogo}
+-                alt={displayName}
+-                className='size-7 rounded-lg object-contain'
+-              />
+-              <span className='text-sm font-semibold tracking-tight'>
++            <Link to='/' className='group inline-flex items-center gap-2.5'>
++              <span className='border-border/40 bg-background/40 ring-border/30 flex size-7 items-center justify-center overflow-hidden rounded-lg border shadow-[0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105'>
++                <img
++                  src={displayLogo}
++                  alt={displayName}
++                  className='size-full object-contain'
++                />
++              </span>
++              <span className='from-foreground to-foreground/80 -tracking-tighter bg-gradient-to-b bg-clip-text text-sm font-semibold text-transparent'>
+                 {displayName}
+               </span>
+             </Link>
+-            <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
++            <p className='text-muted-foreground/70 mt-3 max-w-[220px] text-xs leading-relaxed'>
+               {t('Powerful API Management Platform')}
+             </p>
++            <div className='text-muted-foreground/40 mt-4 flex items-center gap-2 font-mono text-[10.5px] tracking-wider uppercase'>
++              <span className='size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]' />
++              <span>{t('All systems operational')}</span>
++            </div>
+           </div>
+ 
+           {/* Links columns */}
+@@ -273,7 +287,7 @@ export function Footer(props: FooterProps) {
+             <div className='grid grid-cols-3 gap-8 md:gap-16'>
+               {displayColumns.map((column, index) => (
+                 <div key={index}>
+-                  <p className='text-muted-foreground/50 mb-3 text-xs font-medium tracking-wider uppercase'>
++                  <p className='text-muted-foreground/55 mb-3 text-[11px] font-medium tracking-[0.08em] uppercase'>
+                     {t(column.title)}
+                   </p>
+                   <ul className='space-y-2.5'>
+@@ -291,8 +305,8 @@ export function Footer(props: FooterProps) {
+ 
+         {/* Copyright + optional legal links inline on the left, project
+             attribution on the right; wraps on narrow screens. */}
+-        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
+-          <div className='text-muted-foreground/40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
++        <div className='border-border/30 mt-10 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
++          <div className='text-muted-foreground/45 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
+             <span>
+               &copy; {currentYear} {displayName}.{' '}
+               {props.copyright ?? t('footer.defaultCopyright')}
+diff --git a/web/default/src/components/layout/components/mobile-drawer.tsx b/web/default/src/components/layout/components/mobile-drawer.tsx
+index 8108631..02d119a 100644
+--- a/web/default/src/components/layout/components/mobile-drawer.tsx
++++ b/web/default/src/components/layout/components/mobile-drawer.tsx
+@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
+ import type { AuthUser } from '@/stores/auth-store'
+ import useDialogState from '@/hooks/use-dialog'
+ import { useUserDisplay } from '@/hooks/use-user-display'
+-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
++import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+ import { Button } from '@/components/ui/button'
+ import { Skeleton } from '@/components/ui/skeleton'
+ import { SignOutDialog } from '@/components/sign-out-dialog'
+@@ -89,7 +89,6 @@ function MobileUserProfile({ user, onNavigate }: MobileUserProfileProps) {
+         {/* User header - simplified */}
+         <div className='border-border flex items-center gap-2.5 border-b p-2.5'>
+           <Avatar className='size-9'>
+-            <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
+             <AvatarFallback className='text-xs'>{initials}</AvatarFallback>
+           </Avatar>
+           <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
+diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
+index 4aca836..ccc9816 100644
+--- a/web/default/src/components/layout/components/public-header.tsx
++++ b/web/default/src/components/layout/components/public-header.tsx
+@@ -201,7 +201,7 @@ export function PublicHeader(props: PublicHeaderProps) {
+               to={homeUrl}
+               className='group flex shrink-0 items-center gap-2.5'
+             >
+-              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
++              <div className='border-border/40 bg-background/40 ring-border/30 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_6px_18px_-8px_rgba(0,0,0,0.35)]'>
+                 {loading ? (
+                   <Skeleton className='size-full rounded-lg' />
+                 ) : customLogo ? (
+@@ -215,8 +215,14 @@ export function PublicHeader(props: PublicHeaderProps) {
+                   />
+                 )}
+               </div>
+-              <span className='text-sm font-semibold tracking-tight'>
+-                {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
++              <span className='-tracking-tighter text-sm font-semibold'>
++                {loading ? (
++                  <Skeleton className='h-4 w-16' />
++                ) : (
++                  <span className='from-foreground to-foreground/80 bg-gradient-to-b bg-clip-text text-transparent'>
++                    {displaySiteName}
++                  </span>
++                )}
+               </span>
+             </Link>
+ 
+diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
+index 2c7a8f3..4c071ab 100644
+--- a/web/default/src/features/home/index.tsx
++++ b/web/default/src/features/home/index.tsx
+@@ -21,7 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
+ import { Markdown } from '@/components/ui/markdown'
+ import { PublicLayout } from '@/components/layout'
+ import { Footer } from '@/components/layout/components/footer'
+-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
++import { IzHero } from './components/sections/iz-hero'
++import { IzPillars } from './components/sections/iz-pillars'
++import { IzEndpoints } from './components/sections/iz-endpoints'
++import { IzQuickstart } from './components/sections/iz-quickstart'
++import { IzClosing } from './components/sections/iz-closing'
+ import { useHomePageContent } from './hooks'
+ 
+ export function Home() {
+@@ -62,11 +66,13 @@ export function Home() {
+ 
+   return (
+     <PublicLayout showMainContainer={false}>
+-      <Hero isAuthenticated={isAuthenticated} />
+-      <Stats />
+-      <Features />
+-      <HowItWorks />
+-      <CTA isAuthenticated={isAuthenticated} />
++      <div className='iz-root'>
++        <IzHero isAuthenticated={isAuthenticated} />
++        <IzPillars />
++        <IzEndpoints />
++        <IzQuickstart />
++        <IzClosing isAuthenticated={isAuthenticated} />
++      </div>
+       <Footer />
+     </PublicLayout>
+   )
+diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
+index a9a86b7..b043696 100644
+--- a/web/default/src/features/playground/index.tsx
++++ b/web/default/src/features/playground/index.tsx
+@@ -22,7 +22,11 @@ import { getUserModels, getUserGroups } from './api'
+ import { PlaygroundChat } from './components/playground-chat'
+ import { PlaygroundInput } from './components/playground-input'
+ import { usePlaygroundState, useChatHandler } from './hooks'
+-import { createUserMessage, createLoadingAssistantMessage } from './lib'
++import {
++  createUserMessage,
++  createLoadingAssistantMessage,
++  createMessageVersion,
++} from './lib'
+ import type { Message as MessageType } from './types'
+ 
+ export function Playground() {
+@@ -135,11 +139,15 @@ export function Playground() {
+       const index = messages.findIndex((m) => m.key === editingMessageKey)
+       if (index === -1) return
+ 
+-      const updated = messages.map((m) =>
+-        m.key === editingMessageKey
+-          ? { ...m, versions: [{ ...m.versions[0], content: newContent }] }
+-          : m
+-      )
++      const updated = messages.map((m) => {
++        if (m.key !== editingMessageKey) return m
++
++        const currentVersion = Array.isArray(m.versions)
++          ? m.versions[0] || createMessageVersion('')
++          : createMessageVersion('')
++
++        return { ...m, versions: [{ ...currentVersion, content: newContent }] }
++      })
+ 
+       setEditingMessageKey(null)
+ 
+diff --git a/web/default/src/features/playground/lib/message-utils.ts b/web/default/src/features/playground/lib/message-utils.ts
+index 6128a37..35e2e6c 100644
+--- a/web/default/src/features/playground/lib/message-utils.ts
++++ b/web/default/src/features/playground/lib/message-utils.ts
+@@ -39,6 +39,10 @@ export function createMessageVersion(content: string): MessageVersion {
+  * Get current version from message (always returns the first version)
+  */
+ export function getCurrentVersion(message: Message): MessageVersion {
++  if (!Array.isArray(message.versions)) {
++    return { id: 'default', content: '' }
++  }
++
+   return message.versions[0] || { id: 'default', content: '' }
+ }
+ 
+@@ -142,7 +146,8 @@ export function formatMessageForAPI(message: Message): ChatCompletionMessage {
+  * Excludes loading/streaming assistant messages and empty content
+  */
+ export function isValidMessage(message: Message): boolean {
+-  if (!message || !message.from || !message.versions.length) return false
++  if (!message || !message.from || !Array.isArray(message.versions)) return false
++  if (!message.versions.length) return false
+ 
+   const content = message.versions[0]?.content
+   if (content === undefined) return false
+@@ -245,7 +250,7 @@ export function updateLastAssistantMessage(
+   messages: Message[],
+   updater: (message: Message) => Message
+ ): Message[] {
+-  if (messages.length === 0) return messages
++  if (!Array.isArray(messages) || messages.length === 0) return messages
+   const last = messages[messages.length - 1]
+   if (!last || last.from !== MESSAGE_ROLES.ASSISTANT) return messages
+ 
+@@ -314,6 +319,8 @@ export function finalizeMessage(
+  * Converts stuck loading/streaming messages to stable state
+  */
+ export function sanitizeMessagesOnLoad(messages: Message[]): Message[] {
++  if (!Array.isArray(messages)) return []
++
+   let targetIndex = -1
+   for (let i = messages.length - 1; i >= 0; i--) {
+     const m = messages[i]
+diff --git a/web/default/src/features/playground/lib/storage.ts b/web/default/src/features/playground/lib/storage.ts
+index 1ad2357..a6c6376 100644
+--- a/web/default/src/features/playground/lib/storage.ts
++++ b/web/default/src/features/playground/lib/storage.ts
+@@ -16,20 +16,192 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { nanoid } from 'nanoid'
+ import { STORAGE_KEYS } from '../constants'
+-import type { PlaygroundConfig, ParameterEnabled, Message } from '../types'
++import type {
++  PlaygroundConfig,
++  ParameterEnabled,
++  Message,
++  MessageRole,
++  MessageStatus,
++  MessageVersion,
++} from '../types'
+ import { sanitizeMessagesOnLoad } from './message-utils'
+ 
++const MESSAGE_ROLES: MessageRole[] = ['user', 'assistant', 'system']
++const MESSAGE_STATUSES: MessageStatus[] = [
++  'loading',
++  'streaming',
++  'complete',
++  'error',
++]
++const NUMERIC_CONFIG_KEYS: Array<keyof PlaygroundConfig> = [
++  'temperature',
++  'top_p',
++  'max_tokens',
++  'frequency_penalty',
++  'presence_penalty',
++]
++const PARAMETER_KEYS: Array<keyof ParameterEnabled> = [
++  'temperature',
++  'top_p',
++  'max_tokens',
++  'frequency_penalty',
++  'presence_penalty',
++  'seed',
++]
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function removeStorageValue(key: string): void {
++  try {
++    localStorage.removeItem(key)
++  } catch {
++    // Ignore storage cleanup failures.
++  }
++}
++
++function isMessageRole(value: unknown): value is MessageRole {
++  return typeof value === 'string' && MESSAGE_ROLES.includes(value as MessageRole)
++}
++
++function isMessageStatus(value: unknown): value is MessageStatus {
++  return (
++    typeof value === 'string' &&
++    MESSAGE_STATUSES.includes(value as MessageStatus)
++  )
++}
++
++function normalizeVersion(value: unknown): MessageVersion | null {
++  if (!isRecord(value) || typeof value.content !== 'string') return null
++
++  return {
++    id:
++      typeof value.id === 'string' && value.id.trim()
++        ? value.id
++        : nanoid(),
++    content: value.content,
++  }
++}
++
++function normalizeSources(value: unknown): Message['sources'] {
++  if (!Array.isArray(value)) return undefined
++
++  const sources = value
++    .filter(isRecord)
++    .map((source) => ({
++      href: typeof source.href === 'string' ? source.href : '',
++      title: typeof source.title === 'string' ? source.title : '',
++    }))
++    .filter((source) => source.href || source.title)
++
++  return sources.length ? sources : undefined
++}
++
++function normalizeReasoning(value: unknown): Message['reasoning'] {
++  if (!isRecord(value) || typeof value.content !== 'string') return undefined
++
++  return {
++    content: value.content,
++    duration:
++      typeof value.duration === 'number' && Number.isFinite(value.duration)
++        ? value.duration
++        : 0,
++  }
++}
++
++function normalizeMessage(value: unknown): Message | null {
++  if (!isRecord(value)) return null
++
++  const role = value.from ?? value.role
++  if (!isMessageRole(role)) return null
++
++  const versions = Array.isArray(value.versions)
++    ? value.versions.map(normalizeVersion).filter((v): v is MessageVersion => !!v)
++    : []
++
++  if (versions.length === 0 && typeof value.content === 'string') {
++    versions.push({ id: nanoid(), content: value.content })
++  }
++
++  if (versions.length === 0) return null
++
++  const message: Message = {
++    key:
++      typeof value.key === 'string' && value.key.trim()
++        ? value.key
++        : nanoid(),
++    from: role,
++    versions,
++  }
++
++  const sources = normalizeSources(value.sources)
++  if (sources) message.sources = sources
++
++  const reasoning = normalizeReasoning(value.reasoning)
++  if (reasoning) message.reasoning = reasoning
++
++  if (typeof value.isReasoningStreaming === 'boolean') {
++    message.isReasoningStreaming = value.isReasoningStreaming
++  }
++  if (typeof value.isReasoningComplete === 'boolean') {
++    message.isReasoningComplete = value.isReasoningComplete
++  }
++  if (typeof value.isContentComplete === 'boolean') {
++    message.isContentComplete = value.isContentComplete
++  }
++  if (isMessageStatus(value.status)) {
++    message.status = value.status
++  }
++  if (typeof value.errorCode === 'string' || value.errorCode === null) {
++    message.errorCode = value.errorCode
++  }
++
++  return message
++}
++
+ /**
+  * Load playground config from localStorage
+  */
+ export function loadConfig(): Partial<PlaygroundConfig> {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.CONFIG)
+-    if (saved) {
+-      return JSON.parse(saved)
++    if (!saved) return {}
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!isRecord(parsed)) {
++      removeStorageValue(STORAGE_KEYS.CONFIG)
++      return {}
++    }
++
++    const config: Partial<PlaygroundConfig> = {}
++    if (typeof parsed.model === 'string' && parsed.model.trim()) {
++      config.model = parsed.model
++    }
++    if (typeof parsed.group === 'string' && parsed.group.trim()) {
++      config.group = parsed.group
++    }
++    if (typeof parsed.stream === 'boolean') {
++      config.stream = parsed.stream
+     }
++    if (parsed.seed === null) {
++      config.seed = null
++    } else if (typeof parsed.seed === 'number' && Number.isFinite(parsed.seed)) {
++      config.seed = parsed.seed
++    }
++
++    NUMERIC_CONFIG_KEYS.forEach((key) => {
++      const value = parsed[key]
++      if (typeof value === 'number' && Number.isFinite(value)) {
++        ;(config as Record<string, unknown>)[key] = value
++      }
++    })
++
++    return config
+   } catch (error) {
++    removeStorageValue(STORAGE_KEYS.CONFIG)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load config:', error)
+   }
+@@ -54,10 +226,25 @@ export function saveConfig(config: Partial<PlaygroundConfig>): void {
+ export function loadParameterEnabled(): Partial<ParameterEnabled> {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.PARAMETER_ENABLED)
+-    if (saved) {
+-      return JSON.parse(saved)
++    if (!saved) return {}
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!isRecord(parsed)) {
++      removeStorageValue(STORAGE_KEYS.PARAMETER_ENABLED)
++      return {}
+     }
++
++    const parameterEnabled: Partial<ParameterEnabled> = {}
++    PARAMETER_KEYS.forEach((key) => {
++      const value = parsed[key]
++      if (typeof value === 'boolean') {
++        parameterEnabled[key] = value
++      }
++    })
++
++    return parameterEnabled
+   } catch (error) {
++    removeStorageValue(STORAGE_KEYS.PARAMETER_ENABLED)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load parameter enabled:', error)
+   }
+@@ -87,20 +274,26 @@ export function saveParameterEnabled(
+ export function loadMessages(): Message[] | null {
+   try {
+     const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES)
+-    if (saved) {
+-      const parsed: unknown = JSON.parse(saved)
+-      if (!Array.isArray(parsed)) {
+-        localStorage.removeItem(STORAGE_KEYS.MESSAGES)
+-        return null
+-      }
+-      const sanitized = sanitizeMessagesOnLoad(parsed as Message[])
+-      // Persist sanitized result to avoid re-sanitizing on subsequent loads
+-      if (sanitized !== parsed) {
+-        saveMessages(sanitized)
+-      }
+-      return sanitized
++    if (!saved) return null
++
++    const parsed: unknown = JSON.parse(saved)
++    if (!Array.isArray(parsed)) {
++      removeStorageValue(STORAGE_KEYS.MESSAGES)
++      return null
+     }
++
++    const normalized = parsed
++      .map(normalizeMessage)
++      .filter((message): message is Message => !!message)
++    const sanitized = sanitizeMessagesOnLoad(normalized)
++
++    if (JSON.stringify(sanitized) !== saved) {
++      saveMessages(sanitized)
++    }
++
++    return sanitized
+   } catch (error) {
++    removeStorageValue(STORAGE_KEYS.MESSAGES)
+     // eslint-disable-next-line no-console
+     console.error('Failed to load messages:', error)
+   }
+diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
+index 0f43c4e..d89ab5a 100644
+--- a/web/default/src/styles/index.css
++++ b/web/default/src/styles/index.css
+@@ -583,3 +583,869 @@ For commercial licensing, please contact support@quantumnous.com
+     animation: none !important;
+   }
+ }
++
++/* ─────────────────────────────────────────────────────────────
++   Interface Zero — premium landing styles
++   Scoped under .iz-root and per-section .iz-* classes.
++   Light/dark aware via CSS variables; no new dependencies.
++   ───────────────────────────────────────────────────────────── */
++
++.iz-root {
++  --iz-fg: var(--foreground);
++  --iz-fg-soft: color-mix(in oklab, var(--foreground) 70%, transparent);
++  --iz-fg-muted: color-mix(in oklab, var(--foreground) 48%, transparent);
++  --iz-bg: var(--background);
++  --iz-line: color-mix(in oklab, var(--foreground) 10%, transparent);
++  --iz-line-strong: color-mix(in oklab, var(--foreground) 16%, transparent);
++  --iz-surface: color-mix(in oklab, var(--foreground) 3%, transparent);
++  --iz-surface-2: color-mix(in oklab, var(--foreground) 5%, transparent);
++  --iz-accent: color-mix(in oklab, var(--foreground) 92%, transparent);
++  --iz-glow: color-mix(in oklab, var(--foreground) 40%, transparent);
++  --iz-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo,
++    Consolas, 'Liberation Mono', monospace;
++
++  position: relative;
++  isolation: isolate;
++}
++
++.dark .iz-root {
++  --iz-fg-soft: color-mix(in oklab, var(--foreground) 78%, transparent);
++  --iz-fg-muted: color-mix(in oklab, var(--foreground) 55%, transparent);
++  --iz-line: color-mix(in oklab, var(--foreground) 14%, transparent);
++  --iz-line-strong: color-mix(in oklab, var(--foreground) 22%, transparent);
++  --iz-surface: color-mix(in oklab, var(--foreground) 5%, transparent);
++  --iz-surface-2: color-mix(in oklab, var(--foreground) 8%, transparent);
++  --iz-glow: color-mix(in oklab, var(--foreground) 55%, transparent);
++}
++
++/* Shared section heading */
++.iz-section-head {
++  max-width: 44rem;
++  margin: 0 auto 3rem;
++  text-align: center;
++}
++.iz-section-kicker {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.5rem;
++  padding: 0.3rem 0.7rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 999px;
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++  color: var(--iz-fg-soft);
++  background: var(--iz-surface);
++  backdrop-filter: blur(8px);
++}
++.iz-section-kicker-dot {
++  width: 5px;
++  height: 5px;
++  border-radius: 999px;
++  background: var(--iz-fg);
++  box-shadow: 0 0 0 3px color-mix(in oklab, var(--foreground) 12%, transparent);
++}
++.iz-section-title {
++  margin: 1.1rem 0 0.75rem;
++  font-size: clamp(1.6rem, 2.6vw, 2.25rem);
++  line-height: 1.15;
++  letter-spacing: -0.02em;
++  font-weight: 600;
++  color: var(--iz-fg);
++}
++.iz-section-sub {
++  margin: 0;
++  font-size: 0.975rem;
++  line-height: 1.65;
++  color: var(--iz-fg-muted);
++}
++
++/* Shared buttons */
++.iz-btn {
++  height: 2.5rem !important;
++  padding: 0 1.05rem !important;
++  border-radius: 0.65rem !important;
++  font-size: 0.875rem !important;
++  font-weight: 500 !important;
++  letter-spacing: -0.005em;
++  transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
++}
++.iz-btn-primary {
++  background: var(--iz-fg) !important;
++  color: var(--iz-bg) !important;
++  box-shadow: 0 1px 0 0 color-mix(in oklab, var(--foreground) 40%, transparent) inset,
++    0 6px 18px -8px color-mix(in oklab, var(--foreground) 50%, transparent);
++}
++.iz-btn-primary:hover {
++  transform: translateY(-1px);
++  box-shadow: 0 1px 0 0 color-mix(in oklab, var(--foreground) 50%, transparent) inset,
++    0 10px 24px -10px color-mix(in oklab, var(--foreground) 60%, transparent);
++}
++.iz-btn-ghost {
++  background: transparent !important;
++  color: var(--iz-fg) !important;
++  border: 1px solid var(--iz-line-strong) !important;
++}
++.iz-btn-ghost:hover {
++  background: var(--iz-surface) !important;
++}
++
++/* ── HERO ── */
++.iz-hero {
++  position: relative;
++  min-height: 100svh;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  padding: 7.5rem 1.25rem 5rem;
++  overflow: hidden;
++  isolation: isolate;
++}
++.iz-hero-bg,
++.iz-hero-grid,
++.iz-hero-spot,
++.iz-hero-noise {
++  position: absolute;
++  inset: 0;
++  pointer-events: none;
++}
++.iz-hero-bg {
++  background:
++    radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--foreground) 6%, transparent), transparent 60%),
++    radial-gradient(80% 50% at 50% 100%, color-mix(in oklab, var(--foreground) 4%, transparent), transparent 70%);
++  z-index: -3;
++}
++.iz-hero-grid {
++  background-image:
++    linear-gradient(to right, var(--iz-line) 1px, transparent 1px),
++    linear-gradient(to bottom, var(--iz-line) 1px, transparent 1px);
++  background-size: 56px 56px;
++  mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
++  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
++  opacity: 0.7;
++  z-index: -2;
++}
++.iz-hero-spot {
++  background: radial-gradient(
++    320px 320px at var(--iz-mx, 50%) var(--iz-my, 30%),
++    color-mix(in oklab, var(--foreground) 14%, transparent),
++    transparent 70%
++  );
++  z-index: -1;
++  transition: background-position 200ms ease-out;
++}
++.iz-hero-noise {
++  background-image: radial-gradient(
++    color-mix(in oklab, var(--foreground) 10%, transparent) 1px,
++    transparent 1px
++  );
++  background-size: 3px 3px;
++  opacity: 0.15;
++  mix-blend-mode: overlay;
++  z-index: -1;
++}
++
++.iz-hero-inner {
++  width: 100%;
++  max-width: 64rem;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  text-align: center;
++  gap: 1.5rem;
++}
++
++.iz-hero-eyebrow {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.55rem;
++  padding: 0.35rem 0.75rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 999px;
++  background: var(--iz-surface);
++  backdrop-filter: blur(10px);
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  letter-spacing: 0.06em;
++  color: var(--iz-fg-soft);
++  animation: iz-eyebrow-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++.iz-hero-dot {
++  width: 6px;
++  height: 6px;
++  border-radius: 999px;
++  background: #22c55e;
++  box-shadow: 0 0 0 3px color-mix(in oklab, #22c55e 30%, transparent);
++  animation: iz-pulse 2s ease-in-out infinite;
++}
++.iz-hero-eyebrow-sep {
++  width: 1px;
++  height: 12px;
++  background: var(--iz-line-strong);
++}
++.iz-hero-eyebrow-tag {
++  font-family: var(--iz-mono);
++  color: var(--iz-fg);
++  letter-spacing: 0.04em;
++}
++
++.iz-hero-title {
++  margin: 0.25rem 0 0;
++  font-size: clamp(2.6rem, 6.8vw, 5.25rem);
++  line-height: 1.02;
++  letter-spacing: -0.035em;
++  font-weight: 600;
++  color: var(--iz-fg);
++}
++.iz-hero-title-line {
++  display: block;
++  overflow: hidden;
++}
++.iz-hero-title-word,
++.iz-hero-title-accent,
++.iz-hero-title-glow {
++  display: inline-block;
++  margin: 0 0.18em 0 0;
++  transform: translateY(110%);
++  animation: iz-rise 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++.iz-hero-title-line-1 .iz-hero-title-word {
++  animation-delay: 80ms;
++}
++.iz-hero-title-line-1 .iz-hero-title-accent {
++  animation-delay: 180ms;
++  font-style: italic;
++  font-weight: 500;
++  color: color-mix(in oklab, var(--foreground) 80%, transparent);
++}
++.iz-hero-title-line-2 .iz-hero-title-word {
++  animation-delay: 280ms;
++}
++.iz-hero-title-line-2 .iz-hero-title-glow {
++  animation-delay: 380ms;
++  background: linear-gradient(
++    180deg,
++    var(--iz-fg) 0%,
++    color-mix(in oklab, var(--foreground) 45%, transparent) 100%
++  );
++  -webkit-background-clip: text;
++  background-clip: text;
++  color: transparent;
++}
++
++.iz-hero-sub {
++  max-width: 38rem;
++  margin: 0;
++  font-size: clamp(0.95rem, 1.1vw, 1.05rem);
++  line-height: 1.65;
++  color: var(--iz-fg-muted);
++  animation: iz-fade-in 900ms 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++
++/* Base URL frame */
++.iz-hero-base {
++  margin-top: 0.5rem;
++  animation: iz-fade-in 900ms 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++.iz-hero-base-frame {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.5rem;
++  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
++  border: 1px solid var(--iz-line-strong);
++  border-radius: 0.7rem;
++  background: var(--iz-surface);
++  backdrop-filter: blur(10px);
++  font-family: var(--iz-mono);
++  font-size: 12.5px;
++  box-shadow: 0 1px 0 color-mix(in oklab, var(--foreground) 6%, transparent) inset,
++    0 8px 30px -16px color-mix(in oklab, var(--foreground) 30%, transparent);
++}
++.iz-hero-base-label {
++  color: var(--iz-fg-muted);
++  letter-spacing: 0.1em;
++  font-size: 10px;
++  text-transform: uppercase;
++}
++.iz-hero-base-url {
++  color: var(--iz-fg);
++  max-width: 18rem;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.iz-hero-base-mount {
++  display: inline-flex;
++  align-items: baseline;
++  gap: 0.2rem;
++  padding: 0.2rem 0.55rem;
++  border-radius: 0.45rem;
++  background: color-mix(in oklab, var(--foreground) 7%, transparent);
++  color: var(--iz-fg);
++  min-width: 13rem;
++  justify-content: flex-start;
++  overflow: hidden;
++}
++.iz-hero-base-mount-prefix {
++  color: var(--iz-fg-muted);
++}
++.iz-hero-base-mount-path {
++  display: inline-block;
++  animation: iz-slot 350ms cubic-bezier(0.16, 1, 0.3, 1);
++}
++.iz-hero-base-copy {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  width: 1.85rem;
++  height: 1.85rem;
++  border-radius: 0.45rem;
++  border: 1px solid transparent;
++  background: transparent;
++  color: var(--iz-fg-soft);
++  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
++}
++.iz-hero-base-copy:hover {
++  background: color-mix(in oklab, var(--foreground) 8%, transparent);
++  color: var(--iz-fg);
++  border-color: var(--iz-line);
++}
++
++.iz-hero-cta {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.65rem;
++  margin-top: 1rem;
++  animation: iz-fade-in 900ms 750ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++
++.iz-hero-stats {
++  display: inline-flex;
++  align-items: center;
++  gap: 1.25rem;
++  margin-top: 2.25rem;
++  padding: 0.65rem 1.25rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 999px;
++  background: var(--iz-surface);
++  backdrop-filter: blur(10px);
++  animation: iz-fade-in 900ms 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
++}
++.iz-hero-stat {
++  display: inline-flex;
++  flex-direction: column;
++  align-items: flex-start;
++  line-height: 1.1;
++}
++.iz-hero-stat-num {
++  font-family: var(--iz-mono);
++  font-size: 0.95rem;
++  color: var(--iz-fg);
++  font-feature-settings: 'tnum' 1;
++}
++.iz-hero-stat-num i {
++  font-style: normal;
++  color: var(--iz-fg-muted);
++  margin-left: 0.1rem;
++  font-size: 0.75rem;
++}
++.iz-hero-stat-lbl {
++  margin-top: 0.15rem;
++  font-size: 10.5px;
++  color: var(--iz-fg-muted);
++  letter-spacing: 0.04em;
++  text-transform: uppercase;
++}
++.iz-hero-stat-sep {
++  width: 1px;
++  height: 22px;
++  background: var(--iz-line);
++}
++
++.iz-hero-scroll {
++  position: absolute;
++  bottom: 1.5rem;
++  left: 50%;
++  transform: translateX(-50%);
++  width: 1px;
++  height: 38px;
++  overflow: hidden;
++  background: var(--iz-line);
++}
++.iz-hero-scroll span {
++  display: block;
++  width: 100%;
++  height: 30%;
++  background: var(--iz-fg);
++  animation: iz-scroll 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
++}
++
++/* ── PILLARS ── */
++.iz-pillars {
++  position: relative;
++  padding: 6rem 1.25rem;
++  border-top: 1px solid var(--iz-line);
++}
++.iz-pillars-inner {
++  max-width: 76rem;
++  margin: 0 auto;
++}
++.iz-pillar-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
++  gap: 0;
++  border: 1px solid var(--iz-line);
++  border-radius: 1rem;
++  overflow: hidden;
++  background: var(--iz-surface);
++}
++.iz-pillar-cell {
++  border-right: 1px solid var(--iz-line);
++  border-bottom: 1px solid var(--iz-line);
++}
++.iz-pillar-cell:nth-child(4n),
++.iz-pillar-cell:last-child {
++  border-right: none;
++}
++.iz-pillar {
++  position: relative;
++  display: flex;
++  flex-direction: column;
++  gap: 0.85rem;
++  padding: 1.6rem 1.4rem 1.5rem;
++  height: 100%;
++  background: var(--iz-bg);
++  transition: background-color 240ms ease;
++  overflow: hidden;
++}
++.iz-pillar:hover {
++  background: var(--iz-surface-2);
++}
++.iz-pillar-icon {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  width: 2rem;
++  height: 2rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 0.55rem;
++  background: var(--iz-surface);
++  color: var(--iz-fg);
++}
++.iz-pillar-title {
++  margin: 0;
++  font-size: 0.975rem;
++  font-weight: 600;
++  letter-spacing: -0.01em;
++  color: var(--iz-fg);
++}
++.iz-pillar-desc {
++  margin: 0;
++  font-size: 0.84rem;
++  line-height: 1.6;
++  color: var(--iz-fg-muted);
++}
++.iz-pillar-meta {
++  margin-top: auto;
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  letter-spacing: 0.06em;
++  color: var(--iz-fg-soft);
++}
++.iz-pillar-glow {
++  position: absolute;
++  inset: auto -40% -60% auto;
++  width: 60%;
++  height: 60%;
++  background: radial-gradient(closest-side, var(--iz-glow), transparent);
++  opacity: 0;
++  transition: opacity 320ms ease;
++  pointer-events: none;
++  filter: blur(20px);
++}
++.iz-pillar:hover .iz-pillar-glow {
++  opacity: 0.35;
++}
++
++/* ── ENDPOINTS ── */
++.iz-endpoints {
++  position: relative;
++  padding: 6rem 1.25rem;
++  border-top: 1px solid var(--iz-line);
++}
++.iz-endpoints-inner {
++  max-width: 76rem;
++  margin: 0 auto;
++}
++.iz-endpoint-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
++  gap: 0.85rem;
++}
++.iz-endpoint {
++  position: relative;
++  display: flex;
++  flex-direction: column;
++  gap: 0.65rem;
++  padding: 1.15rem 1.15rem 1rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 0.85rem;
++  background: var(--iz-surface);
++  transition: transform 240ms ease, border-color 240ms ease, background-color 240ms ease;
++}
++.iz-endpoint:hover {
++  transform: translateY(-2px);
++  border-color: var(--iz-line-strong);
++  background: var(--iz-surface-2);
++}
++.iz-endpoint-head {
++  display: flex;
++  align-items: center;
++  gap: 0.5rem;
++  min-width: 0;
++}
++.iz-endpoint-method {
++  font-family: var(--iz-mono);
++  font-size: 10.5px;
++  letter-spacing: 0.08em;
++  padding: 0.18rem 0.4rem;
++  border-radius: 0.35rem;
++  background: var(--iz-fg);
++  color: var(--iz-bg);
++  flex-shrink: 0;
++}
++.iz-endpoint-path {
++  font-family: var(--iz-mono);
++  font-size: 0.83rem;
++  color: var(--iz-fg);
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.iz-endpoint-desc {
++  margin: 0;
++  font-size: 0.83rem;
++  line-height: 1.55;
++  color: var(--iz-fg-muted);
++}
++.iz-endpoint-foot {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  margin-top: 0.25rem;
++  padding-top: 0.6rem;
++  border-top: 1px dashed var(--iz-line);
++}
++.iz-endpoint-tag {
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  color: var(--iz-fg-soft);
++}
++.iz-endpoint-status {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.35rem;
++  font-family: var(--iz-mono);
++  font-size: 10.5px;
++  color: var(--iz-fg-muted);
++  text-transform: uppercase;
++  letter-spacing: 0.08em;
++}
++.iz-endpoint-status-dot {
++  width: 5px;
++  height: 5px;
++  border-radius: 999px;
++  background: #22c55e;
++  box-shadow: 0 0 0 3px color-mix(in oklab, #22c55e 25%, transparent);
++  animation: iz-pulse 2.4s ease-in-out infinite;
++}
++
++/* ── QUICKSTART (code block) ── */
++.iz-quickstart {
++  position: relative;
++  padding: 6rem 1.25rem;
++  border-top: 1px solid var(--iz-line);
++}
++.iz-quickstart-inner {
++  max-width: 60rem;
++  margin: 0 auto;
++}
++.iz-code {
++  border: 1px solid var(--iz-line);
++  border-radius: 0.95rem;
++  background: var(--iz-bg);
++  box-shadow: 0 24px 60px -28px color-mix(in oklab, var(--foreground) 30%, transparent),
++    0 1px 0 color-mix(in oklab, var(--foreground) 5%, transparent) inset;
++  overflow: hidden;
++}
++.iz-code-bar {
++  display: flex;
++  align-items: center;
++  gap: 0.75rem;
++  padding: 0.65rem 0.75rem;
++  border-bottom: 1px solid var(--iz-line);
++  background: var(--iz-surface);
++}
++.iz-code-dots {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.35rem;
++  flex-shrink: 0;
++}
++.iz-code-dots span {
++  width: 10px;
++  height: 10px;
++  border-radius: 999px;
++  background: var(--iz-line-strong);
++}
++.iz-code-tabs {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.15rem;
++  margin: 0 auto 0 0.5rem;
++}
++.iz-code-tab {
++  font-family: var(--iz-mono);
++  font-size: 11.5px;
++  letter-spacing: 0.02em;
++  padding: 0.32rem 0.6rem;
++  border-radius: 0.4rem;
++  border: 1px solid transparent;
++  background: transparent;
++  color: var(--iz-fg-muted);
++  cursor: pointer;
++  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
++}
++.iz-code-tab:hover {
++  color: var(--iz-fg);
++}
++.iz-code-tab.is-active {
++  color: var(--iz-fg);
++  background: var(--iz-bg);
++  border-color: var(--iz-line);
++}
++.iz-code-copy {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.35rem;
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  letter-spacing: 0.04em;
++  padding: 0.32rem 0.55rem;
++  border-radius: 0.4rem;
++  border: 1px solid var(--iz-line);
++  background: var(--iz-bg);
++  color: var(--iz-fg-soft);
++  cursor: pointer;
++  transition: color 160ms ease, background-color 160ms ease;
++}
++.iz-code-copy:hover {
++  color: var(--iz-fg);
++  background: var(--iz-surface);
++}
++.iz-code-body {
++  margin: 0;
++  padding: 1.25rem 1.25rem;
++  font-family: var(--iz-mono);
++  font-size: 12.5px;
++  line-height: 1.7;
++  color: var(--iz-fg);
++  overflow-x: auto;
++  white-space: pre;
++  tab-size: 2;
++}
++.iz-code-foot {
++  display: flex;
++  align-items: center;
++  gap: 0.45rem;
++  padding: 0.55rem 0.95rem;
++  border-top: 1px solid var(--iz-line);
++  background: var(--iz-surface);
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  color: var(--iz-fg-muted);
++}
++.iz-code-foot-dot {
++  width: 5px;
++  height: 5px;
++  border-radius: 999px;
++  background: #22c55e;
++}
++
++/* ── CLOSING ── */
++.iz-closing {
++  position: relative;
++  padding: 7rem 1.25rem 8rem;
++  border-top: 1px solid var(--iz-line);
++  overflow: hidden;
++  isolation: isolate;
++}
++.iz-closing-bg,
++.iz-closing-grid {
++  position: absolute;
++  inset: 0;
++  pointer-events: none;
++}
++.iz-closing-bg {
++  background: radial-gradient(
++    80% 80% at 50% 50%,
++    color-mix(in oklab, var(--foreground) 8%, transparent),
++    transparent 70%
++  );
++  z-index: -2;
++}
++.iz-closing-grid {
++  background-image:
++    linear-gradient(to right, var(--iz-line) 1px, transparent 1px),
++    linear-gradient(to bottom, var(--iz-line) 1px, transparent 1px);
++  background-size: 48px 48px;
++  mask-image: radial-gradient(ellipse at 50% 50%, #000 30%, transparent 70%);
++  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 30%, transparent 70%);
++  opacity: 0.55;
++  z-index: -1;
++}
++.iz-closing-inner {
++  max-width: 40rem;
++  margin: 0 auto;
++  text-align: center;
++}
++.iz-closing-kicker {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.5rem;
++  padding: 0.3rem 0.7rem;
++  border: 1px solid var(--iz-line);
++  border-radius: 999px;
++  font-family: var(--iz-mono);
++  font-size: 11px;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++  color: var(--iz-fg-soft);
++  background: var(--iz-surface);
++}
++.iz-closing-kicker-dot {
++  width: 5px;
++  height: 5px;
++  border-radius: 999px;
++  background: var(--iz-fg);
++}
++.iz-closing-title {
++  margin: 1rem 0 0.85rem;
++  font-size: clamp(1.85rem, 3.2vw, 2.65rem);
++  line-height: 1.12;
++  letter-spacing: -0.025em;
++  font-weight: 600;
++  color: var(--iz-fg);
++}
++.iz-closing-sub {
++  margin: 0 0 1.5rem;
++  font-size: 0.975rem;
++  line-height: 1.65;
++  color: var(--iz-fg-muted);
++}
++.iz-closing-cta {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.65rem;
++}
++
++/* ── Keyframes ── */
++@keyframes iz-rise {
++  to {
++    transform: translateY(0);
++  }
++}
++@keyframes iz-fade-in {
++  from {
++    opacity: 0;
++    transform: translateY(8px);
++  }
++  to {
++    opacity: 1;
++    transform: translateY(0);
++  }
++}
++@keyframes iz-eyebrow-in {
++  from {
++    opacity: 0;
++    transform: translateY(-8px);
++  }
++  to {
++    opacity: 1;
++    transform: translateY(0);
++  }
++}
++@keyframes iz-pulse {
++  0%,
++  100% {
++    opacity: 1;
++  }
++  50% {
++    opacity: 0.5;
++  }
++}
++@keyframes iz-slot {
++  from {
++    transform: translateY(120%);
++    opacity: 0;
++  }
++  to {
++    transform: translateY(0);
++    opacity: 1;
++  }
++}
++@keyframes iz-scroll {
++  0% {
++    transform: translateY(-100%);
++  }
++  50% {
++    transform: translateY(120%);
++  }
++  100% {
++    transform: translateY(120%);
++  }
++}
++
++@media (max-width: 640px) {
++  .iz-hero {
++    padding-top: 6rem;
++    min-height: auto;
++  }
++  .iz-hero-base-frame {
++    flex-wrap: wrap;
++    gap: 0.4rem;
++  }
++  .iz-hero-base-url {
++    max-width: 100%;
++  }
++  .iz-hero-base-mount {
++    min-width: 0;
++  }
++  .iz-hero-stats {
++    gap: 0.85rem;
++    padding: 0.55rem 0.95rem;
++  }
++  .iz-pillar-cell {
++    border-right: none !important;
++  }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .iz-hero-title-word,
++  .iz-hero-title-accent,
++  .iz-hero-title-glow,
++  .iz-hero-eyebrow,
++  .iz-hero-sub,
++  .iz-hero-base,
++  .iz-hero-cta,
++  .iz-hero-stats,
++  .iz-hero-base-mount-path,
++  .iz-hero-scroll span,
++  .iz-hero-dot,
++  .iz-endpoint-status-dot {
++    animation: none !important;
++    transform: none !important;
++    opacity: 1 !important;
++  }
++}

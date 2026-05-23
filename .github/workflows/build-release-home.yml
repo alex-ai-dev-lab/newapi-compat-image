@@ -1,0 +1,185 @@
+name: Build patched NewAPI + home release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional upstream NewAPI tag, for example v1.0.0-rc.7"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: newapi-compat-home-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_API: https://api.github.com
+    steps:
+      - name: Build and publish patched image with home UI polish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+
+          api_get() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$1"
+          }
+
+          api_post_json() {
+            local url="$1"
+            local body_file="$2"
+            curl -fsSL \
+              -X POST \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/json" \
+              --data-binary @"${body_file}" \
+              "$url"
+          }
+
+          api_delete() {
+            local url="$1"
+            curl -fsSL \
+              -X DELETE \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$url"
+          }
+
+          upload_asset() {
+            local upload_url="$1"
+            local file="$2"
+            local name
+            name="$(basename "$file")"
+            echo "Uploading ${name}"
+            curl -fsSL \
+              -X POST \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"${file}" \
+              "${upload_url}?name=${name}"
+          }
+
+          echo "Cloning patch repository without Node-based actions"
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" patch-repo
+          cd patch-repo
+          git checkout -q "${GITHUB_SHA}"
+          cd ..
+
+          echo "Detecting latest upstream NewAPI release"
+          if [ -n "${REQUESTED_UPSTREAM_TAG:-}" ]; then
+            upstream_tag="${REQUESTED_UPSTREAM_TAG}"
+          else
+            upstream_json="$(api_get "${GH_API}/repos/QuantumNous/new-api/releases/latest")"
+            upstream_tag="$(jq -r '.tag_name // empty' <<<"${upstream_json}")"
+          fi
+          if [ -z "${upstream_tag}" ]; then
+            echo "Failed to detect upstream release tag" >&2
+            exit 1
+          fi
+
+          release_tag="patched-home-${upstream_tag}"
+          release_lookup_file="$(mktemp)"
+          release_code="$(curl -sS -o "${release_lookup_file}" -w '%{http_code}' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GH_API}/repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}")"
+          if [ "${release_code}" = "200" ]; then
+            if [ -n "${REQUESTED_UPSTREAM_TAG:-}" ]; then
+              echo "Release ${release_tag} already exists; manual run will replace it."
+              release_id="$(jq -r '.id' "${release_lookup_file}")"
+              api_delete "${GH_API}/repos/${GITHUB_REPOSITORY}/releases/${release_id}" || true
+              api_delete "${GH_API}/repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" || true
+            else
+              echo "Release ${release_tag} already exists, nothing to do."
+              exit 0
+            fi
+          fi
+
+          echo "Downloading upstream source ${upstream_tag}"
+          mkdir -p work out
+          curl -fsSL -o work/upstream.zip "https://github.com/QuantumNous/new-api/archive/refs/tags/${upstream_tag}.zip"
+          unzip -q work/upstream.zip -d work
+          upstream_dir="$(find work -maxdepth 1 -type d -name 'new-api-*' | head -n 1)"
+          if [ -z "${upstream_dir}" ]; then
+            echo "Failed to locate extracted upstream source directory" >&2
+            exit 1
+          fi
+
+          echo "Applying compatibility + home patches"
+          cd "${upstream_dir}"
+          git init -q -b main
+          for patch in \
+            "${GITHUB_WORKSPACE}/patch-repo/selected-compat-v7.patch"
+          do
+            if ! git apply --check "${patch}"; then
+              echo "::error::Patch does not apply cleanly to ${upstream_tag}: ${patch}"
+              exit 1
+            fi
+            git apply "${patch}"
+          done
+          printf '%s\n' "${upstream_tag}" > VERSION
+
+          echo "Building Docker image"
+          image_tag="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat-home:${upstream_tag}"
+          docker build -t "${image_tag}" .
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${image_tag}"
+
+          echo "Packaging artifacts"
+          cd "${GITHUB_WORKSPACE}"
+          docker save "${image_tag}" | gzip -9 > "out/newapi-patched-home-${upstream_tag}.tar.gz"
+          cp "patch-repo/selected-compat-v7.patch" "out/"
+          cp "patch-repo/selected-compat-v6.patch" "out/"
+          cp "patch-repo/iz-home.patch" "out/"
+          cp "patch-repo/SHA256SUMS.txt" "out/"
+          {
+            echo "Upstream version: ${upstream_tag}"
+            echo "Image tag: ${image_tag}"
+            echo
+            echo "This release is built from upstream NewAPI source with the compatibility patch plus the Interface Zero home polish patch applied automatically."
+          } > out/RELEASE_NOTES.md
+          sha256sum "out/newapi-patched-home-${upstream_tag}.tar.gz" "out/selected-compat-v7.patch" "out/selected-compat-v6.patch" "out/iz-home.patch" "out/SHA256SUMS.txt" "out/RELEASE_NOTES.md" > "out/ARTIFACTS.SHA256SUMS"
+
+          echo "Creating GitHub release ${release_tag}"
+          jq -n \
+            --arg tag_name "${release_tag}" \
+            --arg name "NewAPI patched home ${upstream_tag}" \
+            --rawfile body out/RELEASE_NOTES.md \
+            '{tag_name:$tag_name, name:$name, body:$body, draft:false, prerelease:false}' \
+            > out/release.json
+          release_json="$(api_post_json "${GH_API}/repos/${GITHUB_REPOSITORY}/releases" out/release.json)"
+          upload_url="$(jq -r '.upload_url | sub("\\{\\?name,label\\}$"; "")' <<<"${release_json}")"
+          if [ -z "${upload_url}" ] || [ "${upload_url}" = "null" ]; then
+            echo "Failed to get release upload URL" >&2
+            exit 1
+          fi
+
+          upload_asset "${upload_url}" "out/newapi-patched-home-${upstream_tag}.tar.gz" > /dev/null
+          upload_asset "${upload_url}" "out/selected-compat-v7.patch" > /dev/null
+          upload_asset "${upload_url}" "out/selected-compat-v6.patch" > /dev/null
+          upload_asset "${upload_url}" "out/iz-home.patch" > /dev/null
+          upload_asset "${upload_url}" "out/SHA256SUMS.txt" > /dev/null
+          upload_asset "${upload_url}" "out/ARTIFACTS.SHA256SUMS" > /dev/null
+          upload_asset "${upload_url}" "out/RELEASE_NOTES.md" > /dev/null
+
+          echo "Done: ${release_tag}"
