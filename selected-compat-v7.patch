@@ -1,5 +1,5 @@
 diff --git a/common/constants.go b/common/constants.go
-index c7d5637..91ee03b 100644
+index c7d5637c8e9ae47ce749f4f0b5b1542b73c17018..91ee03bf3e7c414a6e840cd007041404f3a19e96 100644
 --- a/common/constants.go
 +++ b/common/constants.go
 @@ -168,7 +168,8 @@ var SyncFrequency int // unit is second
@@ -13,7 +13,7 @@ index c7d5637..91ee03b 100644
  var RelayMaxIdleConns int
  var RelayMaxIdleConnsPerHost int
 diff --git a/common/init.go b/common/init.go
-index 35b4c6b..c11568f 100644
+index 35b4c6be17ee340b888d7cc792b397cd2356fe8f..c11568fcc7af5597037b0c50efad54c569433482 100644
 --- a/common/init.go
 +++ b/common/init.go
 @@ -102,6 +102,7 @@ func InitEnv() {
@@ -25,7 +25,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index b225585..06da7a4 100644
+index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e945e7a308 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -51,8 +51,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
@@ -130,7 +130,7 @@ index b225585..06da7a4 100644
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 diff --git a/controller/compat_channel_failover.go b/controller/compat_channel_failover.go
 new file mode 100644
-index 0000000..66530b2
+index 0000000000000000000000000000000000000000..66530b20041a77714114b8cb15a989ee3aee4e65
 --- /dev/null
 +++ b/controller/compat_channel_failover.go
 @@ -0,0 +1,70 @@
@@ -206,7 +206,7 @@ index 0000000..66530b2
 +}
 diff --git a/controller/compat_channel_failover_test.go b/controller/compat_channel_failover_test.go
 new file mode 100644
-index 0000000..44f4f75
+index 0000000000000000000000000000000000000000..44f4f7542bcf7fe1e48c44f69d646d0ef57cbe07
 --- /dev/null
 +++ b/controller/compat_channel_failover_test.go
 @@ -0,0 +1,107 @@
@@ -318,7 +318,7 @@ index 0000000..44f4f75
 +	}
 +}
 diff --git a/controller/relay.go b/controller/relay.go
-index 5e2db44..2e3479a 100644
+index 5e2db44c25a4e3bd9c65ef5d8f4589c913760047..2e3479ad480941f2ae579f16b66991aeca1c8186 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -596,7 +596,7 @@ index 5e2db44..2e3479a 100644
  	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
  	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 diff --git a/model/ability.go b/model/ability.go
-index 1d7c53f..f3d86db 100644
+index 1d7c53fa58050f98c8cf104d1bddd99d16727306..f3d86dbcab2231ce8f77023f4d0ac3fa5a57f2ed 100644
 --- a/model/ability.go
 +++ b/model/ability.go
 @@ -104,21 +104,51 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
@@ -673,7 +673,7 @@ index 1d7c53f..f3d86db 100644
  	models_ := strings.Split(channel.Models, ",")
  	groups_ := strings.Split(channel.Group, ",")
 diff --git a/model/channel_cache.go b/model/channel_cache.go
-index 03740d2..8909b7d 100644
+index 03740d2cd3ab1c618c0d285ae2d7b47410003587..8909b7df49e34cd68e9c31302c97d9219965dedf 100644
 --- a/model/channel_cache.go
 +++ b/model/channel_cache.go
 @@ -95,9 +95,13 @@ func SyncChannelCache(frequency int) {
@@ -737,7 +737,7 @@ index 03740d2..8909b7d 100644
  	if !common.MemoryCacheEnabled {
  		return GetChannelById(id, true)
 diff --git a/relay/channel/codex/adaptor.go b/relay/channel/codex/adaptor.go
-index ef4d4fa..62adb1f 100644
+index ef4d4fa041253acd59e992806e1c184c89205c34..62adb1f56f5979fd344b40496d25b90249fb297d 100644
 --- a/relay/channel/codex/adaptor.go
 +++ b/relay/channel/codex/adaptor.go
 @@ -96,14 +96,31 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
@@ -783,7 +783,7 @@ index ef4d4fa..62adb1f 100644
  }
  
 diff --git a/relay/channel/openai/adaptor.go b/relay/channel/openai/adaptor.go
-index 581ae19..b619fd7 100644
+index 581ae1966032a7bf480f3fdc62b928fd256750d2..b619fd745ad5a2a29ed194a464656cea038e2499 100644
 --- a/relay/channel/openai/adaptor.go
 +++ b/relay/channel/openai/adaptor.go
 @@ -629,6 +629,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
@@ -796,7 +796,7 @@ index 581ae19..b619fd7 100644
  			usage, err = OaiResponsesHandler(c, info, resp)
  		}
 diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
-index 2c07522..a0f15eb 100644
+index 2c0752275daa76377a5ef247446ff2ac158888d9..a0f15eb2822e214f2eae1839a072689b4e8b61ff 100644
 --- a/relay/channel/openai/chat_via_responses.go
 +++ b/relay/channel/openai/chat_via_responses.go
 @@ -4,6 +4,7 @@ import (
@@ -999,7 +999,7 @@ index 2c07522..a0f15eb 100644
  			info.ClaudeConvertInfo.Usage = usage
  		}
 diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
-index 2665b8d..2f8ab59 100644
+index 2665b8d027e9999c18d1b54953fc300cdb9a7823..2f8ab594817fdb17637426ce38c0b0e25249d27e 100644
 --- a/relay/channel/openai/relay_responses.go
 +++ b/relay/channel/openai/relay_responses.go
 @@ -1,6 +1,7 @@
@@ -1179,7 +1179,7 @@ index 2665b8d..2f8ab59 100644
  	if resp == nil || resp.Body == nil {
  		logger.LogError(c, "invalid response or response body")
 diff --git a/relay/chat_completions_via_responses.go b/relay/chat_completions_via_responses.go
-index 7a2eb9a..f98cfbd 100644
+index 7a2eb9aa6dac37fb7e6efc9865f2f764e97345d9..f98cfbd4cb36ceba9aafd13d781bb39726cebb5f 100644
 --- a/relay/chat_completions_via_responses.go
 +++ b/relay/chat_completions_via_responses.go
 @@ -97,6 +97,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
@@ -1220,7 +1220,7 @@ index 7a2eb9a..f98cfbd 100644
  		if newApiErr != nil {
  			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 diff --git a/relay/claude_handler.go b/relay/claude_handler.go
-index ec028c7..b183c81 100644
+index ec028c71f418a05afe498bc630d39f3ee16391b1..b183c81d79dec13c6f99eae090c41bf4dcdb4349 100644
 --- a/relay/claude_handler.go
 +++ b/relay/claude_handler.go
 @@ -131,7 +131,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
@@ -1233,7 +1233,7 @@ index ec028c7..b183c81 100644
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
-index 8a6c471..6406c64 100644
+index 8a6c471e27d7e692b47ccfdef1c20e50370f2287..6406c6422e5116996dab328af09a00fb948c3a56 100644
 --- a/relay/common/relay_info.go
 +++ b/relay/common/relay_info.go
 @@ -40,6 +40,8 @@ type ClaudeConvertInfo struct {
@@ -1246,7 +1246,7 @@ index 8a6c471..6406c64 100644
  	ToolCallBaseIndex      int
  	ToolCallMaxIndexOffset int
 diff --git a/relay/common/stream_status.go b/relay/common/stream_status.go
-index 57b0bb9..ac5ba90 100644
+index 57b0bb973b2e231d37b547910c9f5ddbb58bad2a..ac5ba903c43d4315f9d2af8f7edf2d96945f4dbb 100644
 --- a/relay/common/stream_status.go
 +++ b/relay/common/stream_status.go
 @@ -10,15 +10,16 @@ import (
@@ -1310,7 +1310,7 @@ index 57b0bb9..ac5ba90 100644
  	if s == nil {
  		return
 diff --git a/relay/common/stream_status_test.go b/relay/common/stream_status_test.go
-index 4a31cb7..fd917ca 100644
+index 4a31cb79fbcff5e31e2a622a8d4a88e603e2c347..fd917ca9e86314b1f14172052abfa48e4b38279c 100644
 --- a/relay/common/stream_status_test.go
 +++ b/relay/common/stream_status_test.go
 @@ -50,6 +50,7 @@ func TestStreamStatus_SetEndReason_Concurrent(t *testing.T) {
@@ -1350,7 +1350,7 @@ index 4a31cb7..fd917ca 100644
  		{StreamEndReasonScannerErr, false},
  		{StreamEndReasonPanic, false},
 diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
-index fdd54f3..04e9df6 100644
+index fdd54f39d19491481608014cd333fa4e0ebfb5f1..04e9df6797eaa673dde26079bb6f24769e432b7d 100644
 --- a/relay/compatible_handler.go
 +++ b/relay/compatible_handler.go
 @@ -75,7 +75,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
@@ -1363,7 +1363,7 @@ index fdd54f3..04e9df6 100644
  		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
  		if newApiErr != nil {
 diff --git a/relay/helper/stream_scanner.go b/relay/helper/stream_scanner.go
-index 1d44b80..bb5a879 100644
+index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0e75a6825 100644
 --- a/relay/helper/stream_scanner.go
 +++ b/relay/helper/stream_scanner.go
 @@ -40,8 +40,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
@@ -1453,7 +1453,7 @@ index 1d44b80..bb5a879 100644
  		// EndReason already set by the goroutine that triggered stopChan
  	case <-c.Request.Context().Done():
 diff --git a/relay/helper/stream_scanner_test.go b/relay/helper/stream_scanner_test.go
-index 9d6f3bb..44a02c9 100644
+index 9d6f3bb4912387d496e29a07a6ef679c2c28f345..44a02c99e0487575f39e74665e5a16eb94dfdd1a 100644
 --- a/relay/helper/stream_scanner_test.go
 +++ b/relay/helper/stream_scanner_test.go
 @@ -11,6 +11,7 @@ import (
@@ -1529,7 +1529,7 @@ index 9d6f3bb..44a02c9 100644
  	t.Parallel()
  
 diff --git a/relay/helper/valid_request.go b/relay/helper/valid_request.go
-index 2581b28..b2272f0 100644
+index 2581b2812c940cec7c78aa897464610f5e929ce9..b2272f04112a882ed1e40dac265694f07a2023b8 100644
 --- a/relay/helper/valid_request.go
 +++ b/relay/helper/valid_request.go
 @@ -239,6 +239,8 @@ func GetAndValidateClaudeRequest(c *gin.Context) (textRequest *dto.ClaudeRequest
@@ -1650,7 +1650,7 @@ index 2581b28..b2272f0 100644
  	textRequest := &dto.GeneralOpenAIRequest{}
  	err := common.UnmarshalBodyReusable(c, textRequest)
 diff --git a/relay/responses_handler.go b/relay/responses_handler.go
-index 54ca3cb..63872f8 100644
+index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46ac8aa1fed 100644
 --- a/relay/responses_handler.go
 +++ b/relay/responses_handler.go
 @@ -61,6 +61,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
@@ -1666,7 +1666,7 @@ index 54ca3cb..63872f8 100644
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/service/channel.go b/service/channel.go
-index 3fde6e2..46b5531 100644
+index 3fde6e207b68dd8370453551de309942f74d22d3..46b5531f05d6ee89506d82d09a803f4090293968 100644
 --- a/service/channel.go
 +++ b/service/channel.go
 @@ -58,6 +58,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
@@ -1689,7 +1689,7 @@ index 3fde6e2..46b5531 100644
  	}
  	return true
 diff --git a/service/channel_select.go b/service/channel_select.go
-index a3710ef..1aa23c6 100644
+index a3710ef8cec345a4771bc421aa63dd17c8cf2446..1aa23c671c9e143f6d75207be75ac1ca26fc039a 100644
 --- a/service/channel_select.go
 +++ b/service/channel_select.go
 @@ -12,11 +12,12 @@ import (
@@ -1729,7 +1729,7 @@ index a3710ef..1aa23c6 100644
  			return nil, param.TokenGroup, err
  		}
 diff --git a/service/convert.go b/service/convert.go
-index 95acf83..2a5de8c 100644
+index 95acf835ee46dd766ccf5e3456e37545a8f32d44..2a5de8c84d67708b8db9c64846333f5ab83fff6a 100644
 --- a/service/convert.go
 +++ b/service/convert.go
 @@ -87,6 +87,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
@@ -2092,7 +2092,7 @@ index 95acf83..2a5de8c 100644
  	b, err := json.Marshal(v)
  	if err != nil {
 diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
-index 4e18e67..20a1b9d 100644
+index 4e18e6724c41078991df351d1f2a65b308d565f6..20a1b9d7694844ccd6cc307c1f881a42596de090 100644
 --- a/web/default/src/components/layout/components/footer.tsx
 +++ b/web/default/src/components/layout/components/footer.tsx
 @@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
@@ -2164,7 +2164,7 @@ index 4e18e67..20a1b9d 100644
                &copy; {currentYear} {displayName}.{' '}
                {props.copyright ?? t('footer.defaultCopyright')}
 diff --git a/web/default/src/components/layout/components/mobile-drawer.tsx b/web/default/src/components/layout/components/mobile-drawer.tsx
-index 8108631..02d119a 100644
+index 810863128c4548e93a0f75c04b0a080dac487c13..02d119a39e19e120ea2c2fe702a82cf6f2546772 100644
 --- a/web/default/src/components/layout/components/mobile-drawer.tsx
 +++ b/web/default/src/components/layout/components/mobile-drawer.tsx
 @@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
@@ -2185,7 +2185,7 @@ index 8108631..02d119a 100644
            </Avatar>
            <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
 diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
-index 4aca836..ccc9816 100644
+index 4aca8365b70a15f09e125baa212bba847c914763..ccc9816e561176ece2c5f20da8b6dc6a4666009a 100644
 --- a/web/default/src/components/layout/components/public-header.tsx
 +++ b/web/default/src/components/layout/components/public-header.tsx
 @@ -201,7 +201,7 @@ export function PublicHeader(props: PublicHeaderProps) {
@@ -2216,7 +2216,7 @@ index 4aca836..ccc9816 100644
  
 diff --git a/web/default/src/features/home/components/sections/iz-closing.tsx b/web/default/src/features/home/components/sections/iz-closing.tsx
 new file mode 100644
-index 0000000..a189443
+index 0000000000000000000000000000000000000000..a189443ad26e8afd89ff4abacc053070398e3e26
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-closing.tsx
 @@ -0,0 +1,76 @@
@@ -2298,7 +2298,7 @@ index 0000000..a189443
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-endpoints.tsx b/web/default/src/features/home/components/sections/iz-endpoints.tsx
 new file mode 100644
-index 0000000..c311824
+index 0000000000000000000000000000000000000000..c311824bea1f72ec43fa2db17589d79bba48f2ff
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-endpoints.tsx
 @@ -0,0 +1,84 @@
@@ -2388,7 +2388,7 @@ index 0000000..c311824
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-hero.tsx b/web/default/src/features/home/components/sections/iz-hero.tsx
 new file mode 100644
-index 0000000..571a41b
+index 0000000000000000000000000000000000000000..571a41b1625451275db8e81de1739a2bf264168d
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-hero.tsx
 @@ -0,0 +1,195 @@
@@ -2589,7 +2589,7 @@ index 0000000..571a41b
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-pillars.tsx b/web/default/src/features/home/components/sections/iz-pillars.tsx
 new file mode 100644
-index 0000000..3fed08b
+index 0000000000000000000000000000000000000000..3fed08bdb5a43dc755306e5d5b5360cd856a05ba
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-pillars.tsx
 @@ -0,0 +1,109 @@
@@ -2704,7 +2704,7 @@ index 0000000..3fed08b
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-quickstart.tsx b/web/default/src/features/home/components/sections/iz-quickstart.tsx
 new file mode 100644
-index 0000000..e6759c9
+index 0000000000000000000000000000000000000000..e6759c992dab5516882afcd7dd20aea4edfc2cd3
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-quickstart.tsx
 @@ -0,0 +1,163 @@
@@ -2872,7 +2872,7 @@ index 0000000..e6759c9
 +  )
 +}
 diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
-index 2c7a8f3..4c071ab 100644
+index 2c7a8f3dd77de2dfab7fde8678297988743e37af..4c071ab46f2436c36534f5686daa45e4a5248426 100644
 --- a/web/default/src/features/home/index.tsx
 +++ b/web/default/src/features/home/index.tsx
 @@ -21,7 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
@@ -2908,7 +2908,7 @@ index 2c7a8f3..4c071ab 100644
      </PublicLayout>
    )
 diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
-index a9a86b7..b043696 100644
+index a9a86b76b564eaefe3a7fe363082f7ebec89679f..b0436968843a4cbf6c0a4c7fe24aa7ba8f31d6d7 100644
 --- a/web/default/src/features/playground/index.tsx
 +++ b/web/default/src/features/playground/index.tsx
 @@ -22,7 +22,11 @@ import { getUserModels, getUserGroups } from './api'
@@ -2946,7 +2946,7 @@ index a9a86b7..b043696 100644
        setEditingMessageKey(null)
  
 diff --git a/web/default/src/features/playground/lib/message-utils.ts b/web/default/src/features/playground/lib/message-utils.ts
-index 6128a37..35e2e6c 100644
+index 6128a378044a04199b765720cdee7f6d1dcca3c6..35e2e6c8a423cceda2ef28027480c02c27a11513 100644
 --- a/web/default/src/features/playground/lib/message-utils.ts
 +++ b/web/default/src/features/playground/lib/message-utils.ts
 @@ -39,6 +39,10 @@ export function createMessageVersion(content: string): MessageVersion {
@@ -2989,7 +2989,7 @@ index 6128a37..35e2e6c 100644
    for (let i = messages.length - 1; i >= 0; i--) {
      const m = messages[i]
 diff --git a/web/default/src/features/playground/lib/storage.ts b/web/default/src/features/playground/lib/storage.ts
-index 1ad2357..a6c6376 100644
+index 1ad23571be18aea69539472851fc9edad6424065..a6c63760cbbabab0ea35c38b10e268277dc49b01 100644
 --- a/web/default/src/features/playground/lib/storage.ts
 +++ b/web/default/src/features/playground/lib/storage.ts
 @@ -16,20 +16,192 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
@@ -3256,7 +3256,7 @@ index 1ad2357..a6c6376 100644
      console.error('Failed to load messages:', error)
    }
 diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
-index 0f43c4e..d89ab5a 100644
+index 0f43c4e641fe4229989296ebea81a504401fdffe..d89ab5a18d0a46a71f92295f9dc8d1b0eb6900d3 100644
 --- a/web/default/src/styles/index.css
 +++ b/web/default/src/styles/index.css
 @@ -583,3 +583,869 @@ For commercial licensing, please contact support@quantumnous.com

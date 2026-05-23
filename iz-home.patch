@@ -1,8 +1,8 @@
 diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
-index b27e2f9..5486c57 100644
+index 4e18e6724c41078991df351d1f2a65b308d565f6..20a1b9d7694844ccd6cc307c1f881a42596de090 100644
 --- a/web/default/src/components/layout/components/footer.tsx
 +++ b/web/default/src/components/layout/components/footer.tsx
-@@ -195,23 +195,37 @@ export function Footer(props: FooterProps) {
+@@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
      <footer
        className={cn('border-border/40 relative z-10 border-t', props.className)}
      >
@@ -50,7 +50,7 @@ index b27e2f9..5486c57 100644
            </div>
  
            {/* Links columns */}
-@@ -219,7 +233,7 @@ export function Footer(props: FooterProps) {
+@@ -273,7 +287,7 @@ export function Footer(props: FooterProps) {
              <div className='grid grid-cols-3 gap-8 md:gap-16'>
                {displayColumns.map((column, index) => (
                  <div key={index}>
@@ -59,19 +59,19 @@ index b27e2f9..5486c57 100644
                      {t(column.title)}
                    </p>
                    <ul className='space-y-2.5'>
-@@ -236,8 +250,8 @@ export function Footer(props: FooterProps) {
-         </div>
+@@ -291,8 +305,8 @@ export function Footer(props: FooterProps) {
  
-         {/* Bottom section */}
--        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-3 border-t pt-6 sm:flex-row'>
--          <p className='text-muted-foreground/40 text-xs'>
-+        <div className='border-border/30 mt-10 flex flex-col items-center justify-between gap-3 border-t pt-6 sm:flex-row'>
-+          <p className='text-muted-foreground/45 text-xs'>
-             &copy; {currentYear} {displayName}.{' '}
-             {props.copyright ?? t('footer.defaultCopyright')}
-           </p>
+         {/* Copyright + optional legal links inline on the left, project
+             attribution on the right; wraps on narrow screens. */}
+-        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
+-          <div className='text-muted-foreground/40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
++        <div className='border-border/30 mt-10 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
++          <div className='text-muted-foreground/45 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
+             <span>
+               &copy; {currentYear} {displayName}.{' '}
+               {props.copyright ?? t('footer.defaultCopyright')}
 diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
-index 4aca836..ccc9816 100644
+index 4aca8365b70a15f09e125baa212bba847c914763..ccc9816e561176ece2c5f20da8b6dc6a4666009a 100644
 --- a/web/default/src/components/layout/components/public-header.tsx
 +++ b/web/default/src/components/layout/components/public-header.tsx
 @@ -201,7 +201,7 @@ export function PublicHeader(props: PublicHeaderProps) {
@@ -102,7 +102,7 @@ index 4aca836..ccc9816 100644
  
 diff --git a/web/default/src/features/home/components/sections/iz-closing.tsx b/web/default/src/features/home/components/sections/iz-closing.tsx
 new file mode 100644
-index 0000000..a189443
+index 0000000000000000000000000000000000000000..a189443ad26e8afd89ff4abacc053070398e3e26
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-closing.tsx
 @@ -0,0 +1,76 @@
@@ -184,7 +184,7 @@ index 0000000..a189443
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-endpoints.tsx b/web/default/src/features/home/components/sections/iz-endpoints.tsx
 new file mode 100644
-index 0000000..c311824
+index 0000000000000000000000000000000000000000..c311824bea1f72ec43fa2db17589d79bba48f2ff
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-endpoints.tsx
 @@ -0,0 +1,84 @@
@@ -274,7 +274,7 @@ index 0000000..c311824
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-hero.tsx b/web/default/src/features/home/components/sections/iz-hero.tsx
 new file mode 100644
-index 0000000..571a41b
+index 0000000000000000000000000000000000000000..571a41b1625451275db8e81de1739a2bf264168d
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-hero.tsx
 @@ -0,0 +1,195 @@
@@ -475,7 +475,7 @@ index 0000000..571a41b
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-pillars.tsx b/web/default/src/features/home/components/sections/iz-pillars.tsx
 new file mode 100644
-index 0000000..3fed08b
+index 0000000000000000000000000000000000000000..3fed08bdb5a43dc755306e5d5b5360cd856a05ba
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-pillars.tsx
 @@ -0,0 +1,109 @@
@@ -590,7 +590,7 @@ index 0000000..3fed08b
 +}
 diff --git a/web/default/src/features/home/components/sections/iz-quickstart.tsx b/web/default/src/features/home/components/sections/iz-quickstart.tsx
 new file mode 100644
-index 0000000..e6759c9
+index 0000000000000000000000000000000000000000..e6759c992dab5516882afcd7dd20aea4edfc2cd3
 --- /dev/null
 +++ b/web/default/src/features/home/components/sections/iz-quickstart.tsx
 @@ -0,0 +1,163 @@
@@ -758,7 +758,7 @@ index 0000000..e6759c9
 +  )
 +}
 diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
-index 2c7a8f3..4c071ab 100644
+index 2c7a8f3dd77de2dfab7fde8678297988743e37af..4c071ab46f2436c36534f5686daa45e4a5248426 100644
 --- a/web/default/src/features/home/index.tsx
 +++ b/web/default/src/features/home/index.tsx
 @@ -21,7 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
@@ -794,7 +794,7 @@ index 2c7a8f3..4c071ab 100644
      </PublicLayout>
    )
 diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
-index 0f43c4e..d89ab5a 100644
+index 0f43c4e641fe4229989296ebea81a504401fdffe..d89ab5a18d0a46a71f92295f9dc8d1b0eb6900d3 100644
 --- a/web/default/src/styles/index.css
 +++ b/web/default/src/styles/index.css
 @@ -583,3 +583,869 @@ For commercial licensing, please contact support@quantumnous.com
