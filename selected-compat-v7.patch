@@ -1706,10 +1706,22 @@ index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46a
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/router/web-router.go b/router/web-router.go
-index 0d475e90d54d5ddf0132c77d694551132d048c85..e487efd3f0d62637fa45c6b409bfe81d1a33d8fb 100644
+index 0d475e90d54d5ddf0132c77d694551132d048c85..3d893d8bdde1b93a7da62cf94ca768433f869947 100644
 --- a/router/web-router.go
 +++ b/router/web-router.go
-@@ -37,6 +37,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+@@ -29,6 +29,11 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+ 	router.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	router.Use(middleware.GlobalWebRateLimit())
+ 	router.Use(middleware.Cache())
++	router.GET("/", func(c *gin.Context) {
++		c.Set(middleware.RouteTagKey, "web")
++		c.Header("Cache-Control", "no-cache")
++		c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
++	})
+ 	router.Use(static.Serve("/", themeFS))
+ 	router.NoRoute(func(c *gin.Context) {
+ 		c.Set(middleware.RouteTagKey, "web")
+@@ -37,6 +42,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
  			return
  		}
  		c.Header("Cache-Control", "no-cache")
