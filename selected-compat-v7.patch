@@ -1755,10 +1755,10 @@ index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46a
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/router/web-router.go b/router/web-router.go
-index 0d475e90d54d5ddf0132c77d694551132d048c85..e9af577a661c05cca629f56ccff2e0287ab70323 100644
+index 0d475e90d54d5ddf0132c77d694551132d048c85..91fc1bee2686036bf4047a239b6272f5bd86927f 100644
 --- a/router/web-router.go
 +++ b/router/web-router.go
-@@ -24,11 +24,19 @@ type ThemeAssets struct {
+@@ -24,11 +24,27 @@ type ThemeAssets struct {
  func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
  	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
  	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
@@ -1775,10 +1775,18 @@ index 0d475e90d54d5ddf0132c77d694551132d048c85..e9af577a661c05cca629f56ccff2e028
 +		c.Header("Cache-Control", "no-cache")
 +		c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
 +	})
++	router.GET("/static/*filepath", func(c *gin.Context) {
++		http.StripPrefix("/", http.FileServer(classicFS)).ServeHTTP(c.Writer, c.Request)
++		c.Abort()
++	})
++	router.GET("/assets/*filepath", func(c *gin.Context) {
++		http.StripPrefix("/", http.FileServer(defaultFS)).ServeHTTP(c.Writer, c.Request)
++		c.Abort()
++	})
  	router.Use(static.Serve("/", themeFS))
  	router.NoRoute(func(c *gin.Context) {
  		c.Set(middleware.RouteTagKey, "web")
-@@ -37,6 +45,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+@@ -37,6 +53,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
  			return
  		}
  		c.Header("Cache-Control", "no-cache")
