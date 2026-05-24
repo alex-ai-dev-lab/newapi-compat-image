@@ -1,8 +1,8 @@
 diff --git a/common/embed-file-system.go b/common/embed-file-system.go
-index e76fbb8016f4075e93898cc7930822b49c3b6638..4afcb167edea3ed2350cef027f4c76fcb04510a1 100644
+index e76fbb8016f4075e93898cc7930822b49c3b6638..ae97f16ef482e702cae49f6fbfdfc94a3fb5b1ec 100644
 --- a/common/embed-file-system.go
 +++ b/common/embed-file-system.go
-@@ -5,6 +5,7 @@ import (
+@@ -5,17 +5,22 @@ import (
  	"io/fs"
  	"net/http"
  	"os"
@@ -10,10 +10,50 @@ index e76fbb8016f4075e93898cc7930822b49c3b6638..4afcb167edea3ed2350cef027f4c76fc
  
  	"github.com/gin-contrib/static"
  )
-@@ -51,6 +52,13 @@ type themeAwareFileSystem struct {
+ 
+ // Credit: https://github.com/gin-contrib/static/issues/19
+ 
+-type embedFileSystem struct {
++type EmbedFileSystem struct {
+ 	http.FileSystem
++	ServeIndex bool
+ }
+ 
+-func (e *embedFileSystem) Exists(prefix string, path string) bool {
++func (e *EmbedFileSystem) Exists(prefix string, path string) bool {
++	if e.ServeIndex && path == "/" {
++		return true
++	}
+ 	_, err := e.Open(path)
+ 	if err != nil {
+ 		return false
+@@ -23,8 +28,8 @@ func (e *embedFileSystem) Exists(prefix string, path string) bool {
+ 	return true
+ }
+ 
+-func (e *embedFileSystem) Open(name string) (http.File, error) {
+-	if name == "/" {
++func (e *EmbedFileSystem) Open(name string) (http.File, error) {
++	if name == "/" && !e.ServeIndex {
+ 		// This will make sure the index page goes to NoRouter handler,
+ 		// which will use the replaced index bytes with analytic codes.
+ 		return nil, os.ErrNotExist
+@@ -37,7 +42,7 @@ func EmbedFolder(fsEmbed embed.FS, targetPath string) static.ServeFileSystem {
+ 	if err != nil {
+ 		panic(err)
+ 	}
+-	return &embedFileSystem{
++	return &EmbedFileSystem{
+ 		FileSystem: http.FS(efs),
+ 	}
+ }
+@@ -51,6 +56,16 @@ type themeAwareFileSystem struct {
  }
  
  func (t *themeAwareFileSystem) Exists(prefix string, path string) bool {
++	if path == "/" {
++		return t.defaultFS.Exists(prefix, path)
++	}
 +	cleanPath := strings.TrimPrefix(path, "/")
 +	if strings.HasPrefix(cleanPath, "assets/") {
 +		return t.defaultFS.Exists(prefix, path)
@@ -24,10 +64,13 @@ index e76fbb8016f4075e93898cc7930822b49c3b6638..4afcb167edea3ed2350cef027f4c76fc
  	if GetTheme() == "classic" {
  		return t.classicFS.Exists(prefix, path)
  	}
-@@ -58,6 +66,13 @@ func (t *themeAwareFileSystem) Exists(prefix string, path string) bool {
+@@ -58,6 +73,16 @@ func (t *themeAwareFileSystem) Exists(prefix string, path string) bool {
  }
  
  func (t *themeAwareFileSystem) Open(name string) (http.File, error) {
++	if name == "/" {
++		return t.defaultFS.Open(name)
++	}
 +	cleanName := strings.TrimPrefix(name, "/")
 +	if strings.HasPrefix(cleanName, "assets/") {
 +		return t.defaultFS.Open(name)
@@ -39,10 +82,18 @@ index e76fbb8016f4075e93898cc7930822b49c3b6638..4afcb167edea3ed2350cef027f4c76fc
  		return t.classicFS.Open(name)
  	}
 diff --git a/router/web-router.go b/router/web-router.go
-index 0d475e90d54d5ddf0132c77d694551132d048c85..3d893d8bdde1b93a7da62cf94ca768433f869947 100644
+index 0d475e90d54d5ddf0132c77d694551132d048c85..e9af577a661c05cca629f56ccff2e0287ab70323 100644
 --- a/router/web-router.go
 +++ b/router/web-router.go
-@@ -29,6 +29,11 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+@@ -24,11 +24,19 @@ type ThemeAssets struct {
+ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+ 	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
+ 	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
++	if fsWithIndex, ok := defaultFS.(*common.EmbedFileSystem); ok {
++		fsWithIndex.ServeIndex = true
++	}
+ 	themeFS := common.NewThemeAwareFS(defaultFS, classicFS)
+ 
  	router.Use(gzip.Gzip(gzip.DefaultCompression))
  	router.Use(middleware.GlobalWebRateLimit())
  	router.Use(middleware.Cache())
@@ -54,7 +105,7 @@ index 0d475e90d54d5ddf0132c77d694551132d048c85..3d893d8bdde1b93a7da62cf94ca76843
  	router.Use(static.Serve("/", themeFS))
  	router.NoRoute(func(c *gin.Context) {
  		c.Set(middleware.RouteTagKey, "web")
-@@ -37,6 +42,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+@@ -37,6 +45,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
  			return
  		}
  		c.Header("Cache-Control", "no-cache")
