@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [ "$#" -lt 3 ]; then
   echo "Usage: $0 <new-api-source-dir> <compat-patch> <new-image-tag> [version]"
-  echo "Example: $0 /path/to/new-api-source /path/to/selected-compat-v6.patch new-api:compat-custom-$(date +%Y%m%d%H%M) v1.0.0-rc.5"
+  echo "Example: $0 /path/to/new-api-source /path/to/newapi-compat-core.patch new-api:compat-custom-$(date +%Y%m%d%H%M) v1.0.0-rc.8"
   exit 2
 fi
 

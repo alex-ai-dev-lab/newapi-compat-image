@@ -1,4 +1,4 @@
-name: Build patched NewAPI release
+name: Build NewAPI compat image
 
 on:
   workflow_dispatch:
@@ -96,7 +96,7 @@ jobs:
             exit 1
           fi
 
-          release_tag="patched-${upstream_tag}"
+          release_tag="newapi-compat-${upstream_tag}"
           release_lookup_file="$(mktemp)"
           release_code="$(curl -sS -o "${release_lookup_file}" -w '%{http_code}' \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
@@ -128,13 +128,13 @@ jobs:
           echo "Applying compatibility patch"
           cd "${upstream_dir}"
           git init -q -b main
-          if ! git apply --check "${GITHUB_WORKSPACE}/patch-repo/selected-compat-v6.patch"; then
+          if ! git apply --check "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch"; then
             echo "::error::Compatibility patch does not apply cleanly to ${upstream_tag}."
             echo "Recent patch headers:"
-            grep -nE '^(diff --git|@@ )' "${GITHUB_WORKSPACE}/patch-repo/selected-compat-v6.patch" | tail -n 80 || true
+            grep -nE '^(diff --git|@@ )' "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch" | tail -n 80 || true
             exit 1
           fi
-          git apply "${GITHUB_WORKSPACE}/patch-repo/selected-compat-v6.patch"
+          git apply "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch"
           printf '%s\n' "${upstream_tag}" > VERSION
 
           echo "Building Docker image"
@@ -145,21 +145,21 @@ jobs:
 
           echo "Packaging artifacts"
           cd "${GITHUB_WORKSPACE}"
-          docker save "${image_tag}" | gzip -9 > "out/newapi-patched-${upstream_tag}.tar.gz"
-          cp "patch-repo/selected-compat-v6.patch" "out/"
+          docker save "${image_tag}" | gzip -9 > "out/newapi-compat-image-${upstream_tag}.tar.gz"
+          cp "patch-repo/newapi-compat-core.patch" "out/"
           cp "patch-repo/SHA256SUMS.txt" "out/"
           {
             echo "Upstream version: ${upstream_tag}"
             echo "Image tag: ${image_tag}"
             echo
-            echo "This release is built from upstream NewAPI source with the compatibility patch applied automatically."
+            echo "普通功能补丁镜像：基于原版 NewAPI ${upstream_tag}，只应用 newapi-compat-core.patch。"
           } > out/RELEASE_NOTES.md
-          sha256sum "out/newapi-patched-${upstream_tag}.tar.gz" "out/selected-compat-v6.patch" "out/SHA256SUMS.txt" "out/RELEASE_NOTES.md" > "out/ARTIFACTS.SHA256SUMS"
+          sha256sum "out/newapi-compat-image-${upstream_tag}.tar.gz" "out/newapi-compat-core.patch" "out/SHA256SUMS.txt" "out/RELEASE_NOTES.md" > "out/ARTIFACTS.SHA256SUMS"
 
           echo "Creating GitHub release ${release_tag}"
           jq -n \
             --arg tag_name "${release_tag}" \
-            --arg name "NewAPI patched ${upstream_tag}" \
+            --arg name "NewAPI compat image ${upstream_tag}" \
             --rawfile body out/RELEASE_NOTES.md \
             '{tag_name:$tag_name, name:$name, body:$body, draft:false, prerelease:false}' \
             > out/release.json
@@ -170,8 +170,8 @@ jobs:
             exit 1
           fi
 
-          upload_asset "${upload_url}" "out/newapi-patched-${upstream_tag}.tar.gz" > /dev/null
-          upload_asset "${upload_url}" "out/selected-compat-v6.patch" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-compat-image-${upstream_tag}.tar.gz" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-compat-core.patch" > /dev/null
           upload_asset "${upload_url}" "out/SHA256SUMS.txt" > /dev/null
           upload_asset "${upload_url}" "out/ARTIFACTS.SHA256SUMS" > /dev/null
           upload_asset "${upload_url}" "out/RELEASE_NOTES.md" > /dev/null
