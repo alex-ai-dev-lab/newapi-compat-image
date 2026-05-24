@@ -13,7 +13,7 @@ index c7d5637c8e9ae47ce749f4f0b5b1542b73c17018..91ee03bf3e7c414a6e840cd007041404
  var RelayMaxIdleConns int
  var RelayMaxIdleConnsPerHost int
 diff --git a/common/embed-file-system.go b/common/embed-file-system.go
-index e76fbb8016f4075e93898cc7930822b49c3b6638..ae97f16ef482e702cae49f6fbfdfc94a3fb5b1ec 100644
+index e76fbb8016f4075e93898cc7930822b49c3b6638..71409864fe6f14541bcdad21456958cb50b18fa3 100644
 --- a/common/embed-file-system.go
 +++ b/common/embed-file-system.go
 @@ -5,17 +5,22 @@ import (
@@ -41,7 +41,7 @@ index e76fbb8016f4075e93898cc7930822b49c3b6638..ae97f16ef482e702cae49f6fbfdfc94a
  	_, err := e.Open(path)
  	if err != nil {
  		return false
-@@ -23,8 +28,8 @@ func (e *embedFileSystem) Exists(prefix string, path string) bool {
+@@ -23,13 +28,13 @@ func (e *embedFileSystem) Exists(prefix string, path string) bool {
  	return true
  }
  
@@ -52,6 +52,12 @@ index e76fbb8016f4075e93898cc7930822b49c3b6638..ae97f16ef482e702cae49f6fbfdfc94a
  		// This will make sure the index page goes to NoRouter handler,
  		// which will use the replaced index bytes with analytic codes.
  		return nil, os.ErrNotExist
+ 	}
+-	return e.FileSystem.Open(name)
++	return e.FileSystem.Open(strings.TrimPrefix(name, "/"))
+ }
+ 
+ func EmbedFolder(fsEmbed embed.FS, targetPath string) static.ServeFileSystem {
 @@ -37,7 +42,7 @@ func EmbedFolder(fsEmbed embed.FS, targetPath string) static.ServeFileSystem {
  	if err != nil {
  		panic(err)
