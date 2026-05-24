@@ -12,6 +12,46 @@ index c7d5637c8e9ae47ce749f4f0b5b1542b73c17018..91ee03bf3e7c414a6e840cd007041404
  
  var RelayMaxIdleConns int
  var RelayMaxIdleConnsPerHost int
+diff --git a/common/embed-file-system.go b/common/embed-file-system.go
+index e76fbb8016f4075e93898cc7930822b49c3b6638..4afcb167edea3ed2350cef027f4c76fcb04510a1 100644
+--- a/common/embed-file-system.go
++++ b/common/embed-file-system.go
+@@ -5,6 +5,7 @@ import (
+ 	"io/fs"
+ 	"net/http"
+ 	"os"
++	"strings"
+ 
+ 	"github.com/gin-contrib/static"
+ )
+@@ -51,6 +52,13 @@ type themeAwareFileSystem struct {
+ }
+ 
+ func (t *themeAwareFileSystem) Exists(prefix string, path string) bool {
++	cleanPath := strings.TrimPrefix(path, "/")
++	if strings.HasPrefix(cleanPath, "assets/") {
++		return t.defaultFS.Exists(prefix, path)
++	}
++	if strings.HasPrefix(cleanPath, "static/") {
++		return t.classicFS.Exists(prefix, path)
++	}
+ 	if GetTheme() == "classic" {
+ 		return t.classicFS.Exists(prefix, path)
+ 	}
+@@ -58,6 +66,13 @@ func (t *themeAwareFileSystem) Exists(prefix string, path string) bool {
+ }
+ 
+ func (t *themeAwareFileSystem) Open(name string) (http.File, error) {
++	cleanName := strings.TrimPrefix(name, "/")
++	if strings.HasPrefix(cleanName, "assets/") {
++		return t.defaultFS.Open(name)
++	}
++	if strings.HasPrefix(cleanName, "static/") {
++		return t.classicFS.Open(name)
++	}
+ 	if GetTheme() == "classic" {
+ 		return t.classicFS.Open(name)
+ 	}
 diff --git a/common/init.go b/common/init.go
 index 35b4c6be17ee340b888d7cc792b397cd2356fe8f..c11568fcc7af5597037b0c50efad54c569433482 100644
 --- a/common/init.go
@@ -1665,6 +1705,21 @@ index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46a
  	err = helper.ModelMappedHelper(c, info, request)
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+diff --git a/router/web-router.go b/router/web-router.go
+index 0d475e90d54d5ddf0132c77d694551132d048c85..e487efd3f0d62637fa45c6b409bfe81d1a33d8fb 100644
+--- a/router/web-router.go
++++ b/router/web-router.go
+@@ -37,6 +37,10 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+ 			return
+ 		}
+ 		c.Header("Cache-Control", "no-cache")
++		if c.Request.URL.Path == "/" {
++			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
++			return
++		}
+ 		if common.GetTheme() == "classic" {
+ 			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.ClassicIndexPage)
+ 		} else {
 diff --git a/service/channel.go b/service/channel.go
 index 3fde6e207b68dd8370453551de309942f74d22d3..46b5531f05d6ee89506d82d09a803f4090293968 100644
 --- a/service/channel.go
