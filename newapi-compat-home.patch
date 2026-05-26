@@ -25,7 +25,7 @@ index 35b4c6be17ee340b888d7cc792b397cd2356fe8f..c11568fcc7af5597037b0c50efad54c5
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e945e7a308 100644
+index 037b8496c88ff564e3e33076c0c6c67b598cde5d..ed261bb64aca8fc7156a9f940d41d4c74e388628 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -51,8 +51,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
@@ -44,7 +44,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  	}
  	return normalized
  }
-@@ -94,6 +99,10 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+@@ -111,6 +116,10 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  
  	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
  
@@ -55,7 +55,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  	requestPath := "/v1/chat/completions"
  
  	// 如果指定了端点类型，使用指定的端点类型
-@@ -424,8 +433,12 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+@@ -441,8 +450,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  		}
  	}
  	var httpResp *http.Response
@@ -68,7 +68,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  		if httpResp.StatusCode != http.StatusOK {
  			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
  			common.SysError(fmt.Sprintf(
-@@ -453,16 +466,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+@@ -470,16 +483,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: respErr,
  		}
  	}
@@ -86,7 +86,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  	if err != nil {
  		return testResult{
  			context:     c,
-@@ -470,7 +475,20 @@ func testChannel(channel *model.Channel, testModel string, endpointType string,
+@@ -487,7 +492,20 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
  		}
  	}
@@ -108,7 +108,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  		return testResult{
  			context:     c,
  			localErr:    bodyErr,
-@@ -647,7 +665,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
+@@ -664,7 +682,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
  }
  
  func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
@@ -117,7 +117,7 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -897,7 +915,9 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +941,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -125,200 +125,14 @@ index b225585ed7a3268fb140383e14dbf80c8165e4d3..06da7a451144cc1107ed571e432225e9
 +			if channel.Status != common.ChannelStatusEnabled &&
 +				channel.Status != common.ChannelStatusAutoDisabled &&
 +				channel.Status != common.ChannelStatusManuallyDisabled {
++				continue
++			}
++			if !channel.AllowAutoTestAndRecover() {
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-diff --git a/controller/compat_channel_failover.go b/controller/compat_channel_failover.go
-new file mode 100644
-index 0000000000000000000000000000000000000000..66530b20041a77714114b8cb15a989ee3aee4e65
---- /dev/null
-+++ b/controller/compat_channel_failover.go
-@@ -0,0 +1,70 @@
-+package controller
-+
-+import (
-+	"fmt"
-+	"net/http"
-+	"sync"
-+	"time"
-+
-+	relaycommon "github.com/QuantumNous/new-api/relay/common"
-+	"github.com/QuantumNous/new-api/types"
-+)
-+
-+const (
-+	compatUpstream5xxFailureThreshold = 2
-+	compatUpstream5xxFailureTTL       = 10 * time.Minute
-+)
-+
-+type compatChannelFailureState struct {
-+	count       int
-+	lastFailure time.Time
-+}
-+
-+var compatChannelFailureTracker = struct {
-+	sync.Mutex
-+	items map[string]compatChannelFailureState
-+}{
-+	items: make(map[string]compatChannelFailureState),
-+}
-+
-+func compatChannelFailureKey(channelID int, info *relaycommon.RelayInfo) string {
-+	if info == nil {
-+		return fmt.Sprintf("%d", channelID)
-+	}
-+	return fmt.Sprintf("%d|%s|%d|%t", channelID, info.OriginModelName, info.RelayMode, info.IsStream)
-+}
-+
-+func clearCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) {
-+	compatChannelFailureTracker.Lock()
-+	defer compatChannelFailureTracker.Unlock()
-+	delete(compatChannelFailureTracker.items, compatChannelFailureKey(channelID, info))
-+}
-+
-+func recordCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) int {
-+	now := time.Now()
-+	key := compatChannelFailureKey(channelID, info)
-+
-+	compatChannelFailureTracker.Lock()
-+	defer compatChannelFailureTracker.Unlock()
-+
-+	state := compatChannelFailureTracker.items[key]
-+	if !state.lastFailure.IsZero() && now.Sub(state.lastFailure) > compatUpstream5xxFailureTTL {
-+		state.count = 0
-+	}
-+	state.count++
-+	state.lastFailure = now
-+	compatChannelFailureTracker.items[key] = state
-+	return state.count
-+}
-+
-+func shouldTrackCompatUpstream5xxFailure(openaiErr *types.NewAPIError) bool {
-+	if openaiErr == nil {
-+		return false
-+	}
-+	switch openaiErr.StatusCode {
-+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-+		return true
-+	default:
-+		return false
-+	}
-+}
-diff --git a/controller/compat_channel_failover_test.go b/controller/compat_channel_failover_test.go
-new file mode 100644
-index 0000000000000000000000000000000000000000..44f4f7542bcf7fe1e48c44f69d646d0ef57cbe07
---- /dev/null
-+++ b/controller/compat_channel_failover_test.go
-@@ -0,0 +1,107 @@
-+package controller
-+
-+import (
-+	"errors"
-+	"net/http"
-+	"testing"
-+	"time"
-+
-+	relaycommon "github.com/QuantumNous/new-api/relay/common"
-+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-+	"github.com/QuantumNous/new-api/types"
-+)
-+
-+func resetCompatChannelFailureTrackerForTest() {
-+	compatChannelFailureTracker.Lock()
-+	defer compatChannelFailureTracker.Unlock()
-+	compatChannelFailureTracker.items = make(map[string]compatChannelFailureState)
-+}
-+
-+func TestCompatUpstream5xxFailureThreshold(t *testing.T) {
-+	resetCompatChannelFailureTrackerForTest()
-+	info := &relaycommon.RelayInfo{
-+		OriginModelName: "claude-opus-4-7",
-+		RelayMode:       relayconstant.RelayModeChatCompletions,
-+		IsStream:        true,
-+	}
-+	err := types.NewOpenAIError(errors.New("bad gateway"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
-+
-+	if !shouldTrackCompatUpstream5xxFailure(err) {
-+		t.Fatal("502 should be tracked as transient upstream failure")
-+	}
-+	if got := recordCompatChannelFailure(52, info); got != 1 {
-+		t.Fatalf("first failure count = %d, want 1", got)
-+	}
-+	if got := recordCompatChannelFailure(52, info); got != compatUpstream5xxFailureThreshold {
-+		t.Fatalf("second failure count = %d, want %d", got, compatUpstream5xxFailureThreshold)
-+	}
-+}
-+
-+func TestCompatChannelFailureSuccessClearsCount(t *testing.T) {
-+	resetCompatChannelFailureTrackerForTest()
-+	info := &relaycommon.RelayInfo{
-+		OriginModelName: "claude-opus-4-7",
-+		RelayMode:       relayconstant.RelayModeChatCompletions,
-+		IsStream:        true,
-+	}
-+
-+	recordCompatChannelFailure(56, info)
-+	clearCompatChannelFailure(56, info)
-+
-+	if got := recordCompatChannelFailure(56, info); got != 1 {
-+		t.Fatalf("failure count after success clear = %d, want 1", got)
-+	}
-+}
-+
-+func TestCompatChannelFailureTTLResetsCount(t *testing.T) {
-+	resetCompatChannelFailureTrackerForTest()
-+	info := &relaycommon.RelayInfo{
-+		OriginModelName: "claude-opus-4-7",
-+		RelayMode:       relayconstant.RelayModeChatCompletions,
-+		IsStream:        true,
-+	}
-+	key := compatChannelFailureKey(52, info)
-+
-+	recordCompatChannelFailure(52, info)
-+	compatChannelFailureTracker.Lock()
-+	compatChannelFailureTracker.items[key] = compatChannelFailureState{
-+		count:       1,
-+		lastFailure: time.Now().Add(-compatUpstream5xxFailureTTL - time.Second),
-+	}
-+	compatChannelFailureTracker.Unlock()
-+
-+	if got := recordCompatChannelFailure(52, info); got != 1 {
-+		t.Fatalf("failure count after TTL expiry = %d, want 1", got)
-+	}
-+}
-+
-+func TestCompatStreamRetryError_ClaudeEmptyAssistantNormalEndRetries(t *testing.T) {
-+	status := relaycommon.NewStreamStatus()
-+	status.RecordError("empty claude assistant stream")
-+	status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-+	info := &relaycommon.RelayInfo{
-+		IsStream:          true,
-+		RelayFormat:       types.RelayFormatClaude,
-+		StreamStatus:      status,
-+		ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{},
-+	}
-+
-+	err := compatStreamRetryError(info)
-+	if err == nil {
-+		t.Fatal("empty claude assistant stream should trigger retry")
-+	}
-+	if err.StatusCode != http.StatusBadGateway {
-+		t.Fatalf("status = %d, want %d", err.StatusCode, http.StatusBadGateway)
-+	}
-+}
-+
-+func TestShouldCompatDisableChannel_DoesNotImmediatelyDisableTransientTransport502(t *testing.T) {
-+	err := types.NewOpenAIError(errors.New("do request failed: unexpected EOF"), types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
-+
-+	if shouldCompatDisableChannel(err) {
-+		t.Fatal("transient transport 502 should be tracked/excluded first, not auto-disabled immediately")
-+	}
-+	if !shouldTrackCompatUpstream5xxFailure(err) {
-+		t.Fatal("transient transport 502 should still be tracked for repeated-failure auto-disable")
-+	}
-+}
 diff --git a/controller/relay.go b/controller/relay.go
-index 5e2db44c25a4e3bd9c65ef5d8f4589c913760047..2e3479ad480941f2ae579f16b66991aeca1c8186 100644
+index 1d14dcc6f880d93bb07212b5852faec7b03496c9..99f2772d48f9463429821df233f7f21e0dbf2ef2 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -593,8 +407,20 @@ index 5e2db44c25a4e3bd9c65ef5d8f4589c913760047..2e3479ad480941f2ae579f16b66991ae
 +}
 +
  func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
- 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
+ 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
  	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
+diff --git a/dto/channel_settings.go b/dto/channel_settings.go
+index b6a1ab9f713800d67d79ddef17dedefd5943e390..5da09c2fde10b60db97c3bcba5d8032cf62ea6d0 100644
+--- a/dto/channel_settings.go
++++ b/dto/channel_settings.go
+@@ -35,6 +35,7 @@ type ChannelOtherSettings struct {
+ 	DisableStore                          bool          `json:"disable_store,omitempty"`             // 是否禁用 store 透传（默认允许透传，禁用后可能导致 Codex 无法使用）
+ 	AllowIncludeObfuscation               bool          `json:"allow_include_obfuscation,omitempty"` // 是否允许 stream_options.include_obfuscation 透传（默认过滤以避免关闭流混淆保护）
+ 	AwsKeyType                            AwsKeyType    `json:"aws_key_type,omitempty"`
++	AutoTestAndRecoverDisabled            bool          `json:"auto_test_and_recover_disabled,omitempty"`             // 是否禁止该渠道被定时自动测试和自动恢复
+ 	UpstreamModelUpdateCheckEnabled       bool          `json:"upstream_model_update_check_enabled,omitempty"`        // 是否检测上游模型更新
+ 	UpstreamModelUpdateAutoSyncEnabled    bool          `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
+ 	UpstreamModelUpdateLastCheckTime      int64         `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
 diff --git a/model/ability.go b/model/ability.go
 index 1d7c53fa58050f98c8cf104d1bddd99d16727306..f3d86dbcab2231ce8f77023f4d0ac3fa5a57f2ed 100644
 --- a/model/ability.go
@@ -672,6 +498,24 @@ index 1d7c53fa58050f98c8cf104d1bddd99d16727306..f3d86dbcab2231ce8f77023f4d0ac3fa
  func (channel *Channel) AddAbilities(tx *gorm.DB) error {
  	models_ := strings.Split(channel.Models, ",")
  	groups_ := strings.Split(channel.Group, ",")
+diff --git a/model/channel.go b/model/channel.go
+index 78a1477c327ec027d95a1fbece91260bae9f1fbf..2372569dd8d0de2ed9d505b1ce1230cd73ca7b4a 100644
+--- a/model/channel.go
++++ b/model/channel.go
+@@ -342,6 +342,13 @@ func (channel *Channel) GetAutoBan() bool {
+ 	return *channel.AutoBan == 1
+ }
+ 
++func (channel *Channel) AllowAutoTestAndRecover() bool {
++	if channel == nil {
++		return false
++	}
++	return !channel.GetOtherSettings().AutoTestAndRecoverDisabled
++}
++
+ func (channel *Channel) Save() error {
+ 	return DB.Save(channel).Error
+ }
 diff --git a/model/channel_cache.go b/model/channel_cache.go
 index 03740d2cd3ab1c618c0d285ae2d7b47410003587..8909b7df49e34cd68e9c31302c97d9219965dedf 100644
 --- a/model/channel_cache.go
@@ -1179,10 +1023,10 @@ index 2665b8d027e9999c18d1b54953fc300cdb9a7823..2f8ab594817fdb17637426ce38c0b0e2
  	if resp == nil || resp.Body == nil {
  		logger.LogError(c, "invalid response or response body")
 diff --git a/relay/chat_completions_via_responses.go b/relay/chat_completions_via_responses.go
-index 7a2eb9aa6dac37fb7e6efc9865f2f764e97345d9..f98cfbd4cb36ceba9aafd13d781bb39726cebb5f 100644
+index c47da1fab67cc0c4d424162d9c5279975063f57e..6049a567c002e655c8858b3695a2d2ca7bbbaecf 100644
 --- a/relay/chat_completions_via_responses.go
 +++ b/relay/chat_completions_via_responses.go
-@@ -97,6 +97,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
+@@ -96,6 +96,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
  	if err != nil {
  		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
  	}
@@ -1193,7 +1037,7 @@ index 7a2eb9aa6dac37fb7e6efc9865f2f764e97345d9..f98cfbd4cb36ceba9aafd13d781bb397
  	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
  
  	savedRelayMode := info.RelayMode
-@@ -139,14 +143,23 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
+@@ -145,14 +149,23 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
  	statusCodeMappingStr := c.GetString("status_code_mapping")
  
  	httpResp = resp.(*http.Response)
@@ -1220,10 +1064,10 @@ index 7a2eb9aa6dac37fb7e6efc9865f2f764e97345d9..f98cfbd4cb36ceba9aafd13d781bb397
  		if newApiErr != nil {
  			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 diff --git a/relay/claude_handler.go b/relay/claude_handler.go
-index ec028c71f418a05afe498bc630d39f3ee16391b1..b183c81d79dec13c6f99eae090c41bf4dcdb4349 100644
+index 7ec934f9af6c6e2d855302c18528bcb9b28e2789..075c49dd53db4a76a09b2f2cb71e51552c1751dc 100644
 --- a/relay/claude_handler.go
 +++ b/relay/claude_handler.go
-@@ -131,7 +131,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
+@@ -130,7 +130,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
  
  	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
  		!info.ChannelSetting.PassThroughBodyEnabled &&
@@ -1233,7 +1077,7 @@ index ec028c71f418a05afe498bc630d39f3ee16391b1..b183c81d79dec13c6f99eae090c41bf4
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
-index 8a6c471e27d7e692b47ccfdef1c20e50370f2287..6406c6422e5116996dab328af09a00fb948c3a56 100644
+index 2f7afd3985997335004060f623aa083053cd4042..9cdfb23622d9090ff1b8dbdd10b014c611273981 100644
 --- a/relay/common/relay_info.go
 +++ b/relay/common/relay_info.go
 @@ -40,6 +40,8 @@ type ClaudeConvertInfo struct {
@@ -1350,10 +1194,10 @@ index 4a31cb79fbcff5e31e2a622a8d4a88e603e2c347..fd917ca9e86314b1f14172052abfa48e
  		{StreamEndReasonScannerErr, false},
  		{StreamEndReasonPanic, false},
 diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
-index fdd54f39d19491481608014cd333fa4e0ebfb5f1..04e9df6797eaa673dde26079bb6f24769e432b7d 100644
+index a68cfe730f60c04ba1ea3de10c6bdc9f6d0d6ef8..069346cdc39511718b6b424b42e0423118e91a0d 100644
 --- a/relay/compatible_handler.go
 +++ b/relay/compatible_handler.go
-@@ -75,7 +75,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
+@@ -74,7 +74,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
  	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
  		!passThroughGlobal &&
  		!info.ChannelSetting.PassThroughBodyEnabled &&
@@ -1363,7 +1207,7 @@ index fdd54f39d19491481608014cd333fa4e0ebfb5f1..04e9df6797eaa673dde26079bb6f2476
  		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
  		if newApiErr != nil {
 diff --git a/relay/helper/stream_scanner.go b/relay/helper/stream_scanner.go
-index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0e75a6825 100644
+index 1d44b80443cdf56497b6ed40678ed11730a78a80..285f7f14b0d4dd1eed489db07efa817e7941220e 100644
 --- a/relay/helper/stream_scanner.go
 +++ b/relay/helper/stream_scanner.go
 @@ -40,8 +40,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
@@ -1376,10 +1220,13 @@ index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0
  
  	// 确保响应体总是被关闭
  	defer func() {
-@@ -51,14 +50,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+@@ -51,14 +50,22 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
  	}()
  
  	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
++	if streamingTimeout <= 0 {
++		streamingTimeout = 30 * time.Second
++	}
 +	firstByteTimeout := time.Duration(common.RelayFirstByteTimeout) * time.Second
 +	if firstByteTimeout <= 0 {
 +		firstByteTimeout = 15 * time.Second
@@ -1402,7 +1249,7 @@ index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0
  	)
  
  	generalSettings := operation_setting.GetGeneralSetting()
-@@ -84,6 +88,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+@@ -84,6 +91,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
  		common.SafeSendBool(stopChan, true)
  
  		ticker.Stop()
@@ -1412,7 +1259,7 @@ index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0
  		if pingTicker != nil {
  			pingTicker.Stop()
  		}
-@@ -175,6 +182,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+@@ -175,6 +185,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
  		})
  	}
  
@@ -1421,7 +1268,7 @@ index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0
  	dataChan := make(chan string, 10)
  
  	wg.Add(1)
-@@ -242,6 +251,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+@@ -242,6 +254,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
  				continue
  			}
  			if !strings.HasPrefix(data, "[DONE]") {
@@ -1439,7 +1286,7 @@ index 1d44b80443cdf56497b6ed40678ed11730a78a80..bb5a879975ba6f97fed18b1f29d473a0
  				info.SetFirstResponseTime()
  				info.ReceivedResponseCount++
  
-@@ -272,6 +292,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+@@ -272,6 +295,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
  	select {
  	case <-ticker.C:
  		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
@@ -1650,10 +1497,10 @@ index 2581b2812c940cec7c78aa897464610f5e929ce9..b2272f04112a882ed1e40dac265694f0
  	textRequest := &dto.GeneralOpenAIRequest{}
  	err := common.UnmarshalBodyReusable(c, textRequest)
 diff --git a/relay/responses_handler.go b/relay/responses_handler.go
-index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46ac8aa1fed 100644
+index 010c38bba8653baaa50397c7bfbece9120bcf1a8..1c49412367f28ed3f4b57c546f4557d2bf7875ce 100644
 --- a/relay/responses_handler.go
 +++ b/relay/responses_handler.go
-@@ -61,6 +61,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
+@@ -60,6 +60,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
  		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
  	}
  
@@ -1666,7 +1513,7 @@ index 54ca3cbc50106e82ee5cae1fd9ff1ace77d4b7d3..63872f82f88e0d2ffae7900cccffb46a
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/service/channel.go b/service/channel.go
-index 3fde6e207b68dd8370453551de309942f74d22d3..46b5531f05d6ee89506d82d09a803f4090293968 100644
+index 856e2cde3b3a48b2038ddfdbfbf43da2e006c623..9dc77551aeb29ddb99d335a380d4884e1df1c140 100644
 --- a/service/channel.go
 +++ b/service/channel.go
 @@ -58,6 +58,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
@@ -2092,7 +1939,7 @@ index 95acf835ee46dd766ccf5e3456e37545a8f32d44..2a5de8c84d67708b8db9c64846333f5a
  	b, err := json.Marshal(v)
  	if err != nil {
 diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
-index 4e18e6724c41078991df351d1f2a65b308d565f6..20a1b9d7694844ccd6cc307c1f881a42596de090 100644
+index be4e612fd42efdc8526c30c7e29154b4ed7a35e1..4815e18b99256d64bfdd3333686e9f0fa21b6ae7 100644
 --- a/web/default/src/components/layout/components/footer.tsx
 +++ b/web/default/src/components/layout/components/footer.tsx
 @@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
@@ -2185,10 +2032,10 @@ index 810863128c4548e93a0f75c04b0a080dac487c13..02d119a39e19e120ea2c2fe702a82cf6
            </Avatar>
            <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
 diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
-index 4aca8365b70a15f09e125baa212bba847c914763..ccc9816e561176ece2c5f20da8b6dc6a4666009a 100644
+index 5fad63703d3e4ced5f281d21bf6ffbf514b0997d..9dd283985cb64f5f98691333058c268e8f897ae9 100644
 --- a/web/default/src/components/layout/components/public-header.tsx
 +++ b/web/default/src/components/layout/components/public-header.tsx
-@@ -201,7 +201,7 @@ export function PublicHeader(props: PublicHeaderProps) {
+@@ -200,7 +200,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                to={homeUrl}
                className='group flex shrink-0 items-center gap-2.5'
              >
@@ -2197,7 +2044,7 @@ index 4aca8365b70a15f09e125baa212bba847c914763..ccc9816e561176ece2c5f20da8b6dc6a
                  {loading ? (
                    <Skeleton className='size-full rounded-lg' />
                  ) : customLogo ? (
-@@ -215,8 +215,14 @@ export function PublicHeader(props: PublicHeaderProps) {
+@@ -214,8 +214,14 @@ export function PublicHeader(props: PublicHeaderProps) {
                    />
                  )}
                </div>
@@ -2214,663 +2061,153 @@ index 4aca8365b70a15f09e125baa212bba847c914763..ccc9816e561176ece2c5f20da8b6dc6a
                </span>
              </Link>
  
-diff --git a/web/default/src/features/home/components/sections/iz-closing.tsx b/web/default/src/features/home/components/sections/iz-closing.tsx
-new file mode 100644
-index 0000000000000000000000000000000000000000..a189443ad26e8afd89ff4abacc053070398e3e26
---- /dev/null
-+++ b/web/default/src/features/home/components/sections/iz-closing.tsx
-@@ -0,0 +1,76 @@
-+/*
-+Copyright (C) 2023-2026 QuantumNous
+diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
+index 92302365a63076df293e0325c763a58f087829e1..beb563fcc709515900f6b0c651e684fff34dbe12 100644
+--- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
++++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
+@@ -219,6 +219,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
+     values.pass_through_body_enabled ||
+     values.system_prompt_override ||
+     values.claude_beta_query ||
++    values.auto_test_and_recover_enabled === false ||
+     values.upstream_model_update_check_enabled ||
+     values.upstream_model_update_auto_sync_enabled ||
+     values.upstream_model_update_ignored_models?.trim()
+@@ -2567,11 +2568,11 @@ export function ChannelMutateDrawer({
+                           )}
+                         />
+ 
+-                        <FormField
+-                          control={form.control}
+-                          name='auto_ban'
+-                          render={({ field }) => (
+-                            <FormItem className='flex items-center justify-between'>
++                      <FormField
++                        control={form.control}
++                        name='auto_ban'
++                        render={({ field }) => (
++                          <FormItem className='flex items-center justify-between'>
+                               <div className='space-y-0.5'>
+                                 <FormLabel>{t('Auto Ban')}</FormLabel>
+                                 <FormDescription>
+@@ -2586,10 +2587,33 @@ export function ChannelMutateDrawer({
+                                   }
+                                 />
+                               </FormControl>
+-                            </FormItem>
+-                          )}
+-                        />
+-                      </div>
++                          </FormItem>
++                        )}
++                      />
 +
-+This program is free software: you can redistribute it and/or modify
-+it under the terms of the GNU Affero General Public License as
-+published by the Free Software Foundation, either version 3 of the
-+License, or (at your option) any later version.
++                      <FormField
++                        control={form.control}
++                        name='auto_test_and_recover_enabled'
++                        render={({ field }) => (
++                          <FormItem className='flex items-center justify-between'>
++                            <div className='space-y-0.5'>
++                              <FormLabel>
++                                {t('Allow Auto Test & Recovery')}
++                              </FormLabel>
++                              <FormDescription>
++                                {t(FIELD_DESCRIPTIONS.AUTO_TEST_AND_RECOVER)}
++                              </FormDescription>
++                            </div>
++                            <FormControl>
++                              <Switch
++                                checked={field.value !== false}
++                                onCheckedChange={field.onChange}
++                              />
++                            </FormControl>
++                          </FormItem>
++                        )}
++                      />
++                    </div>
+ 
+                       <div className='flex flex-col gap-4 border-t pt-4'>
+                         <SubHeading
+diff --git a/web/default/src/features/channels/constants.ts b/web/default/src/features/channels/constants.ts
+index 5fd88d55482015d02f440e17b6a4dbfee77e2138..af187d1ebb71d1eb856472fba01e3ddcb3a1fd46 100644
+--- a/web/default/src/features/channels/constants.ts
++++ b/web/default/src/features/channels/constants.ts
+@@ -360,6 +360,8 @@ export const FIELD_DESCRIPTIONS = {
+   WEIGHT: 'Used for load balancing. Higher weight = more requests',
+   TEST_MODEL: 'Model to use when testing channel connectivity',
+   AUTO_BAN: 'Automatically disable channel on repeated failures',
++  AUTO_TEST_AND_RECOVER:
++    'Allow scheduled channel testing and automatic recovery. Turn this off to keep the channel disabled until you manually enable it.',
+   STATUS_CODE_MAPPING: 'Map response status codes (JSON format)',
+   TAG: 'Group channels by tag for batch operations',
+   REMARK: 'Internal notes (not shown to users)',
+diff --git a/web/default/src/features/channels/lib/channel-form.ts b/web/default/src/features/channels/lib/channel-form.ts
+index 4f0e5042511d23f418b3493dcb6ae6fe9752f6f0..f547771b4d10f894e3be3f813b46dfe220f552a9 100644
+--- a/web/default/src/features/channels/lib/channel-form.ts
++++ b/web/default/src/features/channels/lib/channel-form.ts
+@@ -195,6 +195,7 @@ export const channelFormSchema = z
+     allow_inference_geo: z.boolean().optional(), // OpenAI/Anthropic: inference geography
+     allow_speed: z.boolean().optional(), // Anthropic: speed mode control
+     claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
++    auto_test_and_recover_enabled: z.boolean().optional(),
+     // Upstream model update settings (stored in settings JSON)
+     upstream_model_update_check_enabled: z.boolean().optional(),
+     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
+@@ -313,6 +314,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+   allow_inference_geo: false,
+   allow_speed: false,
+   claude_beta_query: false,
++  auto_test_and_recover_enabled: true,
+   upstream_model_update_check_enabled: false,
+   upstream_model_update_auto_sync_enabled: false,
+   upstream_model_update_ignored_models: '',
+@@ -367,6 +369,7 @@ export function transformChannelToFormDefaults(
+   let allowInferenceGeo = false
+   let allowSpeed = false
+   let claudeBetaQuery = false
++  let autoTestAndRecoverEnabled = true
+   let upstreamModelUpdateCheckEnabled = false
+   let upstreamModelUpdateAutoSyncEnabled = false
+   let upstreamModelUpdateIgnoredModels = ''
+@@ -385,6 +388,8 @@ export function transformChannelToFormDefaults(
+       allowInferenceGeo = parsed.allow_inference_geo === true
+       allowSpeed = parsed.allow_speed === true
+       claudeBetaQuery = parsed.claude_beta_query === true
++      autoTestAndRecoverEnabled =
++        parsed.auto_test_and_recover_disabled !== true
+       upstreamModelUpdateCheckEnabled =
+         parsed.upstream_model_update_check_enabled === true
+       upstreamModelUpdateAutoSyncEnabled =
+@@ -439,6 +444,7 @@ export function transformChannelToFormDefaults(
+     allow_inference_geo: allowInferenceGeo,
+     allow_speed: allowSpeed,
+     claude_beta_query: claudeBetaQuery,
++    auto_test_and_recover_enabled: autoTestAndRecoverEnabled,
+     allow_safety_identifier: allowSafetyIdentifier,
+     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
+     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
+@@ -541,6 +547,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
+     if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
+   }
+ 
++  settingsObj.auto_test_and_recover_disabled =
++    formData.auto_test_and_recover_enabled === false
 +
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU Affero General Public License for more details.
-+
-+You should have received a copy of the GNU Affero General Public License
-+along with this program. If not, see <https://www.gnu.org/licenses/>.
-+
-+For commercial licensing, please contact support@quantumnous.com
-+*/
-+import { useTranslation } from 'react-i18next'
-+import { Link } from '@tanstack/react-router'
-+import { ArrowRight } from 'lucide-react'
-+import { Button } from '@/components/ui/button'
-+import { AnimateInView } from '@/components/animate-in-view'
-+
-+interface IzClosingProps {
-+  isAuthenticated?: boolean
-+}
-+
-+export function IzClosing(props: IzClosingProps) {
-+  const { t } = useTranslation()
-+
-+  return (
-+    <section className='iz-closing'>
-+      <div className='iz-closing-bg' aria-hidden />
-+      <div className='iz-closing-grid' aria-hidden />
-+      <div className='iz-closing-inner'>
-+        <AnimateInView animation='fade-up'>
-+          <p className='iz-closing-kicker'>
-+            <span className='iz-closing-kicker-dot' />
-+            {t('Ready when you are')}
-+          </p>
-+          <h2 className='iz-closing-title'>
-+            {t('Replace your base URL. Keep your stack.')}
-+          </h2>
-+          <p className='iz-closing-sub'>
-+            {t(
-+              'Issue an API key in under a minute. Bring your own models, your own SDK, your own workflow.'
-+            )}
-+          </p>
-+          <div className='iz-closing-cta'>
-+            {props.isAuthenticated ? (
-+              <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
-+                {t('Open Dashboard')}
-+                <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-+              </Button>
-+            ) : (
-+              <>
-+                <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
-+                  {t('Create your key')}
-+                  <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-+                </Button>
-+                <Button
-+                  variant='outline'
-+                  className='iz-btn iz-btn-ghost'
-+                  render={<Link to='/pricing' />}
-+                >
-+                  {t('Browse models')}
-+                </Button>
-+              </>
-+            )}
-+          </div>
-+        </AnimateInView>
-+      </div>
-+    </section>
-+  )
-+}
-diff --git a/web/default/src/features/home/components/sections/iz-endpoints.tsx b/web/default/src/features/home/components/sections/iz-endpoints.tsx
-new file mode 100644
-index 0000000000000000000000000000000000000000..c311824bea1f72ec43fa2db17589d79bba48f2ff
---- /dev/null
-+++ b/web/default/src/features/home/components/sections/iz-endpoints.tsx
-@@ -0,0 +1,84 @@
-+/*
-+Copyright (C) 2023-2026 QuantumNous
-+
-+This program is free software: you can redistribute it and/or modify
-+it under the terms of the GNU Affero General Public License as
-+published by the Free Software Foundation, either version 3 of the
-+License, or (at your option) any later version.
-+
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU Affero General Public License for more details.
-+
-+You should have received a copy of the GNU Affero General Public License
-+along with this program. If not, see <https://www.gnu.org/licenses/>.
-+
-+For commercial licensing, please contact support@quantumnous.com
-+*/
-+import { useTranslation } from 'react-i18next'
-+import { AnimateInView } from '@/components/animate-in-view'
-+
-+const ENDPOINTS = [
-+  { path: '/v1/chat/completions', tag: 'OpenAI', desc: 'Chat completions, streaming, tool calls.' },
-+  { path: '/v1/responses', tag: 'OpenAI', desc: 'Responses API with reasoning + tool surface.' },
-+  { path: '/v1/messages', tag: 'Anthropic', desc: 'Claude Messages, streaming + tool use.' },
-+  { path: '/v1beta/models', tag: 'Gemini', desc: 'Google Gemini generateContent passthrough.' },
-+  { path: '/v1/embeddings', tag: 'OpenAI', desc: 'Vector embeddings for any supported model.' },
-+  { path: '/v1/images/generations', tag: 'OpenAI', desc: 'Image generation, multiple providers.' },
-+]
-+
-+export function IzEndpoints() {
-+  const { t } = useTranslation()
-+
-+  return (
-+    <section className='iz-endpoints'>
-+      <div className='iz-endpoints-inner'>
-+        <AnimateInView animation='fade-up'>
-+          <header className='iz-section-head'>
-+            <span className='iz-section-kicker'>
-+              <span className='iz-section-kicker-dot' />
-+              {t('Surface')}
-+            </span>
-+            <h2 className='iz-section-title'>
-+              {t('One base URL. Every protocol you already use.')}
-+            </h2>
-+            <p className='iz-section-sub'>
-+              {t(
-+                'Point your existing SDK at the gateway and keep your code untouched. We normalize streaming, tool calls, image generation and embeddings across upstreams.'
-+              )}
-+            </p>
-+          </header>
-+        </AnimateInView>
-+
-+        <div className='iz-endpoint-grid'>
-+          {ENDPOINTS.map((e, i) => (
-+            <AnimateInView
-+              key={e.path}
-+              animation='fade-up'
-+              delay={i * 60}
-+              className='iz-endpoint-cell'
-+            >
-+              <article className='iz-endpoint'>
-+                <div className='iz-endpoint-head'>
-+                  <span className='iz-endpoint-method'>POST</span>
-+                  <span className='iz-endpoint-path' title={e.path}>
-+                    {e.path}
-+                  </span>
-+                </div>
-+                <p className='iz-endpoint-desc'>{t(e.desc)}</p>
-+                <div className='iz-endpoint-foot'>
-+                  <span className='iz-endpoint-tag'>{e.tag}</span>
-+                  <span className='iz-endpoint-status'>
-+                    <span className='iz-endpoint-status-dot' />
-+                    {t('live')}
-+                  </span>
-+                </div>
-+              </article>
-+            </AnimateInView>
-+          ))}
-+        </div>
-+      </div>
-+    </section>
-+  )
-+}
-diff --git a/web/default/src/features/home/components/sections/iz-hero.tsx b/web/default/src/features/home/components/sections/iz-hero.tsx
-new file mode 100644
-index 0000000000000000000000000000000000000000..571a41b1625451275db8e81de1739a2bf264168d
---- /dev/null
-+++ b/web/default/src/features/home/components/sections/iz-hero.tsx
-@@ -0,0 +1,195 @@
-+/*
-+Copyright (C) 2023-2026 QuantumNous
-+
-+This program is free software: you can redistribute it and/or modify
-+it under the terms of the GNU Affero General Public License as
-+published by the Free Software Foundation, either version 3 of the
-+License, or (at your option) any later version.
-+
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU Affero General Public License for more details.
-+
-+You should have received a copy of the GNU Affero General Public License
-+along with this program. If not, see <https://www.gnu.org/licenses/>.
-+
-+For commercial licensing, please contact support@quantumnous.com
-+*/
-+import { useEffect, useRef, useState } from 'react'
-+import { Link } from '@tanstack/react-router'
-+import { ArrowRight, Copy, Check } from 'lucide-react'
-+import { useTranslation } from 'react-i18next'
-+import { Button } from '@/components/ui/button'
-+
-+const ENDPOINT_CYCLE = [
-+  '/v1/chat/completions',
-+  '/v1/responses',
-+  '/v1/messages',
-+  '/v1beta/models',
-+  '/v1/embeddings',
-+  '/v1/images/generations',
-+]
-+
-+interface IzHeroProps {
-+  isAuthenticated?: boolean
-+}
-+
-+export function IzHero(props: IzHeroProps) {
-+  const { t } = useTranslation()
-+  const [endpointIdx, setEndpointIdx] = useState(0)
-+  const [copied, setCopied] = useState(false)
-+  const heroRef = useRef<HTMLElement>(null)
-+  const baseUrl =
-+    typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
-+
-+  useEffect(() => {
-+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-+    if (mq.matches) return
-+    const id = setInterval(() => {
-+      setEndpointIdx((p) => (p + 1) % ENDPOINT_CYCLE.length)
-+    }, 2400)
-+    return () => clearInterval(id)
-+  }, [])
-+
-+  useEffect(() => {
-+    const el = heroRef.current
-+    if (!el) return
-+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-+    if (mq.matches) return
-+    let raf = 0
-+    const onMove = (e: MouseEvent) => {
-+      const r = el.getBoundingClientRect()
-+      const x = ((e.clientX - r.left) / r.width) * 100
-+      const y = ((e.clientY - r.top) / r.height) * 100
-+      cancelAnimationFrame(raf)
-+      raf = requestAnimationFrame(() => {
-+        el.style.setProperty('--iz-mx', `${x}%`)
-+        el.style.setProperty('--iz-my', `${y}%`)
-+      })
-+    }
-+    el.addEventListener('mousemove', onMove)
-+    return () => {
-+      el.removeEventListener('mousemove', onMove)
-+      cancelAnimationFrame(raf)
-+    }
-+  }, [])
-+
-+  const handleCopy = async () => {
-+    try {
-+      await navigator.clipboard.writeText(baseUrl)
-+      setCopied(true)
-+      setTimeout(() => setCopied(false), 1600)
-+    } catch {
-+      /* noop */
-+    }
-+  }
-+
-+  return (
-+    <section
-+      ref={heroRef}
-+      className='iz-hero'
-+      style={{ ['--iz-mx' as never]: '50%', ['--iz-my' as never]: '30%' }}
-+    >
-+      <div className='iz-hero-bg' aria-hidden />
-+      <div className='iz-hero-grid' aria-hidden />
-+      <div className='iz-hero-spot' aria-hidden />
-+      <div className='iz-hero-noise' aria-hidden />
-+
-+      <div className='iz-hero-inner'>
-+        <div className='iz-hero-eyebrow'>
-+          <span className='iz-hero-dot' />
-+          <span className='iz-hero-eyebrow-txt'>
-+            {t('All systems operational')}
-+          </span>
-+          <span className='iz-hero-eyebrow-sep' />
-+          <span className='iz-hero-eyebrow-tag'>v1 · Unified Gateway</span>
-+        </div>
-+
-+        <h1 className='iz-hero-title'>
-+          <span className='iz-hero-title-line iz-hero-title-line-1'>
-+            <span className='iz-hero-title-word'>{t('One')}</span>
-+            <span className='iz-hero-title-accent'>{t('endpoint.')}</span>
-+          </span>
-+          <span className='iz-hero-title-line iz-hero-title-line-2'>
-+            <span className='iz-hero-title-word'>{t('Every')}</span>
-+            <span className='iz-hero-title-glow'>{t('model.')}</span>
-+          </span>
-+        </h1>
-+
-+        <p className='iz-hero-sub'>
-+          {t(
-+            'A unified, stable, and fast AI API gateway. Compatible with OpenAI Chat, Responses, Claude Messages and more — drop in your existing SDK, change only the base URL.'
-+          )}
-+        </p>
-+
-+        <div className='iz-hero-base'>
-+          <div className='iz-hero-base-frame'>
-+            <span className='iz-hero-base-label'>BASE URL</span>
-+            <span className='iz-hero-base-url' title={baseUrl}>
-+              {baseUrl}
-+            </span>
-+            <span className='iz-hero-base-mount'>
-+              <span className='iz-hero-base-mount-prefix'>+</span>
-+              <span key={endpointIdx} className='iz-hero-base-mount-path'>
-+                {ENDPOINT_CYCLE[endpointIdx]}
-+              </span>
-+            </span>
-+            <button
-+              type='button'
-+              onClick={handleCopy}
-+              className='iz-hero-base-copy'
-+              aria-label='Copy base URL'
-+            >
-+              {copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
-+            </button>
-+          </div>
-+        </div>
-+
-+        <div className='iz-hero-cta'>
-+          {props.isAuthenticated ? (
-+            <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
-+              {t('Open Dashboard')}
-+              <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-+            </Button>
-+          ) : (
-+            <>
-+              <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
-+                {t('Get Started')}
-+                <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-+              </Button>
-+              <Button
-+                variant='outline'
-+                className='iz-btn iz-btn-ghost'
-+                render={<Link to='/pricing' />}
-+              >
-+                {t('View Models')}
-+              </Button>
-+            </>
-+          )}
-+        </div>
-+
-+        <div className='iz-hero-stats'>
-+          <div className='iz-hero-stat'>
-+            <span className='iz-hero-stat-num'>~240<i>ms</i></span>
-+            <span className='iz-hero-stat-lbl'>{t('p50 latency')}</span>
-+          </div>
-+          <span className='iz-hero-stat-sep' />
-+          <div className='iz-hero-stat'>
-+            <span className='iz-hero-stat-num'>99.9<i>%</i></span>
-+            <span className='iz-hero-stat-lbl'>{t('uptime')}</span>
-+          </div>
-+          <span className='iz-hero-stat-sep' />
-+          <div className='iz-hero-stat'>
-+            <span className='iz-hero-stat-num'>50<i>+</i></span>
-+            <span className='iz-hero-stat-lbl'>{t('upstream providers')}</span>
-+          </div>
-+        </div>
-+      </div>
-+
-+      <div className='iz-hero-scroll' aria-hidden>
-+        <span />
-+      </div>
-+    </section>
-+  )
-+}
-diff --git a/web/default/src/features/home/components/sections/iz-pillars.tsx b/web/default/src/features/home/components/sections/iz-pillars.tsx
-new file mode 100644
-index 0000000000000000000000000000000000000000..3fed08bdb5a43dc755306e5d5b5360cd856a05ba
---- /dev/null
-+++ b/web/default/src/features/home/components/sections/iz-pillars.tsx
-@@ -0,0 +1,109 @@
-+/*
-+Copyright (C) 2023-2026 QuantumNous
-+
-+This program is free software: you can redistribute it and/or modify
-+it under the terms of the GNU Affero General Public License as
-+published by the Free Software Foundation, either version 3 of the
-+License, or (at your option) any later version.
-+
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU Affero General Public License for more details.
-+
-+You should have received a copy of the GNU Affero General Public License
-+along with this program. If not, see <https://www.gnu.org/licenses/>.
-+
-+For commercial licensing, please contact support@quantumnous.com
-+*/
-+import { useTranslation } from 'react-i18next'
-+import { Zap, ShieldCheck, Activity, Layers } from 'lucide-react'
-+import { AnimateInView } from '@/components/animate-in-view'
-+
-+interface Pillar {
-+  icon: React.ReactNode
-+  title: string
-+  desc: string
-+  meta: string
-+}
-+
-+export function IzPillars() {
-+  const { t } = useTranslation()
-+
-+  const pillars: Pillar[] = [
-+    {
-+      icon: <Zap className='size-4' strokeWidth={1.6} />,
-+      title: t('Low latency by design'),
-+      desc: t(
-+        'Anycast edge entry, persistent upstream connections, zero-copy streaming. Built for long-running agent loops.'
-+      ),
-+      meta: 'p50 · 240ms',
-+    },
-+    {
-+      icon: <ShieldCheck className='size-4' strokeWidth={1.6} />,
-+      title: t('Stable under pressure'),
-+      desc: t(
-+        'Per-channel health checks, automatic failover and quota-aware retry — clients see one consistent endpoint.'
-+      ),
-+      meta: '99.9% SLO',
-+    },
-+    {
-+      icon: <Layers className='size-4' strokeWidth={1.6} />,
-+      title: t('Drop-in compatible'),
-+      desc: t(
-+        'Native OpenAI Chat & Responses, Claude Messages, Gemini and image APIs — keep your SDK, swap only the base URL.'
-+      ),
-+      meta: '6 protocols',
-+    },
-+    {
-+      icon: <Activity className='size-4' strokeWidth={1.6} />,
-+      title: t('Full observability'),
-+      desc: t(
-+        'Per-request traces, token accounting, model-level usage and cost. Audit anything that flows through the gateway.'
-+      ),
-+      meta: 'Real-time',
-+    },
-+  ]
-+
-+  return (
-+    <section className='iz-pillars'>
-+      <div className='iz-pillars-inner'>
-+        <AnimateInView animation='fade-up'>
-+          <header className='iz-section-head'>
-+            <span className='iz-section-kicker'>
-+              <span className='iz-section-kicker-dot' />
-+              {t('Principles')}
-+            </span>
-+            <h2 className='iz-section-title'>
-+              {t('Built for serious, long-running AI workloads.')}
-+            </h2>
-+            <p className='iz-section-sub'>
-+              {t(
-+                'A focused set of guarantees: low and predictable latency, resilience under failure, and a single contract across every upstream provider.'
-+              )}
-+            </p>
-+          </header>
-+        </AnimateInView>
-+
-+        <div className='iz-pillar-grid'>
-+          {pillars.map((p, i) => (
-+            <AnimateInView
-+              key={i}
-+              animation='fade-up'
-+              delay={i * 80}
-+              className='iz-pillar-cell'
-+            >
-+              <article className='iz-pillar'>
-+                <span className='iz-pillar-icon'>{p.icon}</span>
-+                <h3 className='iz-pillar-title'>{p.title}</h3>
-+                <p className='iz-pillar-desc'>{p.desc}</p>
-+                <span className='iz-pillar-meta'>{p.meta}</span>
-+                <span className='iz-pillar-glow' aria-hidden />
-+              </article>
-+            </AnimateInView>
-+          ))}
-+        </div>
-+      </div>
-+    </section>
-+  )
-+}
-diff --git a/web/default/src/features/home/components/sections/iz-quickstart.tsx b/web/default/src/features/home/components/sections/iz-quickstart.tsx
-new file mode 100644
-index 0000000000000000000000000000000000000000..e6759c992dab5516882afcd7dd20aea4edfc2cd3
---- /dev/null
-+++ b/web/default/src/features/home/components/sections/iz-quickstart.tsx
-@@ -0,0 +1,163 @@
-+/*
-+Copyright (C) 2023-2026 QuantumNous
-+
-+This program is free software: you can redistribute it and/or modify
-+it under the terms of the GNU Affero General Public License as
-+published by the Free Software Foundation, either version 3 of the
-+License, or (at your option) any later version.
-+
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU Affero General Public License for more details.
-+
-+You should have received a copy of the GNU Affero General Public License
-+along with this program. If not, see <https://www.gnu.org/licenses/>.
-+
-+For commercial licensing, please contact support@quantumnous.com
-+*/
-+import { useMemo, useState } from 'react'
-+import { useTranslation } from 'react-i18next'
-+import { Check, Copy } from 'lucide-react'
-+import { AnimateInView } from '@/components/animate-in-view'
-+
-+type Lang = 'curl' | 'python' | 'node'
-+
-+const baseUrlAtRender = () =>
-+  typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
-+
-+export function IzQuickstart() {
-+  const { t } = useTranslation()
-+  const [lang, setLang] = useState<Lang>('curl')
-+  const [copied, setCopied] = useState(false)
-+  const base = useMemo(() => baseUrlAtRender(), [])
-+
-+  const snippets: Record<Lang, string> = useMemo(
-+    () => ({
-+      curl: `curl ${base}/v1/chat/completions \\
-+  -H "Authorization: Bearer $YOUR_KEY" \\
-+  -H "Content-Type: application/json" \\
-+  -d '{
-+    "model": "gpt-4o-mini",
-+    "stream": true,
-+    "messages": [
-+      { "role": "user", "content": "Ping" }
-+    ]
-+  }'`,
-+      python: `from openai import OpenAI
-+
-+client = OpenAI(
-+    base_url="${base}/v1",
-+    api_key="YOUR_KEY",
-+)
-+
-+stream = client.chat.completions.create(
-+    model="gpt-4o-mini",
-+    stream=True,
-+    messages=[{"role": "user", "content": "Ping"}],
-+)
-+
-+for chunk in stream:
-+    print(chunk.choices[0].delta.content or "", end="")`,
-+      node: `import OpenAI from "openai";
-+
-+const client = new OpenAI({
-+  baseURL: "${base}/v1",
-+  apiKey: process.env.YOUR_KEY,
-+});
-+
-+const stream = await client.chat.completions.create({
-+  model: "gpt-4o-mini",
-+  stream: true,
-+  messages: [{ role: "user", content: "Ping" }],
-+});
-+
-+for await (const chunk of stream) {
-+  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
-+}`,
-+    }),
-+    [base]
-+  )
-+
-+  const handleCopy = async () => {
-+    try {
-+      await navigator.clipboard.writeText(snippets[lang])
-+      setCopied(true)
-+      setTimeout(() => setCopied(false), 1600)
-+    } catch {
-+      /* noop */
-+    }
-+  }
-+
-+  return (
-+    <section className='iz-quickstart'>
-+      <div className='iz-quickstart-inner'>
-+        <AnimateInView animation='fade-up'>
-+          <header className='iz-section-head'>
-+            <span className='iz-section-kicker'>
-+              <span className='iz-section-kicker-dot' />
-+              {t('Quickstart')}
-+            </span>
-+            <h2 className='iz-section-title'>
-+              {t('Three lines of difference. Nothing else to learn.')}
-+            </h2>
-+            <p className='iz-section-sub'>
-+              {t(
-+                'Use whichever SDK you already trust. Point the base URL at this gateway, plug in your key, and ship.'
-+              )}
-+            </p>
-+          </header>
-+        </AnimateInView>
-+
-+        <AnimateInView animation='fade-up' delay={120}>
-+          <div className='iz-code'>
-+            <div className='iz-code-bar'>
-+              <div className='iz-code-dots' aria-hidden>
-+                <span /> <span /> <span />
-+              </div>
-+              <div className='iz-code-tabs' role='tablist'>
-+                {(['curl', 'python', 'node'] as Lang[]).map((l) => (
-+                  <button
-+                    key={l}
-+                    role='tab'
-+                    aria-selected={lang === l}
-+                    onClick={() => setLang(l)}
-+                    className={`iz-code-tab ${lang === l ? 'is-active' : ''}`}
-+                    type='button'
-+                  >
-+                    {l === 'curl' ? 'cURL' : l === 'python' ? 'Python' : 'Node.js'}
-+                  </button>
-+                ))}
-+              </div>
-+              <button
-+                type='button'
-+                onClick={handleCopy}
-+                className='iz-code-copy'
-+                aria-label='Copy snippet'
-+              >
-+                {copied ? (
-+                  <>
-+                    <Check className='size-3.5' /> {t('copied')}
-+                  </>
-+                ) : (
-+                  <>
-+                    <Copy className='size-3.5' /> {t('copy')}
-+                  </>
-+                )}
-+              </button>
-+            </div>
-+            <pre className='iz-code-body'>
-+              <code>{snippets[lang]}</code>
-+            </pre>
-+            <div className='iz-code-foot'>
-+              <span className='iz-code-foot-dot' />
-+              <span className='iz-code-foot-txt'>
-+                {t('Streaming, tool calls and image APIs work the same way.')}
-+              </span>
-+            </div>
-+          </div>
-+        </AnimateInView>
-+      </div>
-+    </section>
-+  )
-+}
+   // Upstream model update settings (for model-fetchable channel types)
+   if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
+     settingsObj.upstream_model_update_check_enabled =
+diff --git a/web/default/src/features/channels/types.ts b/web/default/src/features/channels/types.ts
+index a282053a3a95e3ef5b4f22726c11ff0a8681bbd6..273edd44befb56504ed4cec52eefce6ab9c4f656 100644
+--- a/web/default/src/features/channels/types.ts
++++ b/web/default/src/features/channels/types.ts
+@@ -322,6 +322,7 @@ export interface ChannelFormData {
+   multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
+   multi_key_type?: 'random' | 'polling'
+   batch_add_set_key_prefix_2_name?: boolean
++  auto_test_and_recover_enabled?: boolean
+ }
+ 
+ // ============================================================================
 diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
 index 2c7a8f3dd77de2dfab7fde8678297988743e37af..4c071ab46f2436c36534f5686daa45e4a5248426 100644
 --- a/web/default/src/features/home/index.tsx
@@ -2908,10 +2245,10 @@ index 2c7a8f3dd77de2dfab7fde8678297988743e37af..4c071ab46f2436c36534f5686daa45e4
      </PublicLayout>
    )
 diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
-index a9a86b76b564eaefe3a7fe363082f7ebec89679f..b0436968843a4cbf6c0a4c7fe24aa7ba8f31d6d7 100644
+index b13168034f3593ca04877125bcfac5dc9295b715..71c805e63fa869b9cd31fb46c0f833ed86501bbf 100644
 --- a/web/default/src/features/playground/index.tsx
 +++ b/web/default/src/features/playground/index.tsx
-@@ -22,7 +22,11 @@ import { getUserModels, getUserGroups } from './api'
+@@ -24,7 +24,11 @@ import { getUserModels, getUserGroups } from './api'
  import { PlaygroundChat } from './components/playground-chat'
  import { PlaygroundInput } from './components/playground-input'
  import { usePlaygroundState, useChatHandler } from './hooks'
@@ -2924,7 +2261,7 @@ index a9a86b76b564eaefe3a7fe363082f7ebec89679f..b0436968843a4cbf6c0a4c7fe24aa7ba
  import type { Message as MessageType } from './types'
  
  export function Playground() {
-@@ -135,11 +139,15 @@ export function Playground() {
+@@ -160,11 +164,15 @@ export function Playground() {
        const index = messages.findIndex((m) => m.key === editingMessageKey)
        if (index === -1) return
  
@@ -2989,7 +2326,7 @@ index 6128a378044a04199b765720cdee7f6d1dcca3c6..35e2e6c8a423cceda2ef28027480c02c
    for (let i = messages.length - 1; i >= 0; i--) {
      const m = messages[i]
 diff --git a/web/default/src/features/playground/lib/storage.ts b/web/default/src/features/playground/lib/storage.ts
-index 1ad23571be18aea69539472851fc9edad6424065..a6c63760cbbabab0ea35c38b10e268277dc49b01 100644
+index 825850fde392454fab3d918d73281322e00e6154..a6c63760cbbabab0ea35c38b10e268277dc49b01 100644
 --- a/web/default/src/features/playground/lib/storage.ts
 +++ b/web/default/src/features/playground/lib/storage.ts
 @@ -16,20 +16,192 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
@@ -3216,14 +2553,13 @@ index 1ad23571be18aea69539472851fc9edad6424065..a6c63760cbbabab0ea35c38b10e26827
      // eslint-disable-next-line no-console
      console.error('Failed to load parameter enabled:', error)
    }
-@@ -87,20 +274,26 @@ export function saveParameterEnabled(
+@@ -87,19 +274,26 @@ export function saveParameterEnabled(
  export function loadMessages(): Message[] | null {
    try {
      const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES)
 -    if (saved) {
 -      const parsed: unknown = JSON.parse(saved)
 -      if (!Array.isArray(parsed)) {
--        localStorage.removeItem(STORAGE_KEYS.MESSAGES)
 -        return null
 -      }
 -      const sanitized = sanitizeMessagesOnLoad(parsed as Message[])
@@ -3256,10 +2592,10 @@ index 1ad23571be18aea69539472851fc9edad6424065..a6c63760cbbabab0ea35c38b10e26827
      console.error('Failed to load messages:', error)
    }
 diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
-index 0f43c4e641fe4229989296ebea81a504401fdffe..d89ab5a18d0a46a71f92295f9dc8d1b0eb6900d3 100644
+index c38d9a11b43c4fdd8f7e5d2d6b8840dad74d58df..361c78f15e4bab8b0016c7c599163437c4ea3216 100644
 --- a/web/default/src/styles/index.css
 +++ b/web/default/src/styles/index.css
-@@ -583,3 +583,869 @@ For commercial licensing, please contact support@quantumnous.com
+@@ -605,3 +605,869 @@ For commercial licensing, please contact support@quantumnous.com
      animation: none !important;
    }
  }
