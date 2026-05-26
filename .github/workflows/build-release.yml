@@ -79,10 +79,8 @@ jobs:
           }
 
           echo "Cloning patch repository without Node-based actions"
-          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" patch-repo
-          cd patch-repo
-          git checkout -q "${GITHUB_SHA}"
-          cd ..
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" patch-repo
 
           echo "Detecting latest upstream NewAPI release"
           if [ -n "${REQUESTED_UPSTREAM_TAG:-}" ]; then
