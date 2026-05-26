@@ -79,7 +79,7 @@ jobs:
           }
 
           echo "Cloning patch repository without Node-based actions"
-          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" \
+          git clone --depth 1 --single-branch --branch main \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" patch-repo
 
           echo "Detecting latest upstream NewAPI release"
