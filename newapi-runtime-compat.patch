@@ -25,7 +25,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..ed261bb 100644
+index 037b849..f9d3e68 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -51,8 +51,13 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
@@ -108,15 +108,6 @@ index 037b849..ed261bb 100644
  		return testResult{
  			context:     c,
  			localErr:    bodyErr,
-@@ -664,7 +682,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
- }
- 
- func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
--	return channel != nil && channel.Type == constant.ChannelTypeCodex
-+	return channel != nil && (channel.Type == constant.ChannelTypeCodex || channel.Id == 24)
- }
- 
- func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 @@ -923,7 +941,12 @@ func testAllChannels(notify bool) error {
  		}()
  
@@ -2202,29 +2193,8 @@ index fad105b..df4b521 100644
  
                    <Form.Input field='proxy' label={t('代理地址')} placeholder={t('例如: socks5://user:pass@host:port')} onChange={(value) => handleChannelSettingsChange('proxy', value)} showClear extraText={t('用于配置网络代理，支持 socks5 协议')} />
  
-diff --git a/web/default/src/components/layout/components/mobile-drawer.tsx b/web/default/src/components/layout/components/mobile-drawer.tsx
-index 8108631..02d119a 100644
---- a/web/default/src/components/layout/components/mobile-drawer.tsx
-+++ b/web/default/src/components/layout/components/mobile-drawer.tsx
-@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
- import type { AuthUser } from '@/stores/auth-store'
- import useDialogState from '@/hooks/use-dialog'
- import { useUserDisplay } from '@/hooks/use-user-display'
--import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
- import { Button } from '@/components/ui/button'
- import { Skeleton } from '@/components/ui/skeleton'
- import { SignOutDialog } from '@/components/sign-out-dialog'
-@@ -89,7 +89,6 @@ function MobileUserProfile({ user, onNavigate }: MobileUserProfileProps) {
-         {/* User header - simplified */}
-         <div className='border-border flex items-center gap-2.5 border-b p-2.5'>
-           <Avatar className='size-9'>
--            <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
-             <AvatarFallback className='text-xs'>{initials}</AvatarFallback>
-           </Avatar>
-           <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 9230236..beb563f 100644
+index 6b26cd1..71e96ca 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -219,6 +219,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {

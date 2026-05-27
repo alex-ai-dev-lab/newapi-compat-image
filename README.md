@@ -1,155 +1,151 @@
-# NewAPI 兼容补丁镜像
+# NewAPI 运行兼容补丁镜像
 
-这个仓库会基于原版 NewAPI 自动构建两个镜像：一个普通功能补丁版，一个功能补丁 + 首页美化版。
-现在很多基础能力其实上游已经自带了，比如 Claude/OpenAI 互转、部分自动恢复、部分 Playground 清理逻辑；我们保留官方实现，只补上缺口。
-补丁重点解决的是：Claude Code / Codex 兼容、渠道测试与流式转换、429/401/403 后自动切换渠道、以及“允许自动测试及恢复”这种更细的渠道控制。
-美化版只改公开首页，不改后台逻辑和数据库。
+这是基于原版 NewAPI 自动打补丁构建的镜像，尽量优先使用上游官方功能，只补官方还没覆盖好的兼容缺口。
+仓库每次构建会在同一个 Release 里发布两个镜像：普通运行兼容版、运行兼容 + 首页美化版。
+普通版只改模型调用链路；美化版额外替换公开首页，不改后台、数据库和登录逻辑。
 
 ## 使用方式
 
-### 1. 普通功能补丁版
+### 1. 普通运行兼容版
+
+适合只想要 Claude Code / Codex / OpenAI Responses / Claude Messages 兼容修复，不想改首页的人。
 
 Docker 镜像：
 
 ```text
-ghcr.io/alex-ai-dev-lab/newapi-compat:版本号
+ghcr.io/alex-ai-dev-lab/newapi-runtime-compat:v1.0.0-rc.10
 ```
 
-例如：
+`docker-compose.yml` 示例：
 
 ```yaml
 services:
   new-api:
-    image: ghcr.io/alex-ai-dev-lab/newapi-compat:v1.0.0-rc.9
+    image: ghcr.io/alex-ai-dev-lab/newapi-runtime-compat:v1.0.0-rc.10
     volumes:
       - ./data:/data
     ports:
       - "3000:3000"
 ```
 
-Release 里的离线镜像包：
+如果服务器拉 GHCR 不稳定，就下载 Release 里的离线镜像包：
 
 ```text
-newapi-compat-image-v1.0.0-rc.9.tar.gz
+newapi-runtime-compat-docker-image-v1.0.0-rc.10.tar.gz
 ```
 
-导入方式：
+导入：
 
 ```bash
-docker load -i newapi-compat-image-v1.0.0-rc.9.tar.gz
+docker load -i newapi-runtime-compat-docker-image-v1.0.0-rc.10.tar.gz
 docker compose up -d
 ```
 
-对应补丁文件：
+对应源码补丁：
 
 ```text
-newapi-compat-core.patch
+newapi-runtime-compat.patch
 ```
 
-### 2. 功能补丁 + 首页美化版
+### 2. 运行兼容 + 首页美化版
+
+适合想同时使用兼容修复，并替换公开首页视觉的人。
 
 Docker 镜像：
 
 ```text
-ghcr.io/alex-ai-dev-lab/newapi-compat-home:版本号
+ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10
 ```
 
-例如：
+`docker-compose.yml` 示例：
 
 ```yaml
 services:
   new-api:
-    image: ghcr.io/alex-ai-dev-lab/newapi-compat-home:v1.0.0-rc.9
+    image: ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10
     volumes:
       - ./data:/data
     ports:
       - "3000:3000"
 ```
 
-Release 里的离线镜像包：
+离线镜像包：
 
 ```text
-newapi-compat-home-image-v1.0.0-rc.9.tar.gz
+newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz
 ```
 
-导入方式：
+导入：
 
 ```bash
-docker load -i newapi-compat-home-image-v1.0.0-rc.9.tar.gz
+docker load -i newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz
 docker compose up -d
 ```
 
-对应补丁文件：
+对应源码补丁：
 
 ```text
-newapi-compat-home.patch
+newapi-runtime-compat-with-homepage.patch
 ```
 
 ### 3. 自己本地打补丁构建
 
-普通功能补丁版：
+普通运行兼容版：
 
 ```bash
 ./deploy-newapi-compat.sh \
   /path/to/upstream/new-api-source \
-  ./newapi-compat-core.patch \
-  newapi-compat:custom \
-  v1.0.0-rc.9
+  ./newapi-runtime-compat.patch \
+  newapi-runtime-compat:custom \
+  v1.0.0-rc.10
 ```
 
-功能补丁 + 首页美化版：
+运行兼容 + 首页美化版：
 
 ```bash
 ./deploy-newapi-compat.sh \
   /path/to/upstream/new-api-source \
-  ./newapi-compat-home.patch \
-  newapi-compat-home:custom \
-  v1.0.0-rc.9
+  ./newapi-runtime-compat-with-homepage.patch \
+  newapi-runtime-compat-homepage:custom \
+  v1.0.0-rc.10
 ```
 
 ## 主要改动说明
 
-### 1. Claude Code / Claude 类调用更稳
+### 1. 优先保留官方功能，删掉重复补丁
 
-- 修正 Claude / OpenAI 流式和非流式之间的转换。
-- 清理 Claude attribution、`cch`、`cc_version`、`cc_entrypoint`。
-- 避免一些工具参数被错误传递，导致调用中断。
-- 避免上游返回空 assistant 回合导致 Claude Code 自己停下。
+- 上游已经自带的基础 Claude/OpenAI 格式转换、部分 Responses 处理、基础渠道测试逻辑，尽量不重复改。
+- 删除历史遗留的特定渠道 ID 硬编码，避免把个人环境规则带进通用镜像。
+- 删除和模型调用无关的零散前端小改动，减少后续升级冲突。
 
-### 2. Codex 相关兼容
+### 2. Claude Code / Claude 类客户端更稳
 
-- Codex 测试渠道会按需要强制走流式。
-- `chat.completions` 和 `responses` 之间会做更稳的转换。
-- 去掉 Codex 容易拒绝的参数，比如 `top_p`。
-- 修掉一些“看起来能通，实际解析会炸”的情况。
+- 清理 `cch`、`cc_version`、`cc_entrypoint` 这类 Claude Code attribution 信息，并重写请求体缓存。
+- 清理 Claude Code 容易生成的无效工具参数，比如 `Read.pages=""`。
+- 合并连续并行 `tool_use` 历史，减少工具调用后模型只回一句话就停止的概率。
+- 修正 Claude / OpenAI 流式转换中的工具调用、空 assistant 回合和结束事件。
 
-### 3. 渠道测试更稳
+### 3. Codex / OpenAI Responses 兼容
 
-- 某些渠道后台点“测试”时，上游会返回 SSE。
-- 以前会被当成普通 JSON 解析，直接报错。
-- 现在测试链会先看响应类型，再决定按流式还是按普通 JSON 处理。
+- Codex 上游要求 `stream=true` 时，平台侧自动用上游流式，再聚合回非流式 JSON 给客户端。
+- 对 `chat.completions` 走 Responses 的场景做兜底转换。
+- 清理 Codex 容易拒绝的参数，例如 `top_p`。
+- 修正后台测试渠道把 SSE 当普通 JSON 解析导致的报错。
 
-### 4. 自动测试 / 自动恢复更合理
+### 4. 渠道失败自动切换
 
-- 新增“允许自动测试及恢复”开关。
-- 关掉后，系统定时测试时会跳过这个渠道，也不会自动把它启用。
-- 需要人工手动启用时，才会重新参与自动测试。
+- 遇到 401、403、402、429、首字超时、请求失败、典型网关错误时，服务端优先自动切换到下一个可用渠道。
+- 失败渠道会从本次重试里排除，避免出现 `50->50->50` 这种一直切回自己的情况。
+- 明显无额度、鉴权失败、限流或超时的渠道会自动禁用，减少客户端任务被 429/502 直接打断。
 
-### 5. 自动切换渠道更积极
+### 5. 自动测试及恢复开关
 
-- 429、401、403、首字超时、请求失败等情况，会尽量在服务端自动换下一个渠道。
-- 尽量避免把这些错误直接返回给本地 Codex，导致任务中断。
-- 对明显失败的渠道会做禁用和排除，减少同一个坏渠道反复重试。
+- 每个渠道新增“允许自动测试及恢复”开关。
+- 打开：系统可以按定时任务自动测试，并在恢复后自动启用。
+- 关闭：系统定时测试会跳过该渠道，除非用户手动启用。
 
-### 6. 网关兼容更顺手
+### 6. 首页美化版额外改动
 
-- 一些客户端 base_url 写重复时，能少踩坑。
-- 对 OpenAI / Claude / Responses 这几条链路做了兼容修正。
-- 尽量让客户端“照着原来的写法就能跑”。
-
-### 7. 首页美化版额外改了什么
-
-- 替换公开首页，增加更现代的 Hero、能力说明、端点展示、Quickstart 和 CTA。
-- 微调顶栏和底栏视觉样式。
-- 首页样式使用独立作用域，尽量不影响后台页面。
-- 不改路由、不改数据库、不改登录和后台管理逻辑。
+- 只替换公开首页的 Hero、能力说明、端点说明、Quickstart、结尾 CTA、顶栏和底栏。
+- 样式尽量限制在首页作用域内。
+- 不改后台管理功能、不改数据库结构、不改登录逻辑。

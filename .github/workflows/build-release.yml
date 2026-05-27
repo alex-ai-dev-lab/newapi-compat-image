@@ -1,10 +1,10 @@
-name: Build NewAPI compat image
+name: Build NewAPI compat release
 
 on:
   workflow_dispatch:
     inputs:
       upstream_tag:
-        description: "Optional upstream NewAPI tag, for example v1.0.0-rc.5"
+        description: "Optional upstream NewAPI tag, for example v1.0.0-rc.10"
         required: false
         type: string
   schedule:
@@ -24,7 +24,7 @@ jobs:
     env:
       GH_API: https://api.github.com
     steps:
-      - name: Build and publish patched image
+      - name: Build and publish patched images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUESTED_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
@@ -116,48 +116,76 @@ jobs:
           echo "Downloading upstream source ${upstream_tag}"
           mkdir -p work out
           curl -fsSL -o work/upstream.zip "https://github.com/QuantumNous/new-api/archive/refs/tags/${upstream_tag}.zip"
-          unzip -q work/upstream.zip -d work
-          upstream_dir="$(find work -maxdepth 1 -type d -name 'new-api-*' | head -n 1)"
+          unzip -q work/upstream.zip -d work/upstream
+          upstream_dir="$(find work/upstream -maxdepth 1 -type d -name 'new-api-*' | head -n 1)"
           if [ -z "${upstream_dir}" ]; then
             echo "Failed to locate extracted upstream source directory" >&2
             exit 1
           fi
 
-          echo "Applying compatibility patch"
-          cd "${upstream_dir}"
-          git init -q -b main
-          if ! git apply --check "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch"; then
-            echo "::error::Compatibility patch does not apply cleanly to ${upstream_tag}."
-            echo "Recent patch headers:"
-            grep -nE '^(diff --git|@@ )' "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch" | tail -n 80 || true
-            exit 1
-          fi
-          git apply "${GITHUB_WORKSPACE}/patch-repo/newapi-compat-core.patch"
-          printf '%s\n' "${upstream_tag}" > VERSION
+          build_variant() {
+            local variant="$1"
+            local patch_file="$2"
+            local image_name="$3"
+            local archive_name="$4"
 
-          echo "Building Docker image"
-          image_tag="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat:${upstream_tag}"
-          docker build -t "${image_tag}" .
+            local build_dir="work/build-${variant}"
+            rm -rf "${build_dir}"
+            cp -a "${upstream_dir}" "${build_dir}"
+            cd "${build_dir}"
+            git init -q -b main
+            if ! git apply --check "${GITHUB_WORKSPACE}/patch-repo/${patch_file}"; then
+              echo "::error::Patch does not apply cleanly to ${upstream_tag}: ${patch_file}"
+              echo "Recent patch headers:"
+              grep -nE '^(diff --git|@@ )' "${GITHUB_WORKSPACE}/patch-repo/${patch_file}" | tail -n 80 || true
+              exit 1
+            fi
+            git apply "${GITHUB_WORKSPACE}/patch-repo/${patch_file}"
+            printf '%s\n' "${upstream_tag}" > VERSION
+
+            local image_tag="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${image_name}:${upstream_tag}"
+            echo "Building Docker image ${image_tag}"
+            docker build -t "${image_tag}" .
+            docker push "${image_tag}"
+
+            cd "${GITHUB_WORKSPACE}"
+            docker save "${image_tag}" | gzip -9 > "out/${archive_name}-${upstream_tag}.tar.gz"
+            echo "${image_tag}" > "out/${variant}.image-tag"
+          }
+
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          docker push "${image_tag}"
 
-          echo "Packaging artifacts"
-          cd "${GITHUB_WORKSPACE}"
-          docker save "${image_tag}" | gzip -9 > "out/newapi-compat-image-${upstream_tag}.tar.gz"
-          cp "patch-repo/newapi-compat-core.patch" "out/"
+          build_variant "runtime" "newapi-runtime-compat.patch" "newapi-runtime-compat" "newapi-runtime-compat-docker-image"
+          build_variant "homepage" "newapi-runtime-compat-with-homepage.patch" "newapi-runtime-compat-homepage" "newapi-runtime-compat-homepage-docker-image"
+
+          cp "patch-repo/newapi-runtime-compat.patch" "out/"
+          cp "patch-repo/newapi-runtime-compat-with-homepage.patch" "out/"
           cp "patch-repo/SHA256SUMS.txt" "out/"
+
+          runtime_image_tag="$(cat out/runtime.image-tag)"
+          homepage_image_tag="$(cat out/homepage.image-tag)"
           {
             echo "Upstream version: ${upstream_tag}"
-            echo "Image tag: ${image_tag}"
+            echo "Runtime compat image tag: ${runtime_image_tag}"
+            echo "Runtime compat + homepage image tag: ${homepage_image_tag}"
             echo
-            echo "普通功能补丁镜像：基于原版 NewAPI ${upstream_tag}，只应用 newapi-compat-core.patch。"
+            echo "这个 Release 同时包含两个镜像："
+            echo "- 普通功能补丁镜像：newapi-runtime-compat-docker-image-${upstream_tag}.tar.gz"
+            echo "- 功能补丁 + 首页美化镜像：newapi-runtime-compat-homepage-docker-image-${upstream_tag}.tar.gz"
           } > out/RELEASE_NOTES.md
-          sha256sum "out/newapi-compat-image-${upstream_tag}.tar.gz" "out/newapi-compat-core.patch" "out/SHA256SUMS.txt" "out/RELEASE_NOTES.md" > "out/ARTIFACTS.SHA256SUMS"
+
+          sha256sum \
+            "out/newapi-runtime-compat-docker-image-${upstream_tag}.tar.gz" \
+            "out/newapi-runtime-compat-homepage-docker-image-${upstream_tag}.tar.gz" \
+            "out/newapi-runtime-compat.patch" \
+            "out/newapi-runtime-compat-with-homepage.patch" \
+            "out/SHA256SUMS.txt" \
+            "out/RELEASE_NOTES.md" > "out/ARTIFACTS.SHA256SUMS"
 
           echo "Creating GitHub release ${release_tag}"
           jq -n \
             --arg tag_name "${release_tag}" \
-            --arg name "NewAPI compat image ${upstream_tag}" \
+            --arg name "NewAPI compat images ${upstream_tag}" \
             --rawfile body out/RELEASE_NOTES.md \
             '{tag_name:$tag_name, name:$name, body:$body, draft:false, prerelease:false}' \
             > out/release.json
@@ -168,8 +196,10 @@ jobs:
             exit 1
           fi
 
-          upload_asset "${upload_url}" "out/newapi-compat-image-${upstream_tag}.tar.gz" > /dev/null
-          upload_asset "${upload_url}" "out/newapi-compat-core.patch" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-runtime-compat-docker-image-${upstream_tag}.tar.gz" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-runtime-compat-homepage-docker-image-${upstream_tag}.tar.gz" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-runtime-compat.patch" > /dev/null
+          upload_asset "${upload_url}" "out/newapi-runtime-compat-with-homepage.patch" > /dev/null
           upload_asset "${upload_url}" "out/SHA256SUMS.txt" > /dev/null
           upload_asset "${upload_url}" "out/ARTIFACTS.SHA256SUMS" > /dev/null
           upload_asset "${upload_url}" "out/RELEASE_NOTES.md" > /dev/null
