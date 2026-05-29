@@ -311,11 +311,78 @@ index 0000000..44f4f75
 +		t.Fatal("transient transport 502 should still be tracked for repeated-failure auto-disable")
 +	}
 +}
+diff --git a/controller/encrypted_reasoning_fallback_test.go b/controller/encrypted_reasoning_fallback_test.go
+new file mode 100644
+index 0000000..b8974dd
+--- /dev/null
++++ b/controller/encrypted_reasoning_fallback_test.go
+@@ -0,0 +1,53 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/stretchr/testify/assert"
++)
++
++func TestShouldCompatRetryByError_InvalidEncryptedContent(t *testing.T) {
++	err := types.NewOpenAIError(
++		errors.New("invalid_encrypted_content"),
++		types.ErrorCodeBadResponseStatusCode,
++		http.StatusBadRequest,
++	)
++
++	assert.True(t, shouldCompatRetryByError(err))
++	assert.True(t, shouldCompatExcludeChannelForRetry(err))
++	assert.False(t, shouldCompatDisableChannel(err))
++}
++
++func TestCompatStreamRetryError_PreFirstChunkHandlerStop(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("invalid_encrypted_content")
++	status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:              true,
++		ReceivedResponseCount: 0,
++		StreamStatus:          status,
++	}
++
++	err := compatStreamRetryError(info)
++
++	if assert.NotNil(t, err) {
++		assert.Equal(t, http.StatusBadGateway, err.StatusCode)
++	}
++}
++
++func TestCompatStreamRetryError_AfterChunkHandlerStopNoRetry(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("invalid_encrypted_content")
++	status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:              true,
++		ReceivedResponseCount: 1,
++		StreamStatus:          status,
++	}
++
++	assert.Nil(t, compatStreamRetryError(info))
++}
 diff --git a/controller/relay.go b/controller/relay.go
-index 1d14dcc..99f2772 100644
+index 1d14dcc..ad631b5 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
-@@ -179,15 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -122,6 +122,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
+ 		return
+ 	}
++	initEncryptedReasoningCompat(c, relayInfo)
+ 
+ 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
+ 	needCountToken := constant.CountToken
+@@ -179,15 +180,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  	}()
  
  	retryParam := &service.RetryParam{
@@ -328,6 +395,7 @@ index 1d14dcc..99f2772 100644
 +		ModelName:          relayInfo.OriginModelName,
 +		Retry:              common.GetPointer(0),
 +		ExcludedChannelIds: make(map[int]bool),
++		PreferredChannelId: relayInfo.EncryptedReasoningAffinityChannelId,
  	}
  	relayInfo.RetryIndex = 0
  	relayInfo.LastError = nil
@@ -338,7 +406,18 @@ index 1d14dcc..99f2772 100644
  		relayInfo.RetryIndex = retryParam.GetRetry()
  		channel, channelErr := getChannel(c, relayInfo, retryParam)
  		if channelErr != nil {
-@@ -220,8 +222,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -197,6 +201,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+ 		}
+ 
+ 		addUsedChannel(c, channel.Id)
++		if scrubErr := prepareEncryptedReasoningRetryBody(c, relayInfo, channel); scrubErr != nil {
++			newAPIError = scrubErr
++			break
++		}
+ 		bodyStorage, bodyErr := common.GetBodyStorage(c)
+ 		if bodyErr != nil {
+ 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
+@@ -220,8 +228,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  			newAPIError = relayHandler(c, relayInfo)
  		}
  
@@ -351,7 +430,7 @@ index 1d14dcc..99f2772 100644
  			return
  		}
  
-@@ -230,9 +236,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -230,9 +242,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  
  		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  
@@ -362,10 +441,120 @@ index 1d14dcc..99f2772 100644
  		}
 +		disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
 +		markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
++		if relayInfo.EncryptedReasoningScrubFallback && service.ShouldFallbackEncryptedReasoningError(newAPIError) {
++			logger.LogWarn(c, fmt.Sprintf(
++				"encrypted reasoning fallback triggered: from_channel=%d reason=%s",
++				channel.Id,
++				common.LocalLogPreview(newAPIError.MaskSensitiveErrorWithStatusCode()),
++			))
++			retryParam.PreferredChannelId = 0
++		}
  	}
  
  	useChannel := c.GetStringSlice("use_channel")
-@@ -347,12 +356,223 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -289,6 +312,92 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
+ 	return meta
+ }
+ 
++func initEncryptedReasoningCompat(c *gin.Context, info *relaycommon.RelayInfo) {
++	if c == nil || info == nil {
++		return
++	}
++	setting := operation_setting.GetEncryptedReasoningFallbackSetting()
++	if setting == nil || (!setting.AffinityEnabled && !setting.ScrubFallbackEnabled) {
++		return
++	}
++	if info.RelayMode != relayconstant.RelayModeResponses &&
++		info.RelayMode != relayconstant.RelayModeResponsesCompact {
++		return
++	}
++	req, ok := info.Request.(*dto.OpenAIResponsesRequest)
++	if !ok {
++		return
++	}
++	reqInfo := service.AnalyzeEncryptedReasoningRequest(req)
++	if !reqInfo.HasEncryptedReasoning && !reqInfo.HasReasoningItem && !reqInfo.HasPreviousResponseID {
++		return
++	}
++	info.EncryptedReasoningAffinityEnabled = setting.AffinityEnabled
++	info.EncryptedReasoningScrubFallback = setting.ScrubFallbackEnabled
++	info.EncryptedReasoningOriginalChannelId = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
++	if info.EncryptedReasoningOriginalChannelId > 0 && setting.AffinityEnabled {
++		info.EncryptedReasoningAffinityChannelId = info.EncryptedReasoningOriginalChannelId
++		logger.LogInfo(c, fmt.Sprintf("encrypted reasoning affinity hit: channel=%d", info.EncryptedReasoningOriginalChannelId))
++	}
++}
++
++func prepareEncryptedReasoningRetryBody(c *gin.Context, info *relaycommon.RelayInfo, channel *model.Channel) *types.NewAPIError {
++	if c == nil || info == nil || channel == nil || !info.EncryptedReasoningScrubFallback {
++		return nil
++	}
++	req, ok := info.Request.(*dto.OpenAIResponsesRequest)
++	if !ok {
++		return nil
++	}
++	if !service.ShouldUseEncryptedReasoningCompat(req) {
++		return nil
++	}
++	originalChannelID := info.EncryptedReasoningOriginalChannelId
++	if originalChannelID <= 0 || channel.Id == originalChannelID {
++		logger.LogInfo(c, fmt.Sprintf("encrypted reasoning affinity route preserved: channel=%d", channel.Id))
++		return nil
++	}
++	setting := operation_setting.GetEncryptedReasoningFallbackSetting()
++	if setting != nil && setting.MaxFallbackTimes >= 0 && info.EncryptedReasoningFallbackCount >= setting.MaxFallbackTimes {
++		return types.NewOpenAIError(
++			fmt.Errorf("encrypted reasoning fallback limit reached"),
++			types.ErrorCodeGetChannelFailed,
++			http.StatusBadGateway,
++		)
++	}
++
++	result := service.ScrubEncryptedReasoningRequest(req)
++	if !result.Changed {
++		return nil
++	}
++	info.EncryptedReasoningFallbackCount++
++	body, err := common.Marshal(req)
++	if err != nil {
++		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
++	}
++	newStorage, err := common.CreateBodyStorage(body)
++	if err != nil {
++		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
++	}
++	if existing, ok := c.Get(common.KeyBodyStorage); ok {
++		if oldStorage, ok := existing.(common.BodyStorage); ok {
++			_ = oldStorage.Close()
++		}
++	}
++	c.Set(common.KeyBodyStorage, newStorage)
++	c.Request.ContentLength = int64(len(body))
++	logger.LogWarn(c, fmt.Sprintf(
++		"encrypted reasoning scrubbed before cross-channel fallback: from_channel=%d to_channel=%d removed_include=%d removed_reasoning_items=%d removed_encrypted_fields=%d removed_previous_response_id=%t",
++		originalChannelID,
++		channel.Id,
++		result.RemovedIncludeEntries,
++		result.RemovedReasoningItems,
++		result.RemovedEncryptedFields,
++		result.RemovedPreviousResponse,
++	))
++	return nil
++}
++
+ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+ 	if info.ChannelMeta == nil {
+ 		autoBan := c.GetBool("auto_ban")
+@@ -325,7 +434,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+ 	if openaiErr == nil {
+ 		return false
+ 	}
+-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
++	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) && !service.ShouldFallbackEncryptedReasoningError(openaiErr) {
+ 		return false
+ 	}
+ 	if types.IsChannelError(openaiErr) {
+@@ -347,12 +456,243 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -382,7 +571,8 @@ index 1d14dcc..99f2772 100644
 +	if info == nil || !info.IsStream || info.StreamStatus == nil {
 +		return nil
 +	}
-+	if info.StreamStatus.IsNormalEnd() {
++	switch info.StreamStatus.EndReason {
++	case relaycommon.StreamEndReasonDone, relaycommon.StreamEndReasonEOF:
 +		if info.RelayFormat == types.RelayFormatClaude &&
 +			info.ClaudeConvertInfo != nil &&
 +			!info.ClaudeConvertInfo.HasOutput &&
@@ -394,8 +584,18 @@ index 1d14dcc..99f2772 100644
 +			)
 +		}
 +		return nil
-+	}
-+	switch info.StreamStatus.EndReason {
++	case relaycommon.StreamEndReasonHandlerStop:
++		if info.ReceivedResponseCount == 0 && info.StreamStatus.HasErrors() {
++			return types.NewOpenAIError(
++				fmt.Errorf("stream stopped before first response: %s", info.StreamStatus.Summary()),
++				types.ErrorCodeBadResponseBody,
++				http.StatusBadGateway,
++			)
++		}
++		// Once visible stream data has been sent, a fully transparent channel switch
++		// would corrupt the client-visible SSE sequence. At that point we only record
++		// the upstream issue and let the existing stream lifecycle finish best-effort.
++		return nil
 +	case relaycommon.StreamEndReasonFirstByteTimeout:
 +		return types.NewOpenAIError(
 +			fmt.Errorf("first byte timeout after %ds", common.RelayFirstByteTimeout),
@@ -450,6 +650,9 @@ index 1d14dcc..99f2772 100644
 +	if openaiErr == nil {
 +		return false
 +	}
++	if service.ShouldFallbackEncryptedReasoningError(openaiErr) {
++		return true
++	}
 +	switch openaiErr.StatusCode {
 +	case http.StatusTooManyRequests, http.StatusPaymentRequired,
 +		http.StatusRequestTimeout, http.StatusInternalServerError,
@@ -496,6 +699,9 @@ index 1d14dcc..99f2772 100644
 +	if openaiErr == nil {
 +		return false
 +	}
++	if service.ShouldFallbackEncryptedReasoningError(openaiErr) {
++		return true
++	}
 +	if shouldCompatDisableChannel(openaiErr) {
 +		return true
 +	}
@@ -512,6 +718,9 @@ index 1d14dcc..99f2772 100644
 +
 +func shouldCompatDisableChannel(openaiErr *types.NewAPIError) bool {
 +	if openaiErr == nil {
++		return false
++	}
++	if service.IsInvalidEncryptedReasoningError(openaiErr) {
 +		return false
 +	}
 +	switch openaiErr.StatusCode {
@@ -1257,7 +1466,7 @@ index 7ec934f..075c49d 100644
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
-index 2f7afd3..9cdfb23 100644
+index 2f7afd3..8749da2 100644
 --- a/relay/common/relay_info.go
 +++ b/relay/common/relay_info.go
 @@ -40,6 +40,8 @@ type ClaudeConvertInfo struct {
@@ -1269,6 +1478,18 @@ index 2f7afd3..9cdfb23 100644
  
  	ToolCallBaseIndex      int
  	ToolCallMaxIndexOffset int
+@@ -153,6 +155,11 @@ type RelayInfo struct {
+ 	RuntimeHeadersOverride                map[string]interface{}
+ 	UseRuntimeHeadersOverride             bool
+ 	ParamOverrideAudit                    []string
++	EncryptedReasoningAffinityEnabled     bool
++	EncryptedReasoningScrubFallback       bool
++	EncryptedReasoningAffinityChannelId   int
++	EncryptedReasoningOriginalChannelId   int
++	EncryptedReasoningFallbackCount       int
+ 
+ 	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
+ 	// body. It is set when the body is wrapped in a BodyStorage (see
 diff --git a/relay/common/stream_status.go b/relay/common/stream_status.go
 index 57b0bb9..ac5ba90 100644
 --- a/relay/common/stream_status.go
@@ -1716,10 +1937,10 @@ index 856e2cd..9dc7755 100644
  	}
  	return true
 diff --git a/service/channel_select.go b/service/channel_select.go
-index a3710ef..1aa23c6 100644
+index a3710ef..881336e 100644
 --- a/service/channel_select.go
 +++ b/service/channel_select.go
-@@ -12,11 +12,12 @@ import (
+@@ -12,11 +12,13 @@ import (
  )
  
  type RetryParam struct {
@@ -1734,10 +1955,43 @@ index a3710ef..1aa23c6 100644
 +	Retry              *int
 +	resetNextTry       bool
 +	ExcludedChannelIds map[int]bool
++	PreferredChannelId int
  }
  
  func (p *RetryParam) GetRetry() int {
-@@ -115,7 +116,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+@@ -86,11 +88,31 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+ 	selectGroup := param.TokenGroup
+ 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+ 
++	if param.PreferredChannelId > 0 && !param.ExcludedChannelIds[param.PreferredChannelId] {
++		preferred, preferredErr := model.CacheGetChannel(param.PreferredChannelId)
++		if preferredErr == nil && preferred != nil &&
++			preferred.Status == common.ChannelStatusEnabled &&
++			model.IsChannelEnabledForGroupModel(param.TokenGroup, param.ModelName, preferred.Id) {
++			return preferred, selectGroup, nil
++		}
++	}
++
+ 	if param.TokenGroup == "auto" {
+ 		if len(setting.GetAutoGroups()) == 0 {
+ 			return nil, selectGroup, errors.New("auto groups is not enabled")
+ 		}
+ 		autoGroups := GetUserAutoGroup(userGroup)
++		if param.PreferredChannelId > 0 && !param.ExcludedChannelIds[param.PreferredChannelId] {
++			preferred, preferredErr := model.CacheGetChannel(param.PreferredChannelId)
++			if preferredErr == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
++				for _, autoGroup := range autoGroups {
++					if model.IsChannelEnabledForGroupModel(autoGroup, param.ModelName, preferred.Id) {
++						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
++						return preferred, autoGroup, nil
++					}
++				}
++			}
++		}
+ 
+ 		// startGroupIndex: the group index to start searching from
+ 		// startGroupIndex: 开始搜索的分组索引
+@@ -115,7 +137,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
  			}
  			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
  
@@ -1746,7 +2000,7 @@ index a3710ef..1aa23c6 100644
  			if channel == nil {
  				// Current group has no available channel for this model, try next group
  				// 当前分组没有该模型的可用渠道，尝试下一个分组
-@@ -153,7 +154,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+@@ -153,7 +175,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
  			break
  		}
  	} else {
@@ -2118,6 +2372,477 @@ index 95acf83..2a5de8c 100644
  func toJSONString(v interface{}) string {
  	b, err := json.Marshal(v)
  	if err != nil {
+diff --git a/service/encrypted_reasoning_compat.go b/service/encrypted_reasoning_compat.go
+new file mode 100644
+index 0000000..bad5107
+--- /dev/null
++++ b/service/encrypted_reasoning_compat.go
+@@ -0,0 +1,296 @@
++package service
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/setting/operation_setting"
++	"github.com/QuantumNous/new-api/types"
++)
++
++type EncryptedReasoningRequestInfo struct {
++	HasEncryptedReasoning bool
++	HasReasoningItem      bool
++	HasPreviousResponseID bool
++}
++
++type EncryptedReasoningScrubResult struct {
++	Changed                 bool
++	RemovedEncryptedFields  int
++	RemovedReasoningItems   int
++	RemovedIncludeEntries   int
++	RemovedPreviousResponse bool
++}
++
++func AnalyzeEncryptedReasoningRequest(req *dto.OpenAIResponsesRequest) EncryptedReasoningRequestInfo {
++	if req == nil {
++		return EncryptedReasoningRequestInfo{}
++	}
++	info := EncryptedReasoningRequestInfo{
++		HasPreviousResponseID: strings.TrimSpace(req.PreviousResponseID) != "",
++	}
++	if includeHasEncryptedReasoning(req.Include) {
++		info.HasEncryptedReasoning = true
++	}
++	if hasEncryptedContentJSON(req.Input) {
++		info.HasEncryptedReasoning = true
++	}
++	if hasReasoningItemJSON(req.Input) {
++		info.HasReasoningItem = true
++	}
++	return info
++}
++
++func ShouldUseEncryptedReasoningCompat(req *dto.OpenAIResponsesRequest) bool {
++	info := AnalyzeEncryptedReasoningRequest(req)
++	return info.HasEncryptedReasoning || info.HasReasoningItem || info.HasPreviousResponseID
++}
++
++func ScrubEncryptedReasoningRequest(req *dto.OpenAIResponsesRequest) EncryptedReasoningScrubResult {
++	if req == nil {
++		return EncryptedReasoningScrubResult{}
++	}
++	var result EncryptedReasoningScrubResult
++	req.Include, result.RemovedIncludeEntries = scrubEncryptedReasoningInclude(req.Include)
++	if result.RemovedIncludeEntries > 0 {
++		result.Changed = true
++	}
++	if strings.TrimSpace(req.PreviousResponseID) != "" {
++		req.PreviousResponseID = ""
++		result.RemovedPreviousResponse = true
++		result.Changed = true
++	}
++	if len(req.Input) > 0 {
++		nextInput, removedFields, removedItems, changed := scrubEncryptedReasoningJSON(req.Input)
++		if changed {
++			req.Input = nextInput
++			result.Changed = true
++			result.RemovedEncryptedFields += removedFields
++			result.RemovedReasoningItems += removedItems
++		}
++	}
++	return result
++}
++
++func ShouldFallbackEncryptedReasoningError(err *types.NewAPIError) bool {
++	if err == nil {
++		return false
++	}
++	setting := operation_setting.GetEncryptedReasoningFallbackSetting()
++	if setting != nil && strings.TrimSpace(setting.FallbackStatusCodes) != "" {
++		ranges, parseErr := operation_setting.ParseHTTPStatusCodeRanges(setting.FallbackStatusCodes)
++		if parseErr == nil && shouldMatchEncryptedReasoningStatusCode(ranges, err.StatusCode) {
++			return true
++		}
++	}
++	msg := strings.ToLower(err.Error())
++	code := strings.ToLower(string(err.GetErrorCode()))
++	for _, needle := range operation_setting.EncryptedReasoningFallbackErrorTexts() {
++		if strings.Contains(msg, needle) || strings.Contains(code, needle) {
++			return true
++		}
++	}
++	return false
++}
++
++func IsInvalidEncryptedReasoningError(err *types.NewAPIError) bool {
++	if err == nil {
++		return false
++	}
++	msg := strings.ToLower(err.Error())
++	code := strings.ToLower(string(err.GetErrorCode()))
++	return strings.Contains(msg, "invalid_encrypted_content") ||
++		strings.Contains(code, "invalid_encrypted_content") ||
++		strings.Contains(msg, "encrypted content could not be decrypted or parsed") ||
++		strings.Contains(msg, "could not be decrypted")
++}
++
++func shouldMatchEncryptedReasoningStatusCode(ranges []operation_setting.StatusCodeRange, code int) bool {
++	if code < 100 || code > 599 {
++		return false
++	}
++	for _, r := range ranges {
++		if code < r.Start {
++			return false
++		}
++		if code <= r.End {
++			return true
++		}
++	}
++	return false
++}
++
++func includeHasEncryptedReasoning(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var items []string
++	if err := common.Unmarshal(raw, &items); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`reasoning.encrypted_content`))
++	}
++	for _, item := range items {
++		if item == "reasoning.encrypted_content" {
++			return true
++		}
++	}
++	return false
++}
++
++func scrubEncryptedReasoningInclude(raw json.RawMessage) (json.RawMessage, int) {
++	if len(raw) == 0 {
++		return raw, 0
++	}
++	var items []string
++	if err := common.Unmarshal(raw, &items); err != nil {
++		return raw, 0
++	}
++	next := items[:0]
++	removed := 0
++	for _, item := range items {
++		if item == "reasoning.encrypted_content" {
++			removed++
++			continue
++		}
++		next = append(next, item)
++	}
++	if removed == 0 {
++		return raw, 0
++	}
++	if len(next) == 0 {
++		return nil, removed
++	}
++	data, err := common.Marshal(next)
++	if err != nil {
++		return raw, 0
++	}
++	return data, removed
++}
++
++func hasEncryptedContentJSON(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`encrypted_content`))
++	}
++	return hasEncryptedContentValue(v)
++}
++
++func hasReasoningItemJSON(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`"type":"reasoning"`)) ||
++			bytes.Contains(bytes.ToLower(raw), []byte(`"type": "reasoning"`))
++	}
++	return hasReasoningItemValue(v)
++}
++
++func scrubEncryptedReasoningJSON(raw json.RawMessage) (json.RawMessage, int, int, bool) {
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return raw, 0, 0, false
++	}
++	next, removedFields, removedItems, changed := scrubEncryptedReasoningValue(v)
++	if !changed {
++		return raw, 0, 0, false
++	}
++	data, err := common.Marshal(next)
++	if err != nil {
++		return raw, 0, 0, false
++	}
++	return data, removedFields, removedItems, true
++}
++
++func hasEncryptedContentValue(v any) bool {
++	switch t := v.(type) {
++	case map[string]any:
++		if _, ok := t["encrypted_content"]; ok {
++			return true
++		}
++		for _, value := range t {
++			if hasEncryptedContentValue(value) {
++				return true
++			}
++		}
++	case []any:
++		for _, item := range t {
++			if hasEncryptedContentValue(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func hasReasoningItemValue(v any) bool {
++	switch t := v.(type) {
++	case map[string]any:
++		if typ, _ := t["type"].(string); typ == "reasoning" {
++			return true
++		}
++		for _, value := range t {
++			if hasReasoningItemValue(value) {
++				return true
++			}
++		}
++	case []any:
++		for _, item := range t {
++			if hasReasoningItemValue(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
++	switch t := v.(type) {
++	case []any:
++		next := make([]any, 0, len(t))
++		removedFields := 0
++		removedItems := 0
++		changed := false
++		for _, item := range t {
++			if m, ok := item.(map[string]any); ok {
++				if typ, _ := m["type"].(string); typ == "reasoning" {
++					removedItems++
++					changed = true
++					continue
++				}
++			}
++			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(item)
++			removedFields += fields
++			removedItems += items
++			changed = changed || itemChanged
++			next = append(next, cleaned)
++		}
++		return next, removedFields, removedItems, changed
++	case map[string]any:
++		next := make(map[string]any, len(t))
++		removedFields := 0
++		removedItems := 0
++		changed := false
++		for key, value := range t {
++			if key == "encrypted_content" {
++				removedFields++
++				changed = true
++				continue
++			}
++			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(value)
++			removedFields += fields
++			removedItems += items
++			changed = changed || itemChanged
++			next[key] = cleaned
++		}
++		return next, removedFields, removedItems, changed
++	default:
++		return v, 0, 0, false
++	}
++}
+diff --git a/service/encrypted_reasoning_compat_test.go b/service/encrypted_reasoning_compat_test.go
+new file mode 100644
+index 0000000..ad51883
+--- /dev/null
++++ b/service/encrypted_reasoning_compat_test.go
+@@ -0,0 +1,94 @@
++package service
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/tidwall/gjson"
++)
++
++func TestAnalyzeEncryptedReasoningRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include:            common.StringToByteSlice(`["reasoning.encrypted_content"]`),
++		PreviousResponseID: "resp_123",
++		Input: common.StringToByteSlice(`[
++			{"type":"message","role":"user","content":"hi"},
++			{"type":"reasoning","encrypted_content":"secret"}
++		]`),
++	}
++
++	info := AnalyzeEncryptedReasoningRequest(req)
++
++	assert.True(t, info.HasEncryptedReasoning)
++	assert.True(t, info.HasReasoningItem)
++	assert.True(t, info.HasPreviousResponseID)
++	assert.True(t, ShouldUseEncryptedReasoningCompat(req))
++}
++
++func TestScrubEncryptedReasoningRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include:            common.StringToByteSlice(`["reasoning.encrypted_content","message.output_text"]`),
++		PreviousResponseID: "resp_123",
++		Input: common.StringToByteSlice(`[
++			{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
++			{"type":"reasoning","encrypted_content":"secret","summary":[]},
++			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"visible","encrypted_content":"nested-secret"}]},
++			{"type":"function_call_output","call_id":"call_1","output":"ok"}
++		]`),
++	}
++
++	result := ScrubEncryptedReasoningRequest(req)
++
++	require.True(t, result.Changed)
++	assert.Equal(t, 1, result.RemovedIncludeEntries)
++	assert.Equal(t, 1, result.RemovedReasoningItems)
++	assert.Equal(t, 1, result.RemovedEncryptedFields)
++	assert.True(t, result.RemovedPreviousResponse)
++	assert.Empty(t, req.PreviousResponseID)
++	assert.JSONEq(t, `["message.output_text"]`, string(req.Include))
++	assert.False(t, gjson.GetBytes(req.Input, `#(type=="reasoning")`).Exists())
++	assert.False(t, gjson.GetBytes(req.Input, `2.content.0.encrypted_content`).Exists())
++	assert.Equal(t, "hi", gjson.GetBytes(req.Input, `0.content.0.text`).String())
++	assert.Equal(t, "visible", gjson.GetBytes(req.Input, `1.content.0.text`).String())
++	assert.Equal(t, "ok", gjson.GetBytes(req.Input, `2.output`).String())
++}
++
++func TestScrubEncryptedReasoningRequest_KeepsCleanRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include: common.StringToByteSlice(`["message.output_text"]`),
++		Input:   common.StringToByteSlice(`[{"type":"message","role":"user","content":"hi"}]`),
++	}
++
++	result := ScrubEncryptedReasoningRequest(req)
++
++	assert.False(t, result.Changed)
++	assert.JSONEq(t, `["message.output_text"]`, string(req.Include))
++	assert.JSONEq(t, `[{"type":"message","role":"user","content":"hi"}]`, string(req.Input))
++}
++
++func TestShouldFallbackEncryptedReasoningError(t *testing.T) {
++	assert.True(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("invalid_encrypted_content"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest),
++	))
++	assert.True(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
++	))
++	assert.False(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("bad user input"), types.ErrorCodeInvalidRequest, http.StatusBadRequest),
++	))
++}
++
++func TestIsInvalidEncryptedReasoningError(t *testing.T) {
++	assert.True(t, IsInvalidEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("Encrypted content could not be decrypted or parsed"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
++	))
++	assert.False(t, IsInvalidEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
++	))
++}
+diff --git a/setting/operation_setting/encrypted_reasoning_fallback_setting.go b/setting/operation_setting/encrypted_reasoning_fallback_setting.go
+new file mode 100644
+index 0000000..04b4b17
+--- /dev/null
++++ b/setting/operation_setting/encrypted_reasoning_fallback_setting.go
+@@ -0,0 +1,63 @@
++package operation_setting
++
++import (
++	"strings"
++
++	"github.com/QuantumNous/new-api/setting/config"
++)
++
++type EncryptedReasoningFallbackSetting struct {
++	AffinityEnabled             bool     `json:"affinity_enabled"`
++	ScrubFallbackEnabled        bool     `json:"scrub_fallback_enabled"`
++	MaxFallbackTimes            int      `json:"max_fallback_times"`
++	FallbackStatusCodes         string   `json:"fallback_status_codes"`
++	FallbackErrorText           []string `json:"fallback_error_text"`
++	StreamingPreFirstChunkRetry bool     `json:"streaming_pre_first_chunk_retry"`
++}
++
++var encryptedReasoningFallbackSetting = EncryptedReasoningFallbackSetting{
++	AffinityEnabled:             true,
++	ScrubFallbackEnabled:        true,
++	MaxFallbackTimes:            10,
++	FallbackStatusCodes:         "402,408,429,500-599",
++	StreamingPreFirstChunkRetry: true,
++	FallbackErrorText: []string{
++		"invalid_encrypted_content",
++		"encrypted content could not be decrypted or parsed",
++		"could not be decrypted",
++		"quota",
++		"credit",
++		"balance",
++		"billing",
++		"insufficient",
++		"rate limit",
++		"too many requests",
++		"connection reset",
++		"unexpected eof",
++		"context deadline exceeded",
++		"do request failed",
++	},
++}
++
++func init() {
++	config.GlobalConfig.Register("encrypted_reasoning_fallback_setting", &encryptedReasoningFallbackSetting)
++}
++
++func GetEncryptedReasoningFallbackSetting() *EncryptedReasoningFallbackSetting {
++	return &encryptedReasoningFallbackSetting
++}
++
++func EncryptedReasoningFallbackErrorTexts() []string {
++	setting := GetEncryptedReasoningFallbackSetting()
++	if setting == nil {
++		return nil
++	}
++	out := make([]string, 0, len(setting.FallbackErrorText))
++	for _, item := range setting.FallbackErrorText {
++		item = strings.ToLower(strings.TrimSpace(item))
++		if item != "" {
++			out = append(out, item)
++		}
++	}
++	return out
++}
 diff --git a/web/classic/src/components/table/channels/modals/EditChannelModal.jsx b/web/classic/src/components/table/channels/modals/EditChannelModal.jsx
 index fad105b..df4b521 100644
 --- a/web/classic/src/components/table/channels/modals/EditChannelModal.jsx
