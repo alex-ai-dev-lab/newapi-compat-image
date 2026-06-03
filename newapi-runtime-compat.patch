@@ -223,6 +223,254 @@ index 0254080..f45af71 100644
 +	require.True(t, shouldUseStreamForChannelTest(channel, "gpt-5.5", string(constant.EndpointTypeOpenAI)))
 +	require.False(t, shouldUseStreamForChannelTest(channel, "text-embedding-3-small", string(constant.EndpointTypeEmbeddings)))
 +}
+diff --git a/controller/compat_channel_failover.go b/controller/compat_channel_failover.go
+new file mode 100644
+index 0000000..66530b2
+--- /dev/null
++++ b/controller/compat_channel_failover.go
+@@ -0,0 +1,70 @@
++package controller
++
++import (
++	"fmt"
++	"net/http"
++	"sync"
++	"time"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/types"
++)
++
++const (
++	compatUpstream5xxFailureThreshold = 2
++	compatUpstream5xxFailureTTL       = 10 * time.Minute
++)
++
++type compatChannelFailureState struct {
++	count       int
++	lastFailure time.Time
++}
++
++var compatChannelFailureTracker = struct {
++	sync.Mutex
++	items map[string]compatChannelFailureState
++}{
++	items: make(map[string]compatChannelFailureState),
++}
++
++func compatChannelFailureKey(channelID int, info *relaycommon.RelayInfo) string {
++	if info == nil {
++		return fmt.Sprintf("%d", channelID)
++	}
++	return fmt.Sprintf("%d|%s|%d|%t", channelID, info.OriginModelName, info.RelayMode, info.IsStream)
++}
++
++func clearCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) {
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++	delete(compatChannelFailureTracker.items, compatChannelFailureKey(channelID, info))
++}
++
++func recordCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) int {
++	now := time.Now()
++	key := compatChannelFailureKey(channelID, info)
++
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++
++	state := compatChannelFailureTracker.items[key]
++	if !state.lastFailure.IsZero() && now.Sub(state.lastFailure) > compatUpstream5xxFailureTTL {
++		state.count = 0
++	}
++	state.count++
++	state.lastFailure = now
++	compatChannelFailureTracker.items[key] = state
++	return state.count
++}
++
++func shouldTrackCompatUpstream5xxFailure(openaiErr *types.NewAPIError) bool {
++	if openaiErr == nil {
++		return false
++	}
++	switch openaiErr.StatusCode {
++	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
++		return true
++	default:
++		return false
++	}
++}
+diff --git a/controller/compat_channel_failover_test.go b/controller/compat_channel_failover_test.go
+new file mode 100644
+index 0000000..44f4f75
+--- /dev/null
++++ b/controller/compat_channel_failover_test.go
+@@ -0,0 +1,107 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++	"time"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	relayconstant "github.com/QuantumNous/new-api/relay/constant"
++	"github.com/QuantumNous/new-api/types"
++)
++
++func resetCompatChannelFailureTrackerForTest() {
++	compatChannelFailureTracker.Lock()
++	defer compatChannelFailureTracker.Unlock()
++	compatChannelFailureTracker.items = make(map[string]compatChannelFailureState)
++}
++
++func TestCompatUpstream5xxFailureThreshold(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++	err := types.NewOpenAIError(errors.New("bad gateway"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
++
++	if !shouldTrackCompatUpstream5xxFailure(err) {
++		t.Fatal("502 should be tracked as transient upstream failure")
++	}
++	if got := recordCompatChannelFailure(52, info); got != 1 {
++		t.Fatalf("first failure count = %d, want 1", got)
++	}
++	if got := recordCompatChannelFailure(52, info); got != compatUpstream5xxFailureThreshold {
++		t.Fatalf("second failure count = %d, want %d", got, compatUpstream5xxFailureThreshold)
++	}
++}
++
++func TestCompatChannelFailureSuccessClearsCount(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++
++	recordCompatChannelFailure(56, info)
++	clearCompatChannelFailure(56, info)
++
++	if got := recordCompatChannelFailure(56, info); got != 1 {
++		t.Fatalf("failure count after success clear = %d, want 1", got)
++	}
++}
++
++func TestCompatChannelFailureTTLResetsCount(t *testing.T) {
++	resetCompatChannelFailureTrackerForTest()
++	info := &relaycommon.RelayInfo{
++		OriginModelName: "claude-opus-4-7",
++		RelayMode:       relayconstant.RelayModeChatCompletions,
++		IsStream:        true,
++	}
++	key := compatChannelFailureKey(52, info)
++
++	recordCompatChannelFailure(52, info)
++	compatChannelFailureTracker.Lock()
++	compatChannelFailureTracker.items[key] = compatChannelFailureState{
++		count:       1,
++		lastFailure: time.Now().Add(-compatUpstream5xxFailureTTL - time.Second),
++	}
++	compatChannelFailureTracker.Unlock()
++
++	if got := recordCompatChannelFailure(52, info); got != 1 {
++		t.Fatalf("failure count after TTL expiry = %d, want 1", got)
++	}
++}
++
++func TestCompatStreamRetryError_ClaudeEmptyAssistantNormalEndRetries(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("empty claude assistant stream")
++	status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:          true,
++		RelayFormat:       types.RelayFormatClaude,
++		StreamStatus:      status,
++		ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{},
++	}
++
++	err := compatStreamRetryError(info)
++	if err == nil {
++		t.Fatal("empty claude assistant stream should trigger retry")
++	}
++	if err.StatusCode != http.StatusBadGateway {
++		t.Fatalf("status = %d, want %d", err.StatusCode, http.StatusBadGateway)
++	}
++}
++
++func TestShouldCompatDisableChannel_DoesNotImmediatelyDisableTransientTransport502(t *testing.T) {
++	err := types.NewOpenAIError(errors.New("do request failed: unexpected EOF"), types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
++
++	if shouldCompatDisableChannel(err) {
++		t.Fatal("transient transport 502 should be tracked/excluded first, not auto-disabled immediately")
++	}
++	if !shouldTrackCompatUpstream5xxFailure(err) {
++		t.Fatal("transient transport 502 should still be tracked for repeated-failure auto-disable")
++	}
++}
+diff --git a/controller/encrypted_reasoning_fallback_test.go b/controller/encrypted_reasoning_fallback_test.go
+new file mode 100644
+index 0000000..b8974dd
+--- /dev/null
++++ b/controller/encrypted_reasoning_fallback_test.go
+@@ -0,0 +1,53 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/stretchr/testify/assert"
++)
++
++func TestShouldCompatRetryByError_InvalidEncryptedContent(t *testing.T) {
++	err := types.NewOpenAIError(
++		errors.New("invalid_encrypted_content"),
++		types.ErrorCodeBadResponseStatusCode,
++		http.StatusBadRequest,
++	)
++
++	assert.True(t, shouldCompatRetryByError(err))
++	assert.True(t, shouldCompatExcludeChannelForRetry(err))
++	assert.False(t, shouldCompatDisableChannel(err))
++}
++
++func TestCompatStreamRetryError_PreFirstChunkHandlerStop(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("invalid_encrypted_content")
++	status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:              true,
++		ReceivedResponseCount: 0,
++		StreamStatus:          status,
++	}
++
++	err := compatStreamRetryError(info)
++
++	if assert.NotNil(t, err) {
++		assert.Equal(t, http.StatusBadGateway, err.StatusCode)
++	}
++}
++
++func TestCompatStreamRetryError_AfterChunkHandlerStopNoRetry(t *testing.T) {
++	status := relaycommon.NewStreamStatus()
++	status.RecordError("invalid_encrypted_content")
++	status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
++	info := &relaycommon.RelayInfo{
++		IsStream:              true,
++		ReceivedResponseCount: 1,
++		StreamStatus:          status,
++	}
++
++	assert.Nil(t, compatStreamRetryError(info))
++}
 diff --git a/controller/relay.go b/controller/relay.go
 index 1d14dcc..ad631b5 100644
 --- a/controller/relay.go
@@ -2403,6 +2651,408 @@ index 95acf83..2a5de8c 100644
  func toJSONString(v interface{}) string {
  	b, err := json.Marshal(v)
  	if err != nil {
+diff --git a/service/encrypted_reasoning_compat.go b/service/encrypted_reasoning_compat.go
+new file mode 100644
+index 0000000..bad5107
+--- /dev/null
++++ b/service/encrypted_reasoning_compat.go
+@@ -0,0 +1,296 @@
++package service
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/setting/operation_setting"
++	"github.com/QuantumNous/new-api/types"
++)
++
++type EncryptedReasoningRequestInfo struct {
++	HasEncryptedReasoning bool
++	HasReasoningItem      bool
++	HasPreviousResponseID bool
++}
++
++type EncryptedReasoningScrubResult struct {
++	Changed                 bool
++	RemovedEncryptedFields  int
++	RemovedReasoningItems   int
++	RemovedIncludeEntries   int
++	RemovedPreviousResponse bool
++}
++
++func AnalyzeEncryptedReasoningRequest(req *dto.OpenAIResponsesRequest) EncryptedReasoningRequestInfo {
++	if req == nil {
++		return EncryptedReasoningRequestInfo{}
++	}
++	info := EncryptedReasoningRequestInfo{
++		HasPreviousResponseID: strings.TrimSpace(req.PreviousResponseID) != "",
++	}
++	if includeHasEncryptedReasoning(req.Include) {
++		info.HasEncryptedReasoning = true
++	}
++	if hasEncryptedContentJSON(req.Input) {
++		info.HasEncryptedReasoning = true
++	}
++	if hasReasoningItemJSON(req.Input) {
++		info.HasReasoningItem = true
++	}
++	return info
++}
++
++func ShouldUseEncryptedReasoningCompat(req *dto.OpenAIResponsesRequest) bool {
++	info := AnalyzeEncryptedReasoningRequest(req)
++	return info.HasEncryptedReasoning || info.HasReasoningItem || info.HasPreviousResponseID
++}
++
++func ScrubEncryptedReasoningRequest(req *dto.OpenAIResponsesRequest) EncryptedReasoningScrubResult {
++	if req == nil {
++		return EncryptedReasoningScrubResult{}
++	}
++	var result EncryptedReasoningScrubResult
++	req.Include, result.RemovedIncludeEntries = scrubEncryptedReasoningInclude(req.Include)
++	if result.RemovedIncludeEntries > 0 {
++		result.Changed = true
++	}
++	if strings.TrimSpace(req.PreviousResponseID) != "" {
++		req.PreviousResponseID = ""
++		result.RemovedPreviousResponse = true
++		result.Changed = true
++	}
++	if len(req.Input) > 0 {
++		nextInput, removedFields, removedItems, changed := scrubEncryptedReasoningJSON(req.Input)
++		if changed {
++			req.Input = nextInput
++			result.Changed = true
++			result.RemovedEncryptedFields += removedFields
++			result.RemovedReasoningItems += removedItems
++		}
++	}
++	return result
++}
++
++func ShouldFallbackEncryptedReasoningError(err *types.NewAPIError) bool {
++	if err == nil {
++		return false
++	}
++	setting := operation_setting.GetEncryptedReasoningFallbackSetting()
++	if setting != nil && strings.TrimSpace(setting.FallbackStatusCodes) != "" {
++		ranges, parseErr := operation_setting.ParseHTTPStatusCodeRanges(setting.FallbackStatusCodes)
++		if parseErr == nil && shouldMatchEncryptedReasoningStatusCode(ranges, err.StatusCode) {
++			return true
++		}
++	}
++	msg := strings.ToLower(err.Error())
++	code := strings.ToLower(string(err.GetErrorCode()))
++	for _, needle := range operation_setting.EncryptedReasoningFallbackErrorTexts() {
++		if strings.Contains(msg, needle) || strings.Contains(code, needle) {
++			return true
++		}
++	}
++	return false
++}
++
++func IsInvalidEncryptedReasoningError(err *types.NewAPIError) bool {
++	if err == nil {
++		return false
++	}
++	msg := strings.ToLower(err.Error())
++	code := strings.ToLower(string(err.GetErrorCode()))
++	return strings.Contains(msg, "invalid_encrypted_content") ||
++		strings.Contains(code, "invalid_encrypted_content") ||
++		strings.Contains(msg, "encrypted content could not be decrypted or parsed") ||
++		strings.Contains(msg, "could not be decrypted")
++}
++
++func shouldMatchEncryptedReasoningStatusCode(ranges []operation_setting.StatusCodeRange, code int) bool {
++	if code < 100 || code > 599 {
++		return false
++	}
++	for _, r := range ranges {
++		if code < r.Start {
++			return false
++		}
++		if code <= r.End {
++			return true
++		}
++	}
++	return false
++}
++
++func includeHasEncryptedReasoning(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var items []string
++	if err := common.Unmarshal(raw, &items); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`reasoning.encrypted_content`))
++	}
++	for _, item := range items {
++		if item == "reasoning.encrypted_content" {
++			return true
++		}
++	}
++	return false
++}
++
++func scrubEncryptedReasoningInclude(raw json.RawMessage) (json.RawMessage, int) {
++	if len(raw) == 0 {
++		return raw, 0
++	}
++	var items []string
++	if err := common.Unmarshal(raw, &items); err != nil {
++		return raw, 0
++	}
++	next := items[:0]
++	removed := 0
++	for _, item := range items {
++		if item == "reasoning.encrypted_content" {
++			removed++
++			continue
++		}
++		next = append(next, item)
++	}
++	if removed == 0 {
++		return raw, 0
++	}
++	if len(next) == 0 {
++		return nil, removed
++	}
++	data, err := common.Marshal(next)
++	if err != nil {
++		return raw, 0
++	}
++	return data, removed
++}
++
++func hasEncryptedContentJSON(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`encrypted_content`))
++	}
++	return hasEncryptedContentValue(v)
++}
++
++func hasReasoningItemJSON(raw json.RawMessage) bool {
++	if len(raw) == 0 {
++		return false
++	}
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return bytes.Contains(bytes.ToLower(raw), []byte(`"type":"reasoning"`)) ||
++			bytes.Contains(bytes.ToLower(raw), []byte(`"type": "reasoning"`))
++	}
++	return hasReasoningItemValue(v)
++}
++
++func scrubEncryptedReasoningJSON(raw json.RawMessage) (json.RawMessage, int, int, bool) {
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return raw, 0, 0, false
++	}
++	next, removedFields, removedItems, changed := scrubEncryptedReasoningValue(v)
++	if !changed {
++		return raw, 0, 0, false
++	}
++	data, err := common.Marshal(next)
++	if err != nil {
++		return raw, 0, 0, false
++	}
++	return data, removedFields, removedItems, true
++}
++
++func hasEncryptedContentValue(v any) bool {
++	switch t := v.(type) {
++	case map[string]any:
++		if _, ok := t["encrypted_content"]; ok {
++			return true
++		}
++		for _, value := range t {
++			if hasEncryptedContentValue(value) {
++				return true
++			}
++		}
++	case []any:
++		for _, item := range t {
++			if hasEncryptedContentValue(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func hasReasoningItemValue(v any) bool {
++	switch t := v.(type) {
++	case map[string]any:
++		if typ, _ := t["type"].(string); typ == "reasoning" {
++			return true
++		}
++		for _, value := range t {
++			if hasReasoningItemValue(value) {
++				return true
++			}
++		}
++	case []any:
++		for _, item := range t {
++			if hasReasoningItemValue(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
++	switch t := v.(type) {
++	case []any:
++		next := make([]any, 0, len(t))
++		removedFields := 0
++		removedItems := 0
++		changed := false
++		for _, item := range t {
++			if m, ok := item.(map[string]any); ok {
++				if typ, _ := m["type"].(string); typ == "reasoning" {
++					removedItems++
++					changed = true
++					continue
++				}
++			}
++			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(item)
++			removedFields += fields
++			removedItems += items
++			changed = changed || itemChanged
++			next = append(next, cleaned)
++		}
++		return next, removedFields, removedItems, changed
++	case map[string]any:
++		next := make(map[string]any, len(t))
++		removedFields := 0
++		removedItems := 0
++		changed := false
++		for key, value := range t {
++			if key == "encrypted_content" {
++				removedFields++
++				changed = true
++				continue
++			}
++			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(value)
++			removedFields += fields
++			removedItems += items
++			changed = changed || itemChanged
++			next[key] = cleaned
++		}
++		return next, removedFields, removedItems, changed
++	default:
++		return v, 0, 0, false
++	}
++}
+diff --git a/service/encrypted_reasoning_compat_test.go b/service/encrypted_reasoning_compat_test.go
+new file mode 100644
+index 0000000..ad51883
+--- /dev/null
++++ b/service/encrypted_reasoning_compat_test.go
+@@ -0,0 +1,94 @@
++package service
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/tidwall/gjson"
++)
++
++func TestAnalyzeEncryptedReasoningRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include:            common.StringToByteSlice(`["reasoning.encrypted_content"]`),
++		PreviousResponseID: "resp_123",
++		Input: common.StringToByteSlice(`[
++			{"type":"message","role":"user","content":"hi"},
++			{"type":"reasoning","encrypted_content":"secret"}
++		]`),
++	}
++
++	info := AnalyzeEncryptedReasoningRequest(req)
++
++	assert.True(t, info.HasEncryptedReasoning)
++	assert.True(t, info.HasReasoningItem)
++	assert.True(t, info.HasPreviousResponseID)
++	assert.True(t, ShouldUseEncryptedReasoningCompat(req))
++}
++
++func TestScrubEncryptedReasoningRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include:            common.StringToByteSlice(`["reasoning.encrypted_content","message.output_text"]`),
++		PreviousResponseID: "resp_123",
++		Input: common.StringToByteSlice(`[
++			{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
++			{"type":"reasoning","encrypted_content":"secret","summary":[]},
++			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"visible","encrypted_content":"nested-secret"}]},
++			{"type":"function_call_output","call_id":"call_1","output":"ok"}
++		]`),
++	}
++
++	result := ScrubEncryptedReasoningRequest(req)
++
++	require.True(t, result.Changed)
++	assert.Equal(t, 1, result.RemovedIncludeEntries)
++	assert.Equal(t, 1, result.RemovedReasoningItems)
++	assert.Equal(t, 1, result.RemovedEncryptedFields)
++	assert.True(t, result.RemovedPreviousResponse)
++	assert.Empty(t, req.PreviousResponseID)
++	assert.JSONEq(t, `["message.output_text"]`, string(req.Include))
++	assert.False(t, gjson.GetBytes(req.Input, `#(type=="reasoning")`).Exists())
++	assert.False(t, gjson.GetBytes(req.Input, `2.content.0.encrypted_content`).Exists())
++	assert.Equal(t, "hi", gjson.GetBytes(req.Input, `0.content.0.text`).String())
++	assert.Equal(t, "visible", gjson.GetBytes(req.Input, `1.content.0.text`).String())
++	assert.Equal(t, "ok", gjson.GetBytes(req.Input, `2.output`).String())
++}
++
++func TestScrubEncryptedReasoningRequest_KeepsCleanRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Include: common.StringToByteSlice(`["message.output_text"]`),
++		Input:   common.StringToByteSlice(`[{"type":"message","role":"user","content":"hi"}]`),
++	}
++
++	result := ScrubEncryptedReasoningRequest(req)
++
++	assert.False(t, result.Changed)
++	assert.JSONEq(t, `["message.output_text"]`, string(req.Include))
++	assert.JSONEq(t, `[{"type":"message","role":"user","content":"hi"}]`, string(req.Input))
++}
++
++func TestShouldFallbackEncryptedReasoningError(t *testing.T) {
++	assert.True(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("invalid_encrypted_content"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest),
++	))
++	assert.True(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
++	))
++	assert.False(t, ShouldFallbackEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("bad user input"), types.ErrorCodeInvalidRequest, http.StatusBadRequest),
++	))
++}
++
++func TestIsInvalidEncryptedReasoningError(t *testing.T) {
++	assert.True(t, IsInvalidEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("Encrypted content could not be decrypted or parsed"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
++	))
++	assert.False(t, IsInvalidEncryptedReasoningError(
++		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
++	))
++}
 diff --git a/service/openai_chat_responses_mode.go b/service/openai_chat_responses_mode.go
 index c66c33c..71f2110 100644
 --- a/service/openai_chat_responses_mode.go
@@ -2461,6 +3111,100 @@ index b600b0f..87f2546 100644
 +	}
 +
 +	return strings.Contains(lowerBaseURL, "/codex")
++}
+diff --git a/service/openaicompat/policy_test.go b/service/openaicompat/policy_test.go
+new file mode 100644
+index 0000000..f7c65a8
+--- /dev/null
++++ b/service/openaicompat/policy_test.go
+@@ -0,0 +1,19 @@
++package openaicompat
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/constant"
++)
++
++func TestShouldChatCompletionsUseResponsesForChannel_CodexBaseURL(t *testing.T) {
++	if !ShouldChatCompletionsUseResponsesForChannel(77, constant.ChannelTypeOpenAI, "https://new.sharedchat.cc/codex", "gpt-5.5") {
++		t.Fatal("expected /codex OpenAI-compatible upstream to use Responses mode")
++	}
++}
++
++func TestShouldChatCompletionsUseResponsesForChannel_NormalOpenAIChat(t *testing.T) {
++	if ShouldChatCompletionsUseResponsesForChannel(1, constant.ChannelTypeOpenAI, "https://api.openai.com", "gpt-4o-mini") {
++		t.Fatal("regular OpenAI chat channel should not be forced into Responses mode")
++	}
++}
+diff --git a/setting/operation_setting/encrypted_reasoning_fallback_setting.go b/setting/operation_setting/encrypted_reasoning_fallback_setting.go
+new file mode 100644
+index 0000000..04b4b17
+--- /dev/null
++++ b/setting/operation_setting/encrypted_reasoning_fallback_setting.go
+@@ -0,0 +1,63 @@
++package operation_setting
++
++import (
++	"strings"
++
++	"github.com/QuantumNous/new-api/setting/config"
++)
++
++type EncryptedReasoningFallbackSetting struct {
++	AffinityEnabled             bool     `json:"affinity_enabled"`
++	ScrubFallbackEnabled        bool     `json:"scrub_fallback_enabled"`
++	MaxFallbackTimes            int      `json:"max_fallback_times"`
++	FallbackStatusCodes         string   `json:"fallback_status_codes"`
++	FallbackErrorText           []string `json:"fallback_error_text"`
++	StreamingPreFirstChunkRetry bool     `json:"streaming_pre_first_chunk_retry"`
++}
++
++var encryptedReasoningFallbackSetting = EncryptedReasoningFallbackSetting{
++	AffinityEnabled:             true,
++	ScrubFallbackEnabled:        true,
++	MaxFallbackTimes:            10,
++	FallbackStatusCodes:         "402,408,429,500-599",
++	StreamingPreFirstChunkRetry: true,
++	FallbackErrorText: []string{
++		"invalid_encrypted_content",
++		"encrypted content could not be decrypted or parsed",
++		"could not be decrypted",
++		"quota",
++		"credit",
++		"balance",
++		"billing",
++		"insufficient",
++		"rate limit",
++		"too many requests",
++		"connection reset",
++		"unexpected eof",
++		"context deadline exceeded",
++		"do request failed",
++	},
++}
++
++func init() {
++	config.GlobalConfig.Register("encrypted_reasoning_fallback_setting", &encryptedReasoningFallbackSetting)
++}
++
++func GetEncryptedReasoningFallbackSetting() *EncryptedReasoningFallbackSetting {
++	return &encryptedReasoningFallbackSetting
++}
++
++func EncryptedReasoningFallbackErrorTexts() []string {
++	setting := GetEncryptedReasoningFallbackSetting()
++	if setting == nil {
++		return nil
++	}
++	out := make([]string, 0, len(setting.FallbackErrorText))
++	for _, item := range setting.FallbackErrorText {
++		item = strings.ToLower(strings.TrimSpace(item))
++		if item != "" {
++			out = append(out, item)
++		}
++	}
++	return out
 +}
 diff --git a/web/classic/src/components/table/channels/modals/EditChannelModal.jsx b/web/classic/src/components/table/channels/modals/EditChannelModal.jsx
 index fad105b..df4b521 100644
@@ -2537,6 +3281,32 @@ index fad105b..df4b521 100644
  
                    <Form.Input field='proxy' label={t('代理地址')} placeholder={t('例如: socks5://user:pass@host:port')} onChange={(value) => handleChannelSettingsChange('proxy', value)} showClear extraText={t('用于配置网络代理，支持 socks5 协议')} />
  
+diff --git a/web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx b/web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx
+index 6cf8173..646afcf 100644
+--- a/web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx
++++ b/web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx
+@@ -63,6 +63,12 @@ function getServerAddress() {
+   return window.location.origin;
+ }
+ 
++function normalizeApiKey(apiKey) {
++  const trimmed = String(apiKey || '').trim();
++  if (!trimmed) return '';
++  return trimmed.startsWith('sk-') ? trimmed : `sk-${trimmed}`;
++}
++
+ function buildCCSwitchURL(app, name, models, apiKey) {
+   const serverAddress = getServerAddress();
+   const endpoint = app === 'codex' ? serverAddress + '/v1' : serverAddress;
+@@ -116,7 +122,7 @@ export default function CCSwitchModal({
+       Toast.warning(t('请选择主模型'));
+       return;
+     }
+-    const url = buildCCSwitchURL(app, name, models, 'sk-' + tokenKey);
++    const url = buildCCSwitchURL(app, name, models, normalizeApiKey(tokenKey));
+     window.open(url, '_blank');
+     onClose();
+   };
 diff --git a/web/classic/src/hooks/channels/useChannelsData.jsx b/web/classic/src/hooks/channels/useChannelsData.jsx
 index e020868..9d4532b 100644
 --- a/web/classic/src/hooks/channels/useChannelsData.jsx
@@ -2728,6 +3498,33 @@ index a282053..273edd4 100644
  }
  
  // ============================================================================
+diff --git a/web/default/src/features/keys/components/data-table-row-actions.tsx b/web/default/src/features/keys/components/data-table-row-actions.tsx
+index 81855ab..61bb535 100644
+--- a/web/default/src/features/keys/components/data-table-row-actions.tsx
++++ b/web/default/src/features/keys/components/data-table-row-actions.tsx
+@@ -126,6 +126,13 @@ export function DataTableRowActions<TData>({
+       const realKey = await resolveRealKey(apiKey.id)
+       if (!realKey) return
+ 
++      if (preset.url.toLowerCase().startsWith('ccswitch')) {
++        setResolvedKey(realKey)
++        setCurrentRow(apiKey)
++        setOpen('cc-switch')
++        return
++      }
++
+       if (preset.type === 'fluent') {
+         const success = sendToFluent(realKey, serverAddress)
+         if (success) {
+@@ -159,7 +166,7 @@ export function DataTableRowActions<TData>({
+         window.location.href = resolvedUrl
+       }
+     },
+-    [resolveRealKey, apiKey.id, serverAddress, t]
++    [resolveRealKey, apiKey, serverAddress, setCurrentRow, setOpen, setResolvedKey, t]
+   )
+ 
+   const handleToggleStatus = async (
 diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
 index b131680..71c805e 100644
 --- a/web/default/src/features/playground/index.tsx
