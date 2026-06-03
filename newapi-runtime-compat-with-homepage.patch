@@ -3329,108 +3329,6 @@ index e020868..9d4532b 100644
      // 可选择性保留测试结果，这里不清空以便用户查看
    };
  
-diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
-index be4e612..4815e18 100644
---- a/web/default/src/components/layout/components/footer.tsx
-+++ b/web/default/src/components/layout/components/footer.tsx
-@@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
-     <footer
-       className={cn('border-border/40 relative z-10 border-t', props.className)}
-     >
--      <div className='mx-auto max-w-6xl px-6 py-12 md:py-16'>
--        <div className='flex flex-col justify-between gap-10 md:flex-row md:gap-16'>
-+      <div className='from-foreground/10 absolute inset-x-0 top-0 h-px bg-gradient-to-r via-transparent to-transparent' />
-+      <div className='mx-auto max-w-6xl px-6 py-10 md:py-14'>
-+        <div
-+          className={cn(
-+            'flex flex-col gap-10',
-+            isDemoSiteMode
-+              ? 'md:flex-row md:justify-between md:gap-16'
-+              : 'md:flex-row md:items-end md:justify-between md:gap-8'
-+          )}
-+        >
-           {/* Brand column */}
-           <div className='shrink-0'>
--            <Link to='/' className='group flex items-center gap-2.5'>
--              <img
--                src={displayLogo}
--                alt={displayName}
--                className='size-7 rounded-lg object-contain'
--              />
--              <span className='text-sm font-semibold tracking-tight'>
-+            <Link to='/' className='group inline-flex items-center gap-2.5'>
-+              <span className='border-border/40 bg-background/40 ring-border/30 flex size-7 items-center justify-center overflow-hidden rounded-lg border shadow-[0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105'>
-+                <img
-+                  src={displayLogo}
-+                  alt={displayName}
-+                  className='size-full object-contain'
-+                />
-+              </span>
-+              <span className='from-foreground to-foreground/80 -tracking-tighter bg-gradient-to-b bg-clip-text text-sm font-semibold text-transparent'>
-                 {displayName}
-               </span>
-             </Link>
--            <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
-+            <p className='text-muted-foreground/70 mt-3 max-w-[220px] text-xs leading-relaxed'>
-               {t('Powerful API Management Platform')}
-             </p>
-+            <div className='text-muted-foreground/40 mt-4 flex items-center gap-2 font-mono text-[10.5px] tracking-wider uppercase'>
-+              <span className='size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]' />
-+              <span>{t('All systems operational')}</span>
-+            </div>
-           </div>
- 
-           {/* Links columns */}
-@@ -273,7 +287,7 @@ export function Footer(props: FooterProps) {
-             <div className='grid grid-cols-3 gap-8 md:gap-16'>
-               {displayColumns.map((column, index) => (
-                 <div key={index}>
--                  <p className='text-muted-foreground/50 mb-3 text-xs font-medium tracking-wider uppercase'>
-+                  <p className='text-muted-foreground/55 mb-3 text-[11px] font-medium tracking-[0.08em] uppercase'>
-                     {t(column.title)}
-                   </p>
-                   <ul className='space-y-2.5'>
-@@ -291,8 +305,8 @@ export function Footer(props: FooterProps) {
- 
-         {/* Copyright + optional legal links inline on the left, project
-             attribution on the right; wraps on narrow screens. */}
--        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
--          <div className='text-muted-foreground/40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
-+        <div className='border-border/30 mt-10 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
-+          <div className='text-muted-foreground/45 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
-             <span>
-               &copy; {currentYear} {displayName}.{' '}
-               {props.copyright ?? t('footer.defaultCopyright')}
-diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
-index 5fad637..9dd2839 100644
---- a/web/default/src/components/layout/components/public-header.tsx
-+++ b/web/default/src/components/layout/components/public-header.tsx
-@@ -200,7 +200,7 @@ export function PublicHeader(props: PublicHeaderProps) {
-               to={homeUrl}
-               className='group flex shrink-0 items-center gap-2.5'
-             >
--              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
-+              <div className='border-border/40 bg-background/40 ring-border/30 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_6px_18px_-8px_rgba(0,0,0,0.35)]'>
-                 {loading ? (
-                   <Skeleton className='size-full rounded-lg' />
-                 ) : customLogo ? (
-@@ -214,8 +214,14 @@ export function PublicHeader(props: PublicHeaderProps) {
-                   />
-                 )}
-               </div>
--              <span className='text-sm font-semibold tracking-tight'>
--                {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
-+              <span className='-tracking-tighter text-sm font-semibold'>
-+                {loading ? (
-+                  <Skeleton className='h-4 w-16' />
-+                ) : (
-+                  <span className='from-foreground to-foreground/80 bg-gradient-to-b bg-clip-text text-transparent'>
-+                    {displaySiteName}
-+                  </span>
-+                )}
-               </span>
-             </Link>
- 
 diff --git a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 index d511128..8659e90 100644
 --- a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
@@ -3600,42 +3498,6 @@ index a282053..273edd4 100644
  }
  
  // ============================================================================
-diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
-index 2c7a8f3..4c071ab 100644
---- a/web/default/src/features/home/index.tsx
-+++ b/web/default/src/features/home/index.tsx
-@@ -21,7 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
- import { Markdown } from '@/components/ui/markdown'
- import { PublicLayout } from '@/components/layout'
- import { Footer } from '@/components/layout/components/footer'
--import { CTA, Features, Hero, HowItWorks, Stats } from './components'
-+import { IzHero } from './components/sections/iz-hero'
-+import { IzPillars } from './components/sections/iz-pillars'
-+import { IzEndpoints } from './components/sections/iz-endpoints'
-+import { IzQuickstart } from './components/sections/iz-quickstart'
-+import { IzClosing } from './components/sections/iz-closing'
- import { useHomePageContent } from './hooks'
- 
- export function Home() {
-@@ -62,11 +66,13 @@ export function Home() {
- 
-   return (
-     <PublicLayout showMainContainer={false}>
--      <Hero isAuthenticated={isAuthenticated} />
--      <Stats />
--      <Features />
--      <HowItWorks />
--      <CTA isAuthenticated={isAuthenticated} />
-+      <div className='iz-root'>
-+        <IzHero isAuthenticated={isAuthenticated} />
-+        <IzPillars />
-+        <IzEndpoints />
-+        <IzQuickstart />
-+        <IzClosing isAuthenticated={isAuthenticated} />
-+      </div>
-       <Footer />
-     </PublicLayout>
-   )
 diff --git a/web/default/src/features/keys/components/data-table-row-actions.tsx b/web/default/src/features/keys/components/data-table-row-actions.tsx
 index 81855ab..61bb535 100644
 --- a/web/default/src/features/keys/components/data-table-row-actions.tsx
@@ -4010,6 +3872,801 @@ index 825850f..a6c6376 100644
      // eslint-disable-next-line no-console
      console.error('Failed to load messages:', error)
    }
+diff --git a/web/default/src/components/layout/components/footer.tsx b/web/default/src/components/layout/components/footer.tsx
+index be4e612..4815e18 100644
+--- a/web/default/src/components/layout/components/footer.tsx
++++ b/web/default/src/components/layout/components/footer.tsx
+@@ -249,23 +249,37 @@ export function Footer(props: FooterProps) {
+     <footer
+       className={cn('border-border/40 relative z-10 border-t', props.className)}
+     >
+-      <div className='mx-auto max-w-6xl px-6 py-12 md:py-16'>
+-        <div className='flex flex-col justify-between gap-10 md:flex-row md:gap-16'>
++      <div className='from-foreground/10 absolute inset-x-0 top-0 h-px bg-gradient-to-r via-transparent to-transparent' />
++      <div className='mx-auto max-w-6xl px-6 py-10 md:py-14'>
++        <div
++          className={cn(
++            'flex flex-col gap-10',
++            isDemoSiteMode
++              ? 'md:flex-row md:justify-between md:gap-16'
++              : 'md:flex-row md:items-end md:justify-between md:gap-8'
++          )}
++        >
+           {/* Brand column */}
+           <div className='shrink-0'>
+-            <Link to='/' className='group flex items-center gap-2.5'>
+-              <img
+-                src={displayLogo}
+-                alt={displayName}
+-                className='size-7 rounded-lg object-contain'
+-              />
+-              <span className='text-sm font-semibold tracking-tight'>
++            <Link to='/' className='group inline-flex items-center gap-2.5'>
++              <span className='border-border/40 bg-background/40 ring-border/30 flex size-7 items-center justify-center overflow-hidden rounded-lg border shadow-[0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105'>
++                <img
++                  src={displayLogo}
++                  alt={displayName}
++                  className='size-full object-contain'
++                />
++              </span>
++              <span className='from-foreground to-foreground/80 -tracking-tighter bg-gradient-to-b bg-clip-text text-sm font-semibold text-transparent'>
+                 {displayName}
+               </span>
+             </Link>
+-            <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
++            <p className='text-muted-foreground/70 mt-3 max-w-[220px] text-xs leading-relaxed'>
+               {t('Powerful API Management Platform')}
+             </p>
++            <div className='text-muted-foreground/40 mt-4 flex items-center gap-2 font-mono text-[10.5px] tracking-wider uppercase'>
++              <span className='size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]' />
++              <span>{t('All systems operational')}</span>
++            </div>
+           </div>
+ 
+           {/* Links columns */}
+@@ -273,7 +287,7 @@ export function Footer(props: FooterProps) {
+             <div className='grid grid-cols-3 gap-8 md:gap-16'>
+               {displayColumns.map((column, index) => (
+                 <div key={index}>
+-                  <p className='text-muted-foreground/50 mb-3 text-xs font-medium tracking-wider uppercase'>
++                  <p className='text-muted-foreground/55 mb-3 text-[11px] font-medium tracking-[0.08em] uppercase'>
+                     {t(column.title)}
+                   </p>
+                   <ul className='space-y-2.5'>
+@@ -291,8 +305,8 @@ export function Footer(props: FooterProps) {
+ 
+         {/* Copyright + optional legal links inline on the left, project
+             attribution on the right; wraps on narrow screens. */}
+-        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
+-          <div className='text-muted-foreground/40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
++        <div className='border-border/30 mt-10 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
++          <div className='text-muted-foreground/45 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
+             <span>
+               &copy; {currentYear} {displayName}.{' '}
+               {props.copyright ?? t('footer.defaultCopyright')}
+diff --git a/web/default/src/components/layout/components/public-header.tsx b/web/default/src/components/layout/components/public-header.tsx
+index 5fad637..9dd2839 100644
+--- a/web/default/src/components/layout/components/public-header.tsx
++++ b/web/default/src/components/layout/components/public-header.tsx
+@@ -200,7 +200,7 @@ export function PublicHeader(props: PublicHeaderProps) {
+               to={homeUrl}
+               className='group flex shrink-0 items-center gap-2.5'
+             >
+-              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
++              <div className='border-border/40 bg-background/40 ring-border/30 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_4px_12px_-8px_rgba(0,0,0,0.25)] ring-[0.5px] transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_6px_18px_-8px_rgba(0,0,0,0.35)]'>
+                 {loading ? (
+                   <Skeleton className='size-full rounded-lg' />
+                 ) : customLogo ? (
+@@ -214,8 +214,14 @@ export function PublicHeader(props: PublicHeaderProps) {
+                   />
+                 )}
+               </div>
+-              <span className='text-sm font-semibold tracking-tight'>
+-                {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
++              <span className='-tracking-tighter text-sm font-semibold'>
++                {loading ? (
++                  <Skeleton className='h-4 w-16' />
++                ) : (
++                  <span className='from-foreground to-foreground/80 bg-gradient-to-b bg-clip-text text-transparent'>
++                    {displaySiteName}
++                  </span>
++                )}
+               </span>
+             </Link>
+ 
+diff --git a/web/default/src/features/home/components/sections/iz-closing.tsx b/web/default/src/features/home/components/sections/iz-closing.tsx
+new file mode 100644
+index 0000000..a189443
+--- /dev/null
++++ b/web/default/src/features/home/components/sections/iz-closing.tsx
+@@ -0,0 +1,76 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useTranslation } from 'react-i18next'
++import { Link } from '@tanstack/react-router'
++import { ArrowRight } from 'lucide-react'
++import { Button } from '@/components/ui/button'
++import { AnimateInView } from '@/components/animate-in-view'
++
++interface IzClosingProps {
++  isAuthenticated?: boolean
++}
++
++export function IzClosing(props: IzClosingProps) {
++  const { t } = useTranslation()
++
++  return (
++    <section className='iz-closing'>
++      <div className='iz-closing-bg' aria-hidden />
++      <div className='iz-closing-grid' aria-hidden />
++      <div className='iz-closing-inner'>
++        <AnimateInView animation='fade-up'>
++          <p className='iz-closing-kicker'>
++            <span className='iz-closing-kicker-dot' />
++            {t('Ready when you are')}
++          </p>
++          <h2 className='iz-closing-title'>
++            {t('Replace your base URL. Keep your stack.')}
++          </h2>
++          <p className='iz-closing-sub'>
++            {t(
++              'Issue an API key in under a minute. Bring your own models, your own SDK, your own workflow.'
++            )}
++          </p>
++          <div className='iz-closing-cta'>
++            {props.isAuthenticated ? (
++              <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
++                {t('Open Dashboard')}
++                <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
++              </Button>
++            ) : (
++              <>
++                <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
++                  {t('Create your key')}
++                  <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
++                </Button>
++                <Button
++                  variant='outline'
++                  className='iz-btn iz-btn-ghost'
++                  render={<Link to='/pricing' />}
++                >
++                  {t('Browse models')}
++                </Button>
++              </>
++            )}
++          </div>
++        </AnimateInView>
++      </div>
++    </section>
++  )
++}
+diff --git a/web/default/src/features/home/components/sections/iz-endpoints.tsx b/web/default/src/features/home/components/sections/iz-endpoints.tsx
+new file mode 100644
+index 0000000..c311824
+--- /dev/null
++++ b/web/default/src/features/home/components/sections/iz-endpoints.tsx
+@@ -0,0 +1,84 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useTranslation } from 'react-i18next'
++import { AnimateInView } from '@/components/animate-in-view'
++
++const ENDPOINTS = [
++  { path: '/v1/chat/completions', tag: 'OpenAI', desc: 'Chat completions, streaming, tool calls.' },
++  { path: '/v1/responses', tag: 'OpenAI', desc: 'Responses API with reasoning + tool surface.' },
++  { path: '/v1/messages', tag: 'Anthropic', desc: 'Claude Messages, streaming + tool use.' },
++  { path: '/v1beta/models', tag: 'Gemini', desc: 'Google Gemini generateContent passthrough.' },
++  { path: '/v1/embeddings', tag: 'OpenAI', desc: 'Vector embeddings for any supported model.' },
++  { path: '/v1/images/generations', tag: 'OpenAI', desc: 'Image generation, multiple providers.' },
++]
++
++export function IzEndpoints() {
++  const { t } = useTranslation()
++
++  return (
++    <section className='iz-endpoints'>
++      <div className='iz-endpoints-inner'>
++        <AnimateInView animation='fade-up'>
++          <header className='iz-section-head'>
++            <span className='iz-section-kicker'>
++              <span className='iz-section-kicker-dot' />
++              {t('Surface')}
++            </span>
++            <h2 className='iz-section-title'>
++              {t('One base URL. Every protocol you already use.')}
++            </h2>
++            <p className='iz-section-sub'>
++              {t(
++                'Point your existing SDK at the gateway and keep your code untouched. We normalize streaming, tool calls, image generation and embeddings across upstreams.'
++              )}
++            </p>
++          </header>
++        </AnimateInView>
++
++        <div className='iz-endpoint-grid'>
++          {ENDPOINTS.map((e, i) => (
++            <AnimateInView
++              key={e.path}
++              animation='fade-up'
++              delay={i * 60}
++              className='iz-endpoint-cell'
++            >
++              <article className='iz-endpoint'>
++                <div className='iz-endpoint-head'>
++                  <span className='iz-endpoint-method'>POST</span>
++                  <span className='iz-endpoint-path' title={e.path}>
++                    {e.path}
++                  </span>
++                </div>
++                <p className='iz-endpoint-desc'>{t(e.desc)}</p>
++                <div className='iz-endpoint-foot'>
++                  <span className='iz-endpoint-tag'>{e.tag}</span>
++                  <span className='iz-endpoint-status'>
++                    <span className='iz-endpoint-status-dot' />
++                    {t('live')}
++                  </span>
++                </div>
++              </article>
++            </AnimateInView>
++          ))}
++        </div>
++      </div>
++    </section>
++  )
++}
+diff --git a/web/default/src/features/home/components/sections/iz-hero.tsx b/web/default/src/features/home/components/sections/iz-hero.tsx
+new file mode 100644
+index 0000000..571a41b
+--- /dev/null
++++ b/web/default/src/features/home/components/sections/iz-hero.tsx
+@@ -0,0 +1,195 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useEffect, useRef, useState } from 'react'
++import { Link } from '@tanstack/react-router'
++import { ArrowRight, Copy, Check } from 'lucide-react'
++import { useTranslation } from 'react-i18next'
++import { Button } from '@/components/ui/button'
++
++const ENDPOINT_CYCLE = [
++  '/v1/chat/completions',
++  '/v1/responses',
++  '/v1/messages',
++  '/v1beta/models',
++  '/v1/embeddings',
++  '/v1/images/generations',
++]
++
++interface IzHeroProps {
++  isAuthenticated?: boolean
++}
++
++export function IzHero(props: IzHeroProps) {
++  const { t } = useTranslation()
++  const [endpointIdx, setEndpointIdx] = useState(0)
++  const [copied, setCopied] = useState(false)
++  const heroRef = useRef<HTMLElement>(null)
++  const baseUrl =
++    typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
++
++  useEffect(() => {
++    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
++    if (mq.matches) return
++    const id = setInterval(() => {
++      setEndpointIdx((p) => (p + 1) % ENDPOINT_CYCLE.length)
++    }, 2400)
++    return () => clearInterval(id)
++  }, [])
++
++  useEffect(() => {
++    const el = heroRef.current
++    if (!el) return
++    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
++    if (mq.matches) return
++    let raf = 0
++    const onMove = (e: MouseEvent) => {
++      const r = el.getBoundingClientRect()
++      const x = ((e.clientX - r.left) / r.width) * 100
++      const y = ((e.clientY - r.top) / r.height) * 100
++      cancelAnimationFrame(raf)
++      raf = requestAnimationFrame(() => {
++        el.style.setProperty('--iz-mx', `${x}%`)
++        el.style.setProperty('--iz-my', `${y}%`)
++      })
++    }
++    el.addEventListener('mousemove', onMove)
++    return () => {
++      el.removeEventListener('mousemove', onMove)
++      cancelAnimationFrame(raf)
++    }
++  }, [])
++
++  const handleCopy = async () => {
++    try {
++      await navigator.clipboard.writeText(baseUrl)
++      setCopied(true)
++      setTimeout(() => setCopied(false), 1600)
++    } catch {
++      /* noop */
++    }
++  }
++
++  return (
++    <section
++      ref={heroRef}
++      className='iz-hero'
++      style={{ ['--iz-mx' as never]: '50%', ['--iz-my' as never]: '30%' }}
++    >
++      <div className='iz-hero-bg' aria-hidden />
++      <div className='iz-hero-grid' aria-hidden />
++      <div className='iz-hero-spot' aria-hidden />
++      <div className='iz-hero-noise' aria-hidden />
++
++      <div className='iz-hero-inner'>
++        <div className='iz-hero-eyebrow'>
++          <span className='iz-hero-dot' />
++          <span className='iz-hero-eyebrow-txt'>
++            {t('All systems operational')}
++          </span>
++          <span className='iz-hero-eyebrow-sep' />
++          <span className='iz-hero-eyebrow-tag'>v1 · Unified Gateway</span>
++        </div>
++
++        <h1 className='iz-hero-title'>
++          <span className='iz-hero-title-line iz-hero-title-line-1'>
++            <span className='iz-hero-title-word'>{t('One')}</span>
++            <span className='iz-hero-title-accent'>{t('endpoint.')}</span>
++          </span>
++          <span className='iz-hero-title-line iz-hero-title-line-2'>
++            <span className='iz-hero-title-word'>{t('Every')}</span>
++            <span className='iz-hero-title-glow'>{t('model.')}</span>
++          </span>
++        </h1>
++
++        <p className='iz-hero-sub'>
++          {t(
++            'A unified, stable, and fast AI API gateway. Compatible with OpenAI Chat, Responses, Claude Messages and more — drop in your existing SDK, change only the base URL.'
++          )}
++        </p>
++
++        <div className='iz-hero-base'>
++          <div className='iz-hero-base-frame'>
++            <span className='iz-hero-base-label'>BASE URL</span>
++            <span className='iz-hero-base-url' title={baseUrl}>
++              {baseUrl}
++            </span>
++            <span className='iz-hero-base-mount'>
++              <span className='iz-hero-base-mount-prefix'>+</span>
++              <span key={endpointIdx} className='iz-hero-base-mount-path'>
++                {ENDPOINT_CYCLE[endpointIdx]}
++              </span>
++            </span>
++            <button
++              type='button'
++              onClick={handleCopy}
++              className='iz-hero-base-copy'
++              aria-label='Copy base URL'
++            >
++              {copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
++            </button>
++          </div>
++        </div>
++
++        <div className='iz-hero-cta'>
++          {props.isAuthenticated ? (
++            <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
++              {t('Open Dashboard')}
++              <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
++            </Button>
++          ) : (
++            <>
++              <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
++                {t('Get Started')}
++                <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
++              </Button>
++              <Button
++                variant='outline'
++                className='iz-btn iz-btn-ghost'
++                render={<Link to='/pricing' />}
++              >
++                {t('View Models')}
++              </Button>
++            </>
++          )}
++        </div>
++
++        <div className='iz-hero-stats'>
++          <div className='iz-hero-stat'>
++            <span className='iz-hero-stat-num'>~240<i>ms</i></span>
++            <span className='iz-hero-stat-lbl'>{t('p50 latency')}</span>
++          </div>
++          <span className='iz-hero-stat-sep' />
++          <div className='iz-hero-stat'>
++            <span className='iz-hero-stat-num'>99.9<i>%</i></span>
++            <span className='iz-hero-stat-lbl'>{t('uptime')}</span>
++          </div>
++          <span className='iz-hero-stat-sep' />
++          <div className='iz-hero-stat'>
++            <span className='iz-hero-stat-num'>50<i>+</i></span>
++            <span className='iz-hero-stat-lbl'>{t('upstream providers')}</span>
++          </div>
++        </div>
++      </div>
++
++      <div className='iz-hero-scroll' aria-hidden>
++        <span />
++      </div>
++    </section>
++  )
++}
+diff --git a/web/default/src/features/home/components/sections/iz-pillars.tsx b/web/default/src/features/home/components/sections/iz-pillars.tsx
+new file mode 100644
+index 0000000..3fed08b
+--- /dev/null
++++ b/web/default/src/features/home/components/sections/iz-pillars.tsx
+@@ -0,0 +1,109 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useTranslation } from 'react-i18next'
++import { Zap, ShieldCheck, Activity, Layers } from 'lucide-react'
++import { AnimateInView } from '@/components/animate-in-view'
++
++interface Pillar {
++  icon: React.ReactNode
++  title: string
++  desc: string
++  meta: string
++}
++
++export function IzPillars() {
++  const { t } = useTranslation()
++
++  const pillars: Pillar[] = [
++    {
++      icon: <Zap className='size-4' strokeWidth={1.6} />,
++      title: t('Low latency by design'),
++      desc: t(
++        'Anycast edge entry, persistent upstream connections, zero-copy streaming. Built for long-running agent loops.'
++      ),
++      meta: 'p50 · 240ms',
++    },
++    {
++      icon: <ShieldCheck className='size-4' strokeWidth={1.6} />,
++      title: t('Stable under pressure'),
++      desc: t(
++        'Per-channel health checks, automatic failover and quota-aware retry — clients see one consistent endpoint.'
++      ),
++      meta: '99.9% SLO',
++    },
++    {
++      icon: <Layers className='size-4' strokeWidth={1.6} />,
++      title: t('Drop-in compatible'),
++      desc: t(
++        'Native OpenAI Chat & Responses, Claude Messages, Gemini and image APIs — keep your SDK, swap only the base URL.'
++      ),
++      meta: '6 protocols',
++    },
++    {
++      icon: <Activity className='size-4' strokeWidth={1.6} />,
++      title: t('Full observability'),
++      desc: t(
++        'Per-request traces, token accounting, model-level usage and cost. Audit anything that flows through the gateway.'
++      ),
++      meta: 'Real-time',
++    },
++  ]
++
++  return (
++    <section className='iz-pillars'>
++      <div className='iz-pillars-inner'>
++        <AnimateInView animation='fade-up'>
++          <header className='iz-section-head'>
++            <span className='iz-section-kicker'>
++              <span className='iz-section-kicker-dot' />
++              {t('Principles')}
++            </span>
++            <h2 className='iz-section-title'>
++              {t('Built for serious, long-running AI workloads.')}
++            </h2>
++            <p className='iz-section-sub'>
++              {t(
++                'A focused set of guarantees: low and predictable latency, resilience under failure, and a single contract across every upstream provider.'
++              )}
++            </p>
++          </header>
++        </AnimateInView>
++
++        <div className='iz-pillar-grid'>
++          {pillars.map((p, i) => (
++            <AnimateInView
++              key={i}
++              animation='fade-up'
++              delay={i * 80}
++              className='iz-pillar-cell'
++            >
++              <article className='iz-pillar'>
++                <span className='iz-pillar-icon'>{p.icon}</span>
++                <h3 className='iz-pillar-title'>{p.title}</h3>
++                <p className='iz-pillar-desc'>{p.desc}</p>
++                <span className='iz-pillar-meta'>{p.meta}</span>
++                <span className='iz-pillar-glow' aria-hidden />
++              </article>
++            </AnimateInView>
++          ))}
++        </div>
++      </div>
++    </section>
++  )
++}
+diff --git a/web/default/src/features/home/components/sections/iz-quickstart.tsx b/web/default/src/features/home/components/sections/iz-quickstart.tsx
+new file mode 100644
+index 0000000..e6759c9
+--- /dev/null
++++ b/web/default/src/features/home/components/sections/iz-quickstart.tsx
+@@ -0,0 +1,163 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useMemo, useState } from 'react'
++import { useTranslation } from 'react-i18next'
++import { Check, Copy } from 'lucide-react'
++import { AnimateInView } from '@/components/animate-in-view'
++
++type Lang = 'curl' | 'python' | 'node'
++
++const baseUrlAtRender = () =>
++  typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
++
++export function IzQuickstart() {
++  const { t } = useTranslation()
++  const [lang, setLang] = useState<Lang>('curl')
++  const [copied, setCopied] = useState(false)
++  const base = useMemo(() => baseUrlAtRender(), [])
++
++  const snippets: Record<Lang, string> = useMemo(
++    () => ({
++      curl: `curl ${base}/v1/chat/completions \\
++  -H "Authorization: Bearer $YOUR_KEY" \\
++  -H "Content-Type: application/json" \\
++  -d '{
++    "model": "gpt-4o-mini",
++    "stream": true,
++    "messages": [
++      { "role": "user", "content": "Ping" }
++    ]
++  }'`,
++      python: `from openai import OpenAI
++
++client = OpenAI(
++    base_url="${base}/v1",
++    api_key="YOUR_KEY",
++)
++
++stream = client.chat.completions.create(
++    model="gpt-4o-mini",
++    stream=True,
++    messages=[{"role": "user", "content": "Ping"}],
++)
++
++for chunk in stream:
++    print(chunk.choices[0].delta.content or "", end="")`,
++      node: `import OpenAI from "openai";
++
++const client = new OpenAI({
++  baseURL: "${base}/v1",
++  apiKey: process.env.YOUR_KEY,
++});
++
++const stream = await client.chat.completions.create({
++  model: "gpt-4o-mini",
++  stream: true,
++  messages: [{ role: "user", content: "Ping" }],
++});
++
++for await (const chunk of stream) {
++  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
++}`,
++    }),
++    [base]
++  )
++
++  const handleCopy = async () => {
++    try {
++      await navigator.clipboard.writeText(snippets[lang])
++      setCopied(true)
++      setTimeout(() => setCopied(false), 1600)
++    } catch {
++      /* noop */
++    }
++  }
++
++  return (
++    <section className='iz-quickstart'>
++      <div className='iz-quickstart-inner'>
++        <AnimateInView animation='fade-up'>
++          <header className='iz-section-head'>
++            <span className='iz-section-kicker'>
++              <span className='iz-section-kicker-dot' />
++              {t('Quickstart')}
++            </span>
++            <h2 className='iz-section-title'>
++              {t('Three lines of difference. Nothing else to learn.')}
++            </h2>
++            <p className='iz-section-sub'>
++              {t(
++                'Use whichever SDK you already trust. Point the base URL at this gateway, plug in your key, and ship.'
++              )}
++            </p>
++          </header>
++        </AnimateInView>
++
++        <AnimateInView animation='fade-up' delay={120}>
++          <div className='iz-code'>
++            <div className='iz-code-bar'>
++              <div className='iz-code-dots' aria-hidden>
++                <span /> <span /> <span />
++              </div>
++              <div className='iz-code-tabs' role='tablist'>
++                {(['curl', 'python', 'node'] as Lang[]).map((l) => (
++                  <button
++                    key={l}
++                    role='tab'
++                    aria-selected={lang === l}
++                    onClick={() => setLang(l)}
++                    className={`iz-code-tab ${lang === l ? 'is-active' : ''}`}
++                    type='button'
++                  >
++                    {l === 'curl' ? 'cURL' : l === 'python' ? 'Python' : 'Node.js'}
++                  </button>
++                ))}
++              </div>
++              <button
++                type='button'
++                onClick={handleCopy}
++                className='iz-code-copy'
++                aria-label='Copy snippet'
++              >
++                {copied ? (
++                  <>
++                    <Check className='size-3.5' /> {t('copied')}
++                  </>
++                ) : (
++                  <>
++                    <Copy className='size-3.5' /> {t('copy')}
++                  </>
++                )}
++              </button>
++            </div>
++            <pre className='iz-code-body'>
++              <code>{snippets[lang]}</code>
++            </pre>
++            <div className='iz-code-foot'>
++              <span className='iz-code-foot-dot' />
++              <span className='iz-code-foot-txt'>
++                {t('Streaming, tool calls and image APIs work the same way.')}
++              </span>
++            </div>
++          </div>
++        </AnimateInView>
++      </div>
++    </section>
++  )
++}
+diff --git a/web/default/src/features/home/index.tsx b/web/default/src/features/home/index.tsx
+index 2c7a8f3..4c071ab 100644
+--- a/web/default/src/features/home/index.tsx
++++ b/web/default/src/features/home/index.tsx
+@@ -21,7 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
+ import { Markdown } from '@/components/ui/markdown'
+ import { PublicLayout } from '@/components/layout'
+ import { Footer } from '@/components/layout/components/footer'
+-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
++import { IzHero } from './components/sections/iz-hero'
++import { IzPillars } from './components/sections/iz-pillars'
++import { IzEndpoints } from './components/sections/iz-endpoints'
++import { IzQuickstart } from './components/sections/iz-quickstart'
++import { IzClosing } from './components/sections/iz-closing'
+ import { useHomePageContent } from './hooks'
+ 
+ export function Home() {
+@@ -62,11 +66,13 @@ export function Home() {
+ 
+   return (
+     <PublicLayout showMainContainer={false}>
+-      <Hero isAuthenticated={isAuthenticated} />
+-      <Stats />
+-      <Features />
+-      <HowItWorks />
+-      <CTA isAuthenticated={isAuthenticated} />
++      <div className='iz-root'>
++        <IzHero isAuthenticated={isAuthenticated} />
++        <IzPillars />
++        <IzEndpoints />
++        <IzQuickstart />
++        <IzClosing isAuthenticated={isAuthenticated} />
++      </div>
+       <Footer />
+     </PublicLayout>
+   )
 diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
 index c38d9a1..361c78f 100644
 --- a/web/default/src/styles/index.css
