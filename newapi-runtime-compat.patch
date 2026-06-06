@@ -2671,7 +2671,7 @@ index 0000000..4de7df4
 +}
 diff --git a/pkg/compat/compat.go b/pkg/compat/compat.go
 new file mode 100644
-index 0000000..4c60bb9
+index 0000000..019d190
 --- /dev/null
 +++ b/pkg/compat/compat.go
 @@ -0,0 +1,143 @@
@@ -2682,9 +2682,9 @@ index 0000000..4c60bb9
 +import (
 +	"sync"
 +
-+	"github.com/QuantumNous/new-api/common/logger"
-+	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/common"
 +	"github.com/QuantumNous/new-api/model"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
 +	"github.com/QuantumNous/new-api/service"
 +	"github.com/QuantumNous/new-api/types"
 +	"github.com/gin-gonic/gin"
@@ -2747,7 +2747,7 @@ index 0000000..4c60bb9
 +	hc.mu.Lock()
 +	defer hc.mu.Unlock()
 +	hc.hooks = append(hc.hooks, h)
-+	logger.SysLog("compat: registered hook: " + h.Name())
++	common.SysLog("compat: registered hook: " + h.Name())
 +}
 +
 +func (hc *HookChain) OnInit(c *gin.Context, info *relaycommon.RelayInfo) error {
@@ -4399,20 +4399,21 @@ index f945a83..a04c7a6 100644
  	pingerCtx, stopPinger := context.WithCancel(context.Background())
  
 diff --git a/relay/channel/api_request_test.go b/relay/channel/api_request_test.go
-index f697f85..89250c5 100644
+index f697f85..2a3dd4e 100644
 --- a/relay/channel/api_request_test.go
 +++ b/relay/channel/api_request_test.go
-@@ -5,7 +5,9 @@ import (
+@@ -5,7 +5,10 @@ import (
  	"net/http/httptest"
  	"testing"
  
 +	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
 +	"github.com/QuantumNous/new-api/types"
  	"github.com/gin-gonic/gin"
  	"github.com/stretchr/testify/require"
  )
-@@ -191,3 +193,68 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
+@@ -191,3 +194,68 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
  	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
  	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
  }
@@ -4470,11 +4471,11 @@ index f697f85..89250c5 100644
 +	req.Header.Set("User-Agent", "client-codex-agent")
 +	info := &relaycommon.RelayInfo{
 +		RelayFormat: types.RelayFormatOpenAIResponses,
-+		ChannelSetting: relaycommon.ChannelSettings{
-+			UserAgentOverride: "managed-codex-agent",
-+		},
 +		ChannelMeta: &relaycommon.ChannelMeta{
 +			ApiType: constant.APITypeOpenAI,
++			ChannelSetting: dto.ChannelSettings{
++				UserAgentOverride: "managed-codex-agent",
++			},
 +		},
 +	}
 +
@@ -5294,41 +5295,6 @@ index a68cfe7..cce6587 100644
  		applySystemPromptIfNeeded(c, info, request)
  		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
  		if newApiErr != nil {
-diff --git a/relay/helper/sse_scanner_pool.go b/relay/helper/sse_scanner_pool.go
-new file mode 100644
-index 0000000..028cc15
---- /dev/null
-+++ b/relay/helper/sse_scanner_pool.go
-@@ -0,0 +1,29 @@
-+package helper
-+
-+import "sync"
-+
-+const sseScannerBuf64KSize = 64 * 1024
-+
-+type sseScannerBuf64K [sseScannerBuf64KSize]byte
-+
-+var sseScannerBuf64KPool = sync.Pool{
-+	New: func() any {
-+		return new(sseScannerBuf64K)
-+	},
-+}
-+
-+func getSSEScannerBuf64K() *sseScannerBuf64K {
-+	v := sseScannerBuf64KPool.Get()
-+	buf, ok := v.(*sseScannerBuf64K)
-+	if !ok || buf == nil {
-+		return new(sseScannerBuf64K)
-+	}
-+	return buf
-+}
-+
-+func putSSEScannerBuf64K(buf *sseScannerBuf64K) {
-+	if buf == nil {
-+		return
-+	}
-+	sseScannerBuf64KPool.Put(buf)
-+}
 diff --git a/relay/helper/stream_scanner.go b/relay/helper/stream_scanner.go
 index 1d44b80..2595741 100644
 --- a/relay/helper/stream_scanner.go
