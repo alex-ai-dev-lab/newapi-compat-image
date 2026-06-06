@@ -51,8 +51,8 @@ jobs:
           echo "upstream_tag=$upstream_tag" >> $GITHUB_OUTPUT
           echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
 
-          # Check if release already exists
-          status=$(curl -fsSL -o /dev/null -w '%{http_code}' \
+          # Check if release already exists (intentionally not -f so 404 doesn't abort)
+          status=$(curl -sSL -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")
