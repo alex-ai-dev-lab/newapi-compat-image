@@ -9,7 +9,7 @@ index bbc5717..1b3ff0f 100644
 +
 +tmp-*.patch
 diff --git a/Dockerfile b/Dockerfile
-index 17c4398..2168f1f 100644
+index 17c4398..3c165e6 100644
 --- a/Dockerfile
 +++ b/Dockerfile
 @@ -1,24 +1,19 @@
@@ -46,7 +46,7 @@ index 17c4398..2168f1f 100644
  ENV GO111MODULE=on CGO_ENABLED=0
  
  ARG TARGETOS
-@@ -28,23 +23,75 @@ ENV GOEXPERIMENT=greenteagc
+@@ -28,23 +23,84 @@ ENV GOEXPERIMENT=greenteagc
  
  WORKDIR /build
  
@@ -112,7 +112,16 @@ index 17c4398..2168f1f 100644
 +# Fix volume permissions (root can write, then drop to newapi user)
 +if [ "$(id -u)" = "0" ]; then
 +    chown -R newapi:newapi /data 2>/dev/null || true
++    # If no args or first arg starts with -, prepend default command
++    if [ $# -eq 0 ] || [ "${1#-}" != "$1" ]; then
++        set -- /app/new-api "$@"
++    fi
 +    exec su-exec newapi "$@"
++fi
++
++# If no args or first arg starts with -, prepend default command
++if [ $# -eq 0 ] || [ "${1#-}" != "$1" ]; then
++    set -- /app/new-api "$@"
 +fi
 +
 +exec "$@"
