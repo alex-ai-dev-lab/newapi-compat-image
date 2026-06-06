@@ -1,2 +1,2 @@
-4b01c99b6b7c36f59e691b396c2a863e658e5212a0398dd1e5e0e6755822c10d  newapi-runtime-compat.patch
-4b01c99b6b7c36f59e691b396c2a863e658e5212a0398dd1e5e0e6755822c10d  newapi-runtime-compat-with-homepage.patch
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  newapi-runtime-compat.patch
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  newapi-runtime-compat-with-homepage.patch
