@@ -1,327 +1,141 @@
 # NewAPI Compat 镜像
 
-> 让 Claude Code、Codex、OpenAI Responses、Claude Messages 都能在 NewAPI 上跑稳，并把 SQLite 死锁、流式 GC 抖动、慢容器冷启动这些老问题一并解决。
+基于 `QuantumNous/new-api` upstream tag 生成补丁并构建 Docker 镜像，用于 Ken 的 NewAPI 生产环境兼容改造。
 
-[![Build](https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/workflows/build-release.yml/badge.svg)](https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/workflows/build-release.yml)
-[![Release](https://img.shields.io/github/v/release/alex-ai-dev-lab/newapi-compat-image)](https://github.com/alex-ai-dev-lab/newapi-compat-image/releases)
-[![Image Size](https://img.shields.io/badge/image-7%20MB-brightgreen)](https://github.com/alex-ai-dev-lab/newapi-compat-image/pkgs/container/newapi-runtime-compat)
-[![Patch](https://img.shields.io/badge/patches-automatically%20regenerated-blue)](#)
+这个仓库不直接 fork 上游源码，核心交付物是两个 patch 和 GitHub Actions 构建出的镜像 tar 包。
 
----
+## 镜像变体
 
-## 这是什么
-
-基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 上游 release 自动打补丁后构建的 Docker 镜像。
-
-- **不 fork**：每次上游发版自动同步，补丁基于干净的 upstream tag 重新应用，所有改动以语义化 commit 形式生成 patch
-- **可叠加**：兼容层位于独立的 `pkg/compat/` 命名空间，通过 hook 接口注入上游 relay 管线，特性可独立开关
-- **可观测**：每个 compat 模块自带 metrics，命中规则、scrub、fallback、failover 全部可查
-- **可调规则**：上游错误归一化由 DB 表驱动，碰到新错误线上加规则，零发版生效
-
-每次构建发布两个镜像变体：
-
-| 镜像 | 用途 | 体积 |
+| 变体 | 镜像名 | 内容 |
 |---|---|---|
-| `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat:v1.0.0-rc.10` | 兼容修复 + 性能加固 | ~7 MB |
-| `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` | 上一行 + 首页美化 | ~7 MB |
+| Runtime | `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat:v1.0.0-rc.10` | 兼容补丁、后台功能、调度与数据库参数调整 |
+| Runtime + Homepage | `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` | Runtime 变体 + “One endpoint. Every model.” 首页 |
 
----
+发布资产包含：
 
-## 与原版 NewAPI 的差异（一图速览）
+- `newapi-runtime-compat-docker-image-v1.0.0-rc.10.tar.gz`
+- `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`
+- `newapi-runtime-compat.patch`
+- `newapi-runtime-compat-with-homepage.patch`
+- `SHA256SUMS.txt`
 
-```
-┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
-│ 维度                    │ 上游官方                │ Compat 版本             │
-├─────────────────────────┼─────────────────────────┼─────────────────────────┤
-│ 镜像基础                │ debian:bookworm-slim    │ alpine:3.21             │
-│ 镜像体积                │ ~75 MB                  │ ~7 MB    (10.7× 缩减)   │
-│ 容器冷启动              │ ~1.2 s                  │ ~0.3 s   ( 4×   提速)   │
-│ SSE 缓冲区              │ 每请求分配 64 KB        │ sync.Pool 复用          │
-│ 100 并发 GC pause       │ ~50 ms                  │ <5 ms    (10×   降低)   │
-│ 高并发内存峰值          │ ~2 GB                   │ ~500 MB  ( 4×   降低)   │
-│ SQLite 写锁             │ 默认 DEFAULT            │ WAL+busy_timeout+pool   │
-│ database is locked      │ 20+ /h                  │ 0        (生产 7d 实测) │
-│ P99 写延迟              │ ~800 ms                 │ ~150 ms  (5.3× 提速)   │
-│ 上游错误归一化          │ 硬编码 if               │ DB 表 + admin CRUD      │
-│ 渠道 failover           │ 简单重试，会回到失败渠道│ ExcludedChannelIds 排除 │
-│ Codex stream=true 兼容  │ 透传，被上游拒          │ 平台聚合后还原非流式    │
-│ Claude thinking 路由    │ 不区分                  │ 按渠道能力路由 + 清洗   │
-│ 用户运行身份            │ root                    │ newapi:newapi (1000)    │
-│ Healthcheck             │ 无                      │ /api/status 30s 检测    │
-│ CI 流水线               │ 单 200 行 bash          │ 3 job matrix + GHA cache│
-│ CI 时间                 │ ~12 min                 │ ~7 min   (~40% 缩减)    │
-└─────────────────────────┴─────────────────────────┴─────────────────────────┘
-```
+## 当前实际功能
 
----
+### 客户端兼容
 
-## 性能对比（实测）
+- `/v1/v1/*` 重复前缀兼容。
+- Codex / OpenAI Responses 兼容：
+  - Codex channel `/backend-api/codex/responses` 支持。
+  - 部分 Responses 请求可做参数清理、stream 聚合、chat fallback。
+  - encrypted reasoning 相关 affinity / scrub fallback 保留在 runtime patch 中。
+- Claude Messages / Claude Code 兼容：
+  - Claude attribution 与部分工具调用历史兼容修补。
+  - Claude thinking 请求优先选择支持 thinking 的渠道。
+  - 无 thinking 兼容渠道时，发送前清洗 `thinking` / `redacted_thinking` block 和 request `thinking` 参数。
 
-```
-GC pause @ 100 并发 SSE
-─────────────────────────────────────────────────────────
-原版    ████████████████████████████████████████ 50 ms
-Compat  ████                                       5 ms
+### 后台功能
 
-镜像体积
-─────────────────────────────────────────────────────────
-原版    ██████████████████████████████████████████ 75 MB
-Compat  ████                                        7 MB
+- User-Agent 管理：
+  - 入口：`系统设置 -> 模型相关 -> User-Agent Management`
+  - 优先级：渠道自定义 UA > 渠道选择 UA > 模型大类全局 UA > 系统默认 UA
+  - 模型大类：`openai`、`claude`、`grok`、`gemini`、`other`
+  - 支持启用/禁用、排序、导入/导出、默认 UA。
+- Client Identity 管理：
+  - 入口：`系统设置 -> 模型相关 -> Client Identity`
+  - Codex：强制写入 `client_metadata.x-codex-installation-id`
+  - Claude：强制写入 `metadata.user_id.device_id`、`metadata.user_id.session_id`，并同步 `X-Claude-Code-Session-Id`
+  - Generic：可配置任意 JSON body 字段或 header 字段，适配后续其他厂商。
+  - 支持手动生成、立即轮换、按周/月/年自动轮换。
+- 上游错误归一化：
+  - 仅归一化错误响应。
+  - 客户端看到固定错误信息。
+  - 后台日志保留上游错误预览，但做脱敏。
+- 定时渠道测试：
+  - 每渠道可设置启用、间隔、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
+  - 支持跨天窗口，例如 `23:00-07:00`。
+- 统计看板：
+  - 支持 `1d`、`7d`、`30d`、`1y`、`all`。
+  - 管理员可看渠道、模型、用户维度统计。
+  - 首字延迟来自日志 `other.frt`，查询对损坏 JSON 做了防护。
 
-冷启动时间
-─────────────────────────────────────────────────────────
-原版    ██████████████████████████████████████████ 1.2 s
-Compat  ███████████                                0.3 s
+### 数据库与运行参数
 
-P99 写延迟（SQLite 高并发）
-─────────────────────────────────────────────────────────
-原版    ████████████████████████████████████████ 800 ms
-Compat  ████████                                 150 ms
+- SQLite 仍是默认生产数据库。
+- patch 保留 SQLite WAL、`busy_timeout` 和保守连接池设置，适合 Ken 当前“小并发、多读少写”的场景。
+- 如果后续日志量、字段、写入并发明显上升，再迁移 MySQL 更合适；当前镜像没有强制迁库。
 
-database is locked 错误（生产 1 周）
-─────────────────────────────────────────────────────────
-原版    ████████████████████████████████ 140+ 次/周
-Compat  ▏                                  0 次/周
-```
+## 已知边界
 
----
+- 当前代码不是 README 旧版描述的 `pkg/compat/` 全量 hook 化架构；仍有不少兼容逻辑直接落在上游目录中。
+- 没有承诺 7MB 镜像体积。实际 release tar 大约几十 MB，取决于 upstream 构建产物。
+- 没有完整 metrics 面板；统计看板基于现有 NewAPI 日志表查询。
+- 官方价格同步历史上做过一次官方-only 同步。不要重新启用旧的聚合商/转售商模型价格同步。
+- 生产 compose 目前需要 `user: "0:0"`，因为服务器挂载的 `logs` / `data` 目录权限按 root 跑最稳。移除 root override 前必须先验证挂载目录权限。
 
-## 架构
+## 构建
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          客户端 (Claude Code / Codex / SDK / curl)   │
-└──────────────────────────────────────────────────────────────────────┘
-                                  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│  Gin Router (上游)                                                   │
-│  ├─ /api/compat/error-rules     [Step 4 新增: DB 驱动错误规则]      │
-│  ├─ /api/user-agent             [Step 1 新增: UA 管理]              │
-│  └─ /v1/*  /v1/messages  /v1/responses                              │
-└──────────────────────────────────────────────────────────────────────┘
-                                  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│  controller/relay.go (上游) + 6 个 hook 调用点 ←─── pkg/compat       │
-│                                                                      │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────┐ │
-│  │  OnInit        │  │  BeforeChannel │  │  OnRetryDecision       │ │
-│  │  (检测特性)    │→ │  (scrub body)  │→ │  (排除/禁用/lift pref) │ │
-│  └────────────────┘  └────────────────┘  └────────────────────────┘ │
-│                                                                      │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────┐ │
-│  │  OnSelectRetry │  │  AfterChannel  │  │  OnClientResponseError │ │
-│  │  Param         │→ │  (track fail)  │→ │  (DB 规则/默认归一化) │ │
-│  └────────────────┘  └────────────────┘  └────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
-                                  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│  pkg/compat/                                                         │
-│  ├─ compat.go           RelayHook 接口 + HookChain                  │
-│  ├─ metrics.go          atomic 计数器                                │
-│  ├─ errornorm/          [F2] 错误归一化 + DB 规则 + admin API       │
-│  ├─ ssepool/            [F9] SSE 64KB sync.Pool                     │
-│  ├─ sqlite/             [F11] WAL + busy_timeout + 连接池            │
-│  ├─ ua/                 [F1] User-Agent 管理                        │
-│  ├─ pricesync/          [F8] models.dev 价格同步                    │
-│  ├─ scheduler/          [F7] 渠道定时测试                           │
-│  └─ ...                 antipoison / failover / thinking / reasoning │
-└──────────────────────────────────────────────────────────────────────┘
-                                  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│   上游渠道适配器 (OpenAI / Codex / Claude / Anthropic / Vertex)     │
-└──────────────────────────────────────────────────────────────────────┘
+手动触发 GitHub Actions：
+
+```bash
+gh workflow run build-release.yml \
+  -R alex-ai-dev-lab/newapi-compat-image \
+  -f upstream_tag=v1.0.0-rc.10
 ```
 
-每个 hook 点都是 no-op 安全的：未注册时零开销，注册后按顺序执行，支持 metrics 上报和独立回滚。
+工作流会从 upstream tag 拉源码，分别应用：
 
----
+- `newapi-runtime-compat.patch`
+- `newapi-runtime-compat-with-homepage.patch`
 
-## 快速开始
+然后构建两个 Docker 镜像并上传 release assets。
 
-### 在线拉取 (推荐)
+## 生产部署
+
+服务器如果 GHCR 拉取受限，使用 release tar：
+
+```bash
+cd /tmp
+curl -fsSL --proxy http://127.0.0.1:10808 \
+  -H "Authorization: Bearer <github-token>" \
+  -o newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz \
+  "https://github.com/alex-ai-dev-lab/newapi-compat-image/releases/download/newapi-compat-v1.0.0-rc.10/newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz"
+
+gzip -dc newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz | docker load
+
+cd /home/ken/services/new-api
+docker compose up -d --no-deps --force-recreate new-api
+curl -fsS http://127.0.0.1:3002/api/status
+```
+
+生产 compose 必须保留：
 
 ```yaml
-# docker-compose.yml
 services:
   new-api:
-    image: ghcr.io/alex-ai-dev-lab/newapi-runtime-compat:v1.0.0-rc.10
-    container_name: new-api
-    restart: always
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./data:/data
-    environment:
-      - SQL_DSN=local  # 用本地 SQLite (已自动 WAL + busy_timeout)
+    user: "0:0"
 ```
 
-```bash
-docker compose up -d
-docker compose logs -f new-api
-curl http://localhost:3000/api/status   # 应返回 {"success":true,...}
+如果容器启动后只输出 `failed to open log file`，优先检查 compose 的 `user: "0:0"` 是否还在，以及 `logs` / `data` 挂载目录权限。
+
+## 维护流程
+
+1. 在 `D:\Code\newapi\_rc10_core_work` 修改源码。
+2. 跑聚焦测试：
+
+```powershell
+go test ./service ./model ./controller ./router -run 'TestApplyClientIdentity|TestClientIdentity|TestStats|TestUserAgent|TestClaudeThinking'
+cd D:\Code\newapi\_rc10_core_work\web\default
+npm run typecheck
+npm run build
 ```
 
-### 离线导入 (GHCR 拉取受限时)
+3. 从干净 upstream base 生成两个 patch：
 
-```bash
-# 从 release 下载 tar.gz
-gh release download newapi-compat-v1.0.0-rc.10 \
-  -p 'newapi-runtime-compat-docker-image-*.tar.gz' \
-  -R alex-ai-dev-lab/newapi-compat-image
-
-# 备份现有镜像 (无感知切换关键步骤)
-docker tag $(docker compose images new-api -q) newapi-backup:$(date +%Y%m%d-%H%M)
-
-# 加载新镜像
-gzip -dc newapi-runtime-compat-docker-image-v1.0.0-rc.10.tar.gz | docker load
-
-# 无停机切换
-docker compose up -d --no-deps --force-recreate new-api
-docker ps --filter name=new-api
-curl -fsS http://127.0.0.1:3000/api/status
+```powershell
+git -C D:\Code\newapi\_rc10_core_work add -N .
+git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json' ':!web/default/src/features/home/**' ':!web/default/src/styles/index.css'
+git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-homepage.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json'
 ```
 
-### 从源码补丁本地构建
-
-```bash
-git clone --depth 1 --branch v1.0.0-rc.10 https://github.com/QuantumNous/new-api.git
-cd new-api
-git apply /path/to/newapi-runtime-compat.patch
-docker build -t newapi-runtime-compat:custom .
-```
-
----
-
-## 核心特性
-
-### 🛡️ 客户端兼容
-
-| 客户端 | 修复内容 |
-|---|---|
-| **Claude Code** | 清理 attribution (`cch`/`cc_version`/`cc_entrypoint`)、修复 `Read.pages=""` 空参数、合并连续 `tool_use` 历史、修正 SSE 工具调用边界 |
-| **Codex** | `stream=true` 上游聚合后返非流式、参数清理 (`top_p` 等)、SSE 误判修复、Codex CLI 风格 `User-Agent` 注入 |
-| **Claude Messages** | `User-Agent` 注入 + 用户覆盖优先、tool result 转换、thinking blocks 完整透传 |
-| **OpenAI Responses** | encrypted reasoning affinity (粘渠道续接)、scrub fallback (无效时清洗后切换)、chat.completions 兜底 |
-
-### ⚡ 性能加固
-
-- **SSE 缓冲区池化**：`sync.Pool` 复用 64 KB 缓冲，GC 压力降 95%+
-- **SQLite 调优**：WAL + `synchronous=NORMAL` + `busy_timeout=120s` + 单连接池，根除 `database is locked`
-- **Alpine 镜像**：从 75 MB 降到 7 MB，冷启动从 1.2s 降到 0.3s
-
-### 🔁 渠道智能调度
-
-- **失败排除**：`ExcludedChannelIds` 防止 `50→50→50` 死循环
-- **状态码联动**：401/402/403/429/超时 → 自动 failover + 临时禁用
-- **Thinking 路由**：含 thinking 的请求优先选 thinking-capable 渠道，无可用时自动清洗后回退
-- **Reasoning Affinity**：encrypted reasoning 续接粘住同一渠道，失败时 scrub + 切换
-
-### 🛠️ 运维友好
-
-- **DB 驱动的错误归一化**：上游出新错误模式，`POST /api/compat/error-rules` 加规则，零发版生效
-- **定时测试 + 自动恢复**：每渠道独立窗口/间隔/阈值/时区配置
-- **官方价格同步**：每日从 `models.dev` 拉取，自动更新模型 ratio
-- **非 root 运行**：1000:1000 用户 + entrypoint 修 volume 权限
-- **Healthcheck**：30s 检测 `/api/status`，K8s/Docker swarm 友好
-
----
-
-## 错误归一化规则 (Step 4 亮点)
-
-碰到上游怪错误，不用发版改硬编码，直接配规则：
-
-```bash
-curl -X POST http://localhost:3000/api/compat/error-rules \
-  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "enabled": true,
-    "description": "屏蔽 Anthropic 401 中的 x-api-key 泄露",
-    "platforms": "14",
-    "upstream_status": 401,
-    "keywords": "x-api-key",
-    "passthrough_code": false,
-    "response_code": 401,
-    "passthrough_body": false,
-    "custom_message": "鉴权失败，请联系管理员",
-    "skip_monitoring": false,
-    "priority": 50
-  }'
-```
-
-支持字段：
-- `platforms`：渠道 type ID 列表（逗号分隔，空 = 所有）
-- `upstream_status`：上游 HTTP 状态码（0 = 任意）
-- `keywords`：响应 body 关键词（逗号分隔，case-insensitive，空 = 全匹配）
-- `passthrough_code` / `response_code`：是否透传状态码
-- `passthrough_body` / `custom_message`：是否透传错误体
-- `skip_monitoring`：命中后是否跳过 ops error log
-- `priority`：优先级（数字小者先匹配）
-
-完整 API:
-
-```
-GET    /api/compat/error-rules           # 列表
-POST   /api/compat/error-rules           # 创建（自动 reload）
-GET    /api/compat/error-rules/:id       # 详情
-PUT    /api/compat/error-rules/:id       # 修改（自动 reload）
-DELETE /api/compat/error-rules/:id       # 删除（自动 reload）
-POST   /api/compat/error-rules/reload    # 手动强刷
-```
-
----
-
-## 构建与发布
-
-### CI 流水线 (3-job matrix)
-
-```
-detect-version (3s)
-    ↓
-build-images [matrix]
-  ├─ runtime  (~6 min)  ─┐
-  └─ homepage (~7 min)  ─┴─→ create-release (~30s)
-```
-
-特性：
-- **并行 matrix**：runtime 和 homepage 同时构建
-- **GHA cache**：`type=gha,mode=max`，相邻 build 共享 Docker 层
-- **每 6 小时定时检测**：上游有新 release 自动构建
-- **手动触发**：`workflow_dispatch` 输入 upstream_tag 立即重建
-
-### 每个 release 包含
-
-```
-newapi-compat-v1.0.0-rc.10/
-├─ newapi-runtime-compat-docker-image-v1.0.0-rc.10.tar.gz       # 离线镜像
-├─ newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz
-├─ newapi-runtime-compat.patch                                  # 源码补丁
-├─ newapi-runtime-compat-with-homepage.patch
-├─ SHA256SUMS.txt
-├─ ARTIFACTS.SHA256SUMS
-└─ RELEASE_NOTES.md
-```
-
----
-
-## 文档
-
-- [Step 3 叠加式重构设计文档](docs/step3-overlay-refactor-design.md)
-- [Step 3 完成总结](docs/step3-completion-summary.md)
-- [上游 NewAPI 文档](https://github.com/QuantumNous/new-api)
-
----
-
-## 项目规范
-
-- 不做侵入式 fork：每次上游发版基于 clean tag 自动 patch + 构建
-- 兼容层在独立 `pkg/compat/` 命名空间，hook 接口注入，可独立开关
-- 每个特性一个语义化 commit，patch 由 `git format-patch` 自动生成
-- 所有新增代码自带单元测试 + `go build ./...` + `git apply --check` 验证才发版
-
----
-
-## License
-
-继承上游 [NewAPI](https://github.com/QuantumNous/new-api) 的 License。
-本仓库的 compat 层代码与上游保持相同协议。
+4. 用干净 `v1.0.0-rc.10` 树执行 `git apply --check` 验证 patch。
+5. 更新 `SHA256SUMS.txt`，提交并触发 Actions。

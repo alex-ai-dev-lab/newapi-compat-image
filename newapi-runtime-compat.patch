@@ -2716,10 +2716,10 @@ index 03740d2..8909b7d 100644
  		return GetChannelById(id, true)
 diff --git a/model/client_identity.go b/model/client_identity.go
 new file mode 100644
-index 0000000..1a9cfb7
+index 0000000..97182e6
 --- /dev/null
 +++ b/model/client_identity.go
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,305 @@
 +package model
 +
 +import (
@@ -2733,12 +2733,12 @@ index 0000000..1a9cfb7
 +
 +// ClientIdentitySetting 客户端标识符管理配置
 +type ClientIdentitySetting struct {
-+	Enabled                   bool                      `json:"enabled"`
-+	ApplyToAllOpenAIResponses bool                      `json:"apply_to_all_openai_responses"`
-+	ApplyToAllClaudeMessages  bool                      `json:"apply_to_all_claude_messages"`
-+	Codex                     CodexIdentityConfig       `json:"codex"`
-+	Claude                    ClaudeIdentityConfig      `json:"claude"`
-+	Generic                   []GenericIdentityConfig   `json:"generic"`
++	Enabled                   bool                    `json:"enabled"`
++	ApplyToAllOpenAIResponses bool                    `json:"apply_to_all_openai_responses"`
++	ApplyToAllClaudeMessages  bool                    `json:"apply_to_all_claude_messages"`
++	Codex                     CodexIdentityConfig     `json:"codex"`
++	Claude                    ClaudeIdentityConfig    `json:"claude"`
++	Generic                   []GenericIdentityConfig `json:"generic"`
 +}
 +
 +// CodexIdentityConfig Codex 标识符配置
@@ -2768,10 +2768,10 @@ index 0000000..1a9cfb7
 +
 +// GenericIdentityConfig 通用厂商标识符配置（支持自定义字段路径）
 +type GenericIdentityConfig struct {
-+	Name                string `json:"name"`                 // 配置名称，如 "Gemini", "Tongyi"
++	Name                string `json:"name"` // 配置名称，如 "Gemini", "Tongyi"
 +	Enabled             bool   `json:"enabled"`
-+	Mode                string `json:"mode"` // force_global, disabled
-+	PathType            string `json:"path_type"` // body_json, header
++	Mode                string `json:"mode"`       // force_global, disabled
++	PathType            string `json:"path_type"`  // body_json, header
 +	FieldPath           string `json:"field_path"` // JSON 路径如 "metadata.user_id" 或 header 名如 "X-Device-Id"
 +	FieldValue          string `json:"field_value"`
 +	RotateEnabled       bool   `json:"rotate_enabled"`
@@ -2841,9 +2841,9 @@ index 0000000..1a9cfb7
 +			Enabled:             true,
 +			Mode:                IdentityModeForceGlobal,
 +			DeviceID:            "",
-+			SessionIDMode:       SessionIDModePreserveOrFill,
++			SessionIDMode:       SessionIDModeForceGlobal,
 +			FixedSessionID:      "",
-+			SyncSessionHeader:   false,
++			SyncSessionHeader:   true,
 +			RotateEnabled:       false,
 +			RotateIntervalUnit:  RotateUnitMonth,
 +			RotateIntervalValue: 1,
@@ -2870,8 +2870,8 @@ index 0000000..1a9cfb7
 +	if s.Claude.Mode != IdentityModeForceGlobal && s.Claude.Mode != IdentityModeDisabled {
 +		s.Claude.Mode = IdentityModeForceGlobal
 +	}
-+	if s.Claude.SessionIDMode != SessionIDModePreserveOrFill && s.Claude.SessionIDMode != SessionIDModeForceGlobal && s.Claude.SessionIDMode != SessionIDModeDisabled {
-+		s.Claude.SessionIDMode = SessionIDModePreserveOrFill
++	if s.Claude.SessionIDMode != SessionIDModeForceGlobal && s.Claude.SessionIDMode != SessionIDModeDisabled {
++		s.Claude.SessionIDMode = SessionIDModeForceGlobal
 +	}
 +	if s.Claude.RotateIntervalUnit != RotateUnitWeek && s.Claude.RotateIntervalUnit != RotateUnitMonth && s.Claude.RotateIntervalUnit != RotateUnitYear {
 +		s.Claude.RotateIntervalUnit = RotateUnitMonth
@@ -2947,6 +2947,22 @@ index 0000000..1a9cfb7
 +	return newID, nil
 +}
 +
++// EnsureClaudeSessionID 确保 Claude 固定 session ID 存在，不存在则生成并保存
++func EnsureClaudeSessionID() (string, error) {
++	setting := GetClientIdentitySetting()
++	if id := strings.TrimSpace(setting.Claude.FixedSessionID); id != "" {
++		return id, nil
++	}
++
++	newID := uuid.NewString()
++	setting.Claude.FixedSessionID = newID
++	err := saveClientIdentitySetting(setting)
++	if err != nil {
++		return "", err
++	}
++	return newID, nil
++}
++
 +// RotateCodexInstallationID 立即轮换 Codex installation ID
 +func RotateCodexInstallationID() (string, error) {
 +	setting := GetClientIdentitySetting()
@@ -2973,6 +2989,9 @@ index 0000000..1a9cfb7
 +	setting := GetClientIdentitySetting()
 +	newID := uuid.NewString()
 +	setting.Claude.DeviceID = newID
++	if setting.Claude.SessionIDMode == SessionIDModeForceGlobal {
++		setting.Claude.FixedSessionID = uuid.NewString()
++	}
 +
 +	if setting.Claude.RotateEnabled {
 +		setting.Claude.NextRotateAt = CalculateNextRotateTime(
@@ -3053,31 +3072,33 @@ index 9083ee5..aaea5dc 100644
  	errChan := make(chan error, len(migrations))
 diff --git a/model/stats.go b/model/stats.go
 new file mode 100644
-index 0000000..de50c17
+index 0000000..9787411
 --- /dev/null
 +++ b/model/stats.go
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,347 @@
 +package model
 +
 +import (
 +	"database/sql"
 +	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
 +)
 +
-+// OverviewStats 总览统计数据
++// OverviewStats is the high-level dashboard payload.
 +type OverviewStats struct {
-+	TotalRequests     int64          `json:"total_requests"`
-+	SuccessRate       float64        `json:"success_rate"`
-+	AvgFirstTokenTime float64        `json:"avg_first_token_time"` // 毫秒
-+	TotalCost         float64        `json:"total_cost"`
-+	ActiveChannels    int64          `json:"active_channels"`
-+	ActiveUsers       int64          `json:"active_users"`
-+	Trend             []TrendPoint   `json:"trend"`
-+	TopChannels       []ChannelStat  `json:"top_channels"`
-+	TopModels         []ModelStat    `json:"top_models"`
++	TotalRequests     int64         `json:"total_requests"`
++	SuccessRate       float64       `json:"success_rate"`
++	AvgFirstTokenTime float64       `json:"avg_first_token_time"`
++	TotalCost         float64       `json:"total_cost"`
++	ActiveChannels    int64         `json:"active_channels"`
++	ActiveUsers       int64         `json:"active_users"`
++	Trend             []TrendPoint  `json:"trend"`
++	TopChannels       []ChannelStat `json:"top_channels"`
++	TopModels         []ModelStat   `json:"top_models"`
 +}
 +
-+// TrendPoint 趋势数据点
 +type TrendPoint struct {
 +	Timestamp int64 `json:"timestamp"`
 +	Requests  int64 `json:"requests"`
@@ -3085,7 +3106,6 @@ index 0000000..de50c17
 +	Failure   int64 `json:"failure"`
 +}
 +
-+// ChannelStat 渠道统计
 +type ChannelStat struct {
 +	ChannelID     int     `json:"channel_id"`
 +	ChannelName   string  `json:"channel_name"`
@@ -3095,7 +3115,6 @@ index 0000000..de50c17
 +	TotalCost     float64 `json:"total_cost"`
 +}
 +
-+// ModelStat 模型统计
 +type ModelStat struct {
 +	ModelName     string  `json:"model_name"`
 +	TotalRequests int64   `json:"total_requests"`
@@ -3103,113 +3122,138 @@ index 0000000..de50c17
 +	TotalCost     float64 `json:"total_cost"`
 +}
 +
-+// UserStat 用户统计
 +type UserStat struct {
-+	UserID        int     `json:"user_id"`
-+	Username      string  `json:"username"`
-+	TotalRequests int64   `json:"total_requests"`
-+	TotalCost     float64 `json:"total_cost"`
++	UserID         int     `json:"user_id"`
++	Username       string  `json:"username"`
++	TotalRequests  int64   `json:"total_requests"`
++	SuccessRate    float64 `json:"success_rate"`
++	AvgFirstToken  float64 `json:"avg_first_token"`
++	TotalCost      float64 `json:"total_cost"`
++	TopChannelID   int     `json:"top_channel_id"`
++	TopChannelName string  `json:"top_channel_name"`
 +}
 +
-+// GetOverviewStats 获取总览统计
 +func GetOverviewStats(startTime time.Time) (*OverviewStats, error) {
 +	stats := &OverviewStats{}
++	base := statsBaseQuery(startTime)
 +
-+	// 构建基础查询
-+	query := DB.Table("logs")
-+	if !startTime.IsZero() {
-+		query = query.Where("created_at >= ?", startTime.Unix())
++	if err := base.Count(&stats.TotalRequests).Error; err != nil {
++		return nil, err
 +	}
-+
-+	// 查询总请求数
-+	query.Count(&stats.TotalRequests)
-+
 +	if stats.TotalRequests == 0 {
++		stats.Trend = []TrendPoint{}
++		stats.TopChannels = []ChannelStat{}
++		stats.TopModels = []ModelStat{}
 +		return stats, nil
 +	}
 +
-+	// 查询成功率
 +	var successCount int64
-+	successQuery := DB.Table("logs")
-+	if !startTime.IsZero() {
-+		successQuery = successQuery.Where("created_at >= ?", startTime.Unix())
++	if err := statsBaseQuery(startTime).Where("type = ?", LogTypeConsume).Count(&successCount).Error; err != nil {
++		return nil, err
 +	}
-+	successQuery.Where("success = ?", true).Count(&successCount)
-+	stats.SuccessRate = float64(successCount) / float64(stats.TotalRequests) * 100
++	stats.SuccessRate = percent(successCount, stats.TotalRequests)
 +
-+	// 查询平均首字延迟（如果字段存在）
 +	var avgFirstToken sql.NullFloat64
-+	DB.Table("logs").
-+		Where("created_at >= ?", startTime.Unix()).
-+		Where("first_token_time_ms > ?", 0).
-+		Select("AVG(first_token_time_ms)").
-+		Scan(&avgFirstToken)
++	if err := statsBaseQuery(startTime).
++		Where(frtExpr() + " IS NOT NULL").
++		Select("AVG(" + frtExpr() + ")").
++		Scan(&avgFirstToken).Error; err != nil {
++		return nil, err
++	}
 +	if avgFirstToken.Valid {
 +		stats.AvgFirstTokenTime = avgFirstToken.Float64
 +	}
 +
-+	// 查询总消费
-+	var totalQuota int64
-+	query.Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota)
-+	stats.TotalCost = float64(totalQuota) / 500000 // 转换为美元
++	var totalQuota sql.NullInt64
++	if err := statsBaseQuery(startTime).Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota).Error; err != nil {
++		return nil, err
++	}
++	stats.TotalCost = quotaToUSD(totalQuota.Int64)
 +
-+	// 查询活跃渠道数
-+	DB.Table("logs").
-+		Where("created_at >= ?", startTime.Unix()).
-+		Distinct("channel_id").
-+		Count(&stats.ActiveChannels)
++	if err := statsBaseQuery(startTime).Where("channel_id > 0").Distinct("channel_id").Count(&stats.ActiveChannels).Error; err != nil {
++		return nil, err
++	}
++	if err := statsBaseQuery(startTime).Where("user_id > 0").Distinct("user_id").Count(&stats.ActiveUsers).Error; err != nil {
++		return nil, err
++	}
 +
-+	// 查询活跃用户数
-+	DB.Table("logs").
-+		Where("created_at >= ?", startTime.Unix()).
-+		Distinct("user_id").
-+		Count(&stats.ActiveUsers)
-+
-+	// 查询趋势数据
 +	stats.Trend = getTrendData(startTime)
-+
-+	// 查询 Top 渠道
 +	stats.TopChannels = getTopChannels(startTime, 10)
-+
-+	// 查询 Top 模型
 +	stats.TopModels = getTopModels(startTime, 10)
-+
 +	return stats, nil
 +}
 +
-+// getTrendData 获取趋势数据
-+func getTrendData(startTime time.Time) []TrendPoint {
-+	var trend []TrendPoint
++func GetChannelStats(startTime time.Time) ([]ChannelStat, error) {
++	return getTopChannels(startTime, 50), nil
++}
 +
-+	// 根据时间范围决定分组粒度（暂时固定为小时级别）
-+	// TODO: 根据 startTime 动态调整粒度
-+	// interval := "1 hour"
-+	// if !startTime.IsZero() {
-+	// 	diff := time.Since(startTime)
-+	// 	if diff > 30*24*time.Hour {
-+	// 		interval = "1 day"
-+	// 	} else if diff > 7*24*time.Hour {
-+	// 		interval = "6 hours"
-+	// 	}
-+	// }
++func GetModelStats(startTime time.Time) ([]ModelStat, error) {
++	return getTopModels(startTime, 50), nil
++}
 +
-+	// SQLite 语法
++func GetUserStats(startTime time.Time) ([]UserStat, error) {
++	var stats []UserStat
 +	query := `
 +		SELECT
-+			(created_at / 3600) * 3600 as timestamp,
-+			COUNT(*) as requests,
-+			SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success,
-+			SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failure
-+		FROM logs
++			l.user_id,
++			COALESCE(u.username, l.username, 'Unknown') AS username,
++			COUNT(*) AS total_requests,
++			CAST(SUM(CASE WHEN l.type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			AVG(` + frtExprWithAlias("l") + `) AS avg_first_token,
++			COALESCE(SUM(l.quota), 0) AS total_quota
++		FROM logs l
++		LEFT JOIN users u ON l.user_id = u.id
 +	`
 +
++	args := []interface{}{LogTypeConsume}
 +	if !startTime.IsZero() {
-+		query += " WHERE created_at >= " + string(rune(startTime.Unix()))
++		query += " WHERE l.created_at >= ?"
++		args = append(args, startTime.Unix())
 +	}
++	query += " GROUP BY l.user_id, u.username, l.username ORDER BY total_quota DESC, total_requests DESC LIMIT 50"
 +
-+	query += " GROUP BY timestamp ORDER BY timestamp ASC LIMIT 100"
++	rows, err := LOG_DB.Raw(query, args...).Rows()
++	if err != nil {
++		return stats, err
++	}
++	defer rows.Close()
 +
-+	rows, err := DB.Raw(query).Rows()
++	for rows.Next() {
++		var stat UserStat
++		var avgFirstToken sql.NullFloat64
++		var totalQuota int64
++		if err := rows.Scan(&stat.UserID, &stat.Username, &stat.TotalRequests, &stat.SuccessRate, &avgFirstToken, &totalQuota); err != nil {
++			continue
++		}
++		if avgFirstToken.Valid {
++			stat.AvgFirstToken = avgFirstToken.Float64
++		}
++		stat.TotalCost = quotaToUSD(totalQuota)
++		stat.TopChannelID, stat.TopChannelName = getUserTopChannel(startTime, stat.UserID)
++		stats = append(stats, stat)
++	}
++	return stats, nil
++}
++
++func getTrendData(startTime time.Time) []TrendPoint {
++	var trend []TrendPoint
++	interval := trendIntervalSeconds(startTime)
++	query := `
++		SELECT
++			(created_at / ?) * ? AS timestamp,
++			COUNT(*) AS requests,
++			SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS success,
++			SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS failure
++		FROM logs
++	`
++	args := []interface{}{interval, interval, LogTypeConsume, LogTypeError}
++	if !startTime.IsZero() {
++		query += " WHERE created_at >= ?"
++		args = append(args, startTime.Unix())
++	}
++	query += " GROUP BY timestamp ORDER BY timestamp ASC LIMIT 500"
++
++	rows, err := LOG_DB.Raw(query, args...).Rows()
 +	if err != nil {
 +		return trend
 +	}
@@ -3217,46 +3261,37 @@ index 0000000..de50c17
 +
 +	for rows.Next() {
 +		var point TrendPoint
-+		err := rows.Scan(&point.Timestamp, &point.Requests, &point.Success, &point.Failure)
-+		if err != nil {
++		if err := rows.Scan(&point.Timestamp, &point.Requests, &point.Success, &point.Failure); err != nil {
 +			continue
 +		}
 +		trend = append(trend, point)
 +	}
-+
 +	return trend
 +}
 +
-+// getTopChannels 获取 Top 渠道
 +func getTopChannels(startTime time.Time, limit int) []ChannelStat {
 +	var stats []ChannelStat
-+
 +	query := `
 +		SELECT
 +			l.channel_id,
-+			COALESCE(c.name, 'Unknown') as channel_name,
-+			COUNT(*) as total_requests,
-+			CAST(SUM(CASE WHEN l.success = 1 THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) as success_rate,
-+			AVG(CASE WHEN l.first_token_time_ms > 0 THEN l.first_token_time_ms ELSE NULL END) as avg_first_token,
-+			COALESCE(SUM(l.quota), 0) as total_quota
++			COALESCE(c.name, 'Unknown') AS channel_name,
++			COUNT(*) AS total_requests,
++			CAST(SUM(CASE WHEN l.type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			AVG(` + frtExprWithAlias("l") + `) AS avg_first_token,
++			COALESCE(SUM(l.quota), 0) AS total_quota
 +		FROM logs l
 +		LEFT JOIN channels c ON l.channel_id = c.id
 +	`
 +
++	args := []interface{}{LogTypeConsume}
 +	if !startTime.IsZero() {
 +		query += " WHERE l.created_at >= ?"
++		args = append(args, startTime.Unix())
 +	}
-+
 +	query += " GROUP BY l.channel_id, c.name ORDER BY total_requests DESC LIMIT ?"
++	args = append(args, limit)
 +
-+	var rows *sql.Rows
-+	var err error
-+	if !startTime.IsZero() {
-+		rows, err = DB.Raw(query, startTime.Unix(), limit).Rows()
-+	} else {
-+		rows, err = DB.Raw(query, limit).Rows()
-+	}
-+
++	rows, err := LOG_DB.Raw(query, args...).Rows()
 +	if err != nil {
 +		return stats
 +	}
@@ -3266,54 +3301,38 @@ index 0000000..de50c17
 +		var stat ChannelStat
 +		var totalQuota int64
 +		var avgFirstToken sql.NullFloat64
-+		err := rows.Scan(
-+			&stat.ChannelID,
-+			&stat.ChannelName,
-+			&stat.TotalRequests,
-+			&stat.SuccessRate,
-+			&avgFirstToken,
-+			&totalQuota,
-+		)
-+		if err != nil {
++		if err := rows.Scan(&stat.ChannelID, &stat.ChannelName, &stat.TotalRequests, &stat.SuccessRate, &avgFirstToken, &totalQuota); err != nil {
 +			continue
 +		}
 +		if avgFirstToken.Valid {
 +			stat.AvgFirstToken = avgFirstToken.Float64
 +		}
-+		stat.TotalCost = float64(totalQuota) / 500000
++		stat.TotalCost = quotaToUSD(totalQuota)
 +		stats = append(stats, stat)
 +	}
-+
 +	return stats
 +}
 +
-+// getTopModels 获取 Top 模型
 +func getTopModels(startTime time.Time, limit int) []ModelStat {
 +	var stats []ModelStat
-+
 +	query := `
 +		SELECT
 +			model_name,
-+			COUNT(*) as total_requests,
-+			CAST(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) as success_rate,
-+			COALESCE(SUM(quota), 0) as total_quota
++			COUNT(*) AS total_requests,
++			CAST(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			COALESCE(SUM(quota), 0) AS total_quota
 +		FROM logs
 +	`
 +
++	args := []interface{}{LogTypeConsume}
 +	if !startTime.IsZero() {
 +		query += " WHERE created_at >= ?"
++		args = append(args, startTime.Unix())
 +	}
-+
 +	query += " GROUP BY model_name ORDER BY total_requests DESC LIMIT ?"
++	args = append(args, limit)
 +
-+	var rows *sql.Rows
-+	var err error
-+	if !startTime.IsZero() {
-+		rows, err = DB.Raw(query, startTime.Unix(), limit).Rows()
-+	} else {
-+		rows, err = DB.Raw(query, limit).Rows()
-+	}
-+
++	rows, err := LOG_DB.Raw(query, args...).Rows()
 +	if err != nil {
 +		return stats
 +	}
@@ -3322,82 +3341,87 @@ index 0000000..de50c17
 +	for rows.Next() {
 +		var stat ModelStat
 +		var totalQuota int64
-+		err := rows.Scan(
-+			&stat.ModelName,
-+			&stat.TotalRequests,
-+			&stat.SuccessRate,
-+			&totalQuota,
-+		)
-+		if err != nil {
++		if err := rows.Scan(&stat.ModelName, &stat.TotalRequests, &stat.SuccessRate, &totalQuota); err != nil {
 +			continue
 +		}
-+		stat.TotalCost = float64(totalQuota) / 500000
++		stat.TotalCost = quotaToUSD(totalQuota)
 +		stats = append(stats, stat)
 +	}
-+
 +	return stats
 +}
 +
-+// GetChannelStats 获取渠道统计列表
-+func GetChannelStats(startTime time.Time) ([]ChannelStat, error) {
-+	return getTopChannels(startTime, 50), nil
-+}
-+
-+// GetModelStats 获取模型统计列表
-+func GetModelStats(startTime time.Time) ([]ModelStat, error) {
-+	return getTopModels(startTime, 50), nil
-+}
-+
-+// GetUserStats 获取用户统计列表
-+func GetUserStats(startTime time.Time) ([]UserStat, error) {
-+	var stats []UserStat
-+
++func getUserTopChannel(startTime time.Time, userID int) (int, string) {
 +	query := `
-+		SELECT
-+			l.user_id,
-+			COALESCE(u.username, 'Unknown') as username,
-+			COUNT(*) as total_requests,
-+			COALESCE(SUM(l.quota), 0) as total_quota
++		SELECT l.channel_id, COALESCE(c.name, 'Unknown') AS channel_name
 +		FROM logs l
-+		LEFT JOIN users u ON l.user_id = u.id
++		LEFT JOIN channels c ON l.channel_id = c.id
++		WHERE l.user_id = ?
 +	`
-+
++	args := []interface{}{userID}
 +	if !startTime.IsZero() {
-+		query += " WHERE l.created_at >= ?"
++		query += " AND l.created_at >= ?"
++		args = append(args, startTime.Unix())
 +	}
++	query += " GROUP BY l.channel_id, c.name ORDER BY COALESCE(SUM(l.quota), 0) DESC, COUNT(*) DESC LIMIT 1"
 +
-+	query += " GROUP BY l.user_id, u.username ORDER BY total_requests DESC LIMIT 50"
++	var channelID int
++	var channelName string
++	_ = LOG_DB.Raw(query, args...).Row().Scan(&channelID, &channelName)
++	return channelID, channelName
++}
 +
-+	var rows *sql.Rows
-+	var err error
++func statsBaseQuery(startTime time.Time) *gorm.DB {
++	query := LOG_DB.Table("logs").Where("type IN ?", []int{LogTypeConsume, LogTypeError})
 +	if !startTime.IsZero() {
-+		rows, err = DB.Raw(query, startTime.Unix()).Rows()
-+	} else {
-+		rows, err = DB.Raw(query).Rows()
++		query = query.Where("created_at >= ?", startTime.Unix())
 +	}
++	return query
++}
 +
-+	if err != nil {
-+		return stats, err
++func frtExpr() string {
++	return frtExprWithAlias("")
++}
++
++func frtExprWithAlias(alias string) string {
++	prefix := ""
++	if alias != "" {
++		prefix = alias + "."
 +	}
-+	defer rows.Close()
-+
-+	for rows.Next() {
-+		var stat UserStat
-+		var totalQuota int64
-+		err := rows.Scan(
-+			&stat.UserID,
-+			&stat.Username,
-+			&stat.TotalRequests,
-+			&totalQuota,
-+		)
-+		if err != nil {
-+			continue
-+		}
-+		stat.TotalCost = float64(totalQuota) / 500000
-+		stats = append(stats, stat)
++	switch LOG_DB.Dialector.Name() {
++	case "mysql":
++		return "CASE WHEN JSON_VALID(" + prefix + "other) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(" + prefix + "other, '$.frt')) AS DECIMAL(18,3)) ELSE NULL END"
++	default:
++		return "CASE WHEN json_valid(" + prefix + "other) THEN CAST(json_extract(" + prefix + "other, '$.frt') AS REAL) ELSE NULL END"
 +	}
++}
 +
-+	return stats, nil
++func trendIntervalSeconds(startTime time.Time) int64 {
++	if startTime.IsZero() {
++		return 24 * 3600
++	}
++	diff := time.Since(startTime)
++	switch {
++	case diff <= 48*time.Hour:
++		return 3600
++	case diff <= 31*24*time.Hour:
++		return 6 * 3600
++	default:
++		return 24 * 3600
++	}
++}
++
++func quotaToUSD(quota int64) float64 {
++	if common.QuotaPerUnit <= 0 {
++		return 0
++	}
++	return float64(quota) / common.QuotaPerUnit
++}
++
++func percent(part, total int64) float64 {
++	if total <= 0 {
++		return 0
++	}
++	return float64(part) * 100 / float64(total)
 +}
 diff --git a/model/user_agent.go b/model/user_agent.go
 new file mode 100644
@@ -5081,7 +5105,7 @@ index 0000000..0b7e02c
 +	StripClaudeStreamChunk(chunk)
 +}
 diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
-index f945a83..956e4d4 100644
+index f945a83..2a63dec 100644
 --- a/relay/channel/api_request.go
 +++ b/relay/channel/api_request.go
 @@ -6,13 +6,16 @@ import (
@@ -5257,13 +5281,37 @@ index f945a83..956e4d4 100644
  const clientHeaderPlaceholderPrefix = "{client_header:"
  
  const (
-@@ -310,6 +455,16 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -304,12 +449,40 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
+ 	}
+ }
+ 
++func applyHeaderPatchToRequest(req *http.Request, headerPatch http.Header) {
++	if req == nil || len(headerPatch) == 0 {
++		return
++	}
++	for key, values := range headerPatch {
++		if len(values) == 0 {
++			continue
++		}
++		req.Header.Del(key)
++		for _, value := range values {
++			req.Header.Add(key, value)
++		}
++		if strings.EqualFold(key, "Host") && values[0] != "" {
++			req.Host = values[0]
++		}
++	}
++}
++
+ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+ 	fullRequestURL, err := a.GetRequestURL(info)
+ 	if err != nil {
  		return nil, fmt.Errorf("get request url failed: %w", err)
  	}
  	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
 +
 +	// 应用客户端标识符注入
-+	processedBody, newContentLength, identityErr := service.ApplyClientIdentityToRequestBody(c.Request.URL.Path, c.Request.Header, requestBody)
++	processedBody, newContentLength, identityHeaders, identityErr := service.ApplyClientIdentityToRequestBody(c.Request.URL.Path, c.Request.Header, requestBody)
 +	if identityErr != nil {
 +		logger.LogError(c, fmt.Sprintf("client identity injection failed: %s", identityErr.Error()))
 +	} else if newContentLength > 0 && processedBody != nil {
@@ -5274,7 +5322,7 @@ index f945a83..956e4d4 100644
  	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
  	if err != nil {
  		return nil, fmt.Errorf("new request failed: %w", err)
-@@ -320,6 +475,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -320,6 +493,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -5282,15 +5330,16 @@ index f945a83..956e4d4 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -327,6 +483,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -327,6 +501,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
 +	applyManagedUpstreamUserAgent(req, info)
++	applyHeaderPatchToRequest(req, identityHeaders)
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -352,6 +509,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -352,6 +528,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -5298,7 +5347,7 @@ index f945a83..956e4d4 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -359,6 +517,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -359,6 +536,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
@@ -5306,7 +5355,7 @@ index f945a83..956e4d4 100644
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -376,6 +535,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -376,6 +554,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -5314,7 +5363,7 @@ index f945a83..956e4d4 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -385,6 +545,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -385,6 +564,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	for key, value := range headerOverride {
  		targetHeader.Set(key, value)
  	}
@@ -5322,7 +5371,7 @@ index f945a83..956e4d4 100644
  	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
  	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
  	if err != nil {
-@@ -396,6 +557,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -396,6 +576,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	return targetConn, nil
  }
  
@@ -7022,10 +7071,10 @@ index 0000000..cd5258c
 +}
 diff --git a/service/client_identity.go b/service/client_identity.go
 new file mode 100644
-index 0000000..f2ce074
+index 0000000..121dc5a
 --- /dev/null
 +++ b/service/client_identity.go
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,402 @@
 +package service
 +
 +import (
@@ -7251,7 +7300,7 @@ index 0000000..f2ce074
 +	sessionID := resolveClaudeSessionID(headers, userObj, cfg)
 +	if sessionID != "" {
 +		userObj["session_id"] = sessionID
-+		if cfg.SyncSessionHeader && strings.TrimSpace(headers.Get("X-Claude-Code-Session-Id")) == "" {
++		if cfg.SessionIDMode == model.SessionIDModeForceGlobal || cfg.SyncSessionHeader {
 +			headers.Set("X-Claude-Code-Session-Id", sessionID)
 +		}
 +	}
@@ -7274,8 +7323,16 @@ index 0000000..f2ce074
 +		return existing
 +	}
 +
-+	if cfg.SessionIDMode == model.SessionIDModeForceGlobal && strings.TrimSpace(cfg.FixedSessionID) != "" {
-+		return cfg.FixedSessionID
++	if cfg.SessionIDMode == model.SessionIDModeForceGlobal {
++		if fixed := strings.TrimSpace(cfg.FixedSessionID); fixed != "" {
++			return fixed
++		}
++		sessionID, err := model.EnsureClaudeSessionID()
++		if err != nil {
++			common.SysLog("client identity: failed to ensure claude session id: " + err.Error())
++			return ""
++		}
++		return sessionID
 +	}
 +
 +	existing, _ := userObj["session_id"].(string)
@@ -7368,34 +7425,64 @@ index 0000000..f2ce074
 +	return hex.EncodeToString(sum[:])[:8]
 +}
 +
-+// ApplyClientIdentityToRequestBody 从 io.Reader 读取、应用标识符、返回新 Reader
-+func ApplyClientIdentityToRequestBody(path string, headers http.Header, body io.Reader) (io.Reader, int64, error) {
++// ApplyClientIdentityToRequestBody 从 io.Reader 读取并应用标识符，返回新 Reader 与需要应用到上游请求的 header。
++func ApplyClientIdentityToRequestBody(path string, headers http.Header, body io.Reader) (io.Reader, int64, http.Header, error) {
 +	if body == nil {
-+		return body, 0, nil
++		return body, 0, nil, nil
 +	}
 +
 +	// 读取 body
 +	bodyBytes, err := io.ReadAll(body)
 +	if err != nil {
-+		return body, 0, err
++		return body, 0, nil, err
 +	}
++
++	originalHeaders := headers.Clone()
 +
 +	// 应用标识符
 +	modifiedBody, changed, err := ApplyClientIdentityToRequest(path, headers, bodyBytes)
++	headerPatch := changedIdentityHeaders(originalHeaders, headers)
 +	if err != nil || !changed {
 +		// 恢复原始 body
-+		return strings.NewReader(string(bodyBytes)), int64(len(bodyBytes)), err
++		return strings.NewReader(string(bodyBytes)), int64(len(bodyBytes)), headerPatch, err
 +	}
 +
 +	// 返回修改后的 body
-+	return strings.NewReader(string(modifiedBody)), int64(len(modifiedBody)), nil
++	return strings.NewReader(string(modifiedBody)), int64(len(modifiedBody)), headerPatch, nil
++}
++
++func changedIdentityHeaders(before, after http.Header) http.Header {
++	patch := http.Header{}
++	for key, values := range after {
++		if len(values) == 0 {
++			continue
++		}
++		beforeValues := before.Values(key)
++		if len(beforeValues) == len(values) {
++			same := true
++			for i := range values {
++				if beforeValues[i] != values[i] {
++					same = false
++					break
++				}
++			}
++			if same {
++				continue
++			}
++		}
++		patch[key] = append([]string(nil), values...)
++	}
++	if len(patch) == 0 {
++		return nil
++	}
++	return patch
 +}
 diff --git a/service/client_identity_rotation.go b/service/client_identity_rotation.go
 new file mode 100644
-index 0000000..1e074c6
+index 0000000..3e35295
 --- /dev/null
 +++ b/service/client_identity_rotation.go
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,148 @@
 +package service
 +
 +import (
@@ -7478,6 +7565,9 @@ index 0000000..1e074c6
 +			oldID := setting.Claude.DeviceID
 +			newID := uuid.NewString()
 +			setting.Claude.DeviceID = newID
++			if setting.Claude.SessionIDMode == model.SessionIDModeForceGlobal {
++				setting.Claude.FixedSessionID = uuid.NewString()
++			}
 +			setting.Claude.NextRotateAt = model.CalculateNextRotateTime(
 +				setting.Claude.RotateIntervalUnit,
 +				setting.Claude.RotateIntervalValue,
@@ -7540,6 +7630,162 @@ index 0000000..1e074c6
 +// CalculateNextRotateTime 暴露给 model 包使用
 +func CalculateNextRotateTime(unit string, value int) int64 {
 +	return model.CalculateNextRotateTime(unit, value)
++}
+diff --git a/service/client_identity_test.go b/service/client_identity_test.go
+new file mode 100644
+index 0000000..da2b371
+--- /dev/null
++++ b/service/client_identity_test.go
+@@ -0,0 +1,150 @@
++package service
++
++import (
++	"encoding/json"
++	"io"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++)
++
++func setClientIdentityOptionForTest(t *testing.T, setting model.ClientIdentitySetting) {
++	t.Helper()
++	data, err := json.Marshal(setting)
++	if err != nil {
++		t.Fatal(err)
++	}
++	common.OptionMapRWMutex.Lock()
++	if common.OptionMap == nil {
++		common.OptionMap = map[string]string{}
++	}
++	original, existed := common.OptionMap["client_identity_setting"]
++	common.OptionMap["client_identity_setting"] = string(data)
++	common.OptionMapRWMutex.Unlock()
++	t.Cleanup(func() {
++		common.OptionMapRWMutex.Lock()
++		if existed {
++			common.OptionMap["client_identity_setting"] = original
++		} else {
++			delete(common.OptionMap, "client_identity_setting")
++		}
++		common.OptionMapRWMutex.Unlock()
++	})
++}
++
++func baseClientIdentitySetting() model.ClientIdentitySetting {
++	return model.ClientIdentitySetting{
++		Enabled:                   true,
++		ApplyToAllOpenAIResponses: false,
++		ApplyToAllClaudeMessages:  false,
++		Codex: model.CodexIdentityConfig{
++			Enabled:        true,
++			Mode:           model.IdentityModeForceGlobal,
++			InstallationID: "codex-fixed",
++		},
++		Claude: model.ClaudeIdentityConfig{
++			Enabled:           true,
++			Mode:              model.IdentityModeForceGlobal,
++			DeviceID:          "claude-device-fixed",
++			SessionIDMode:     model.SessionIDModeForceGlobal,
++			FixedSessionID:    "claude-session-fixed",
++			SyncSessionHeader: true,
++		},
++	}
++}
++
++func TestApplyClientIdentityForcesCodexInstallationID(t *testing.T) {
++	setClientIdentityOptionForTest(t, baseClientIdentitySetting())
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	headers.Set("User-Agent", "codex-cli/0.137.0")
++	body := []byte(`{"client_metadata":{"x-codex-installation-id":"client-id"},"input":"hello"}`)
++
++	modified, changed, err := ApplyClientIdentityToRequest("/v1/responses", headers, body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !changed {
++		t.Fatal("expected request body to change")
++	}
++
++	var payload map[string]any
++	if err := json.Unmarshal(modified, &payload); err != nil {
++		t.Fatal(err)
++	}
++	metadata := payload["client_metadata"].(map[string]any)
++	if got := metadata["x-codex-installation-id"]; got != "codex-fixed" {
++		t.Fatalf("codex installation id = %v, want codex-fixed", got)
++	}
++}
++
++func TestApplyClientIdentityForcesClaudeDeviceSessionAndHeader(t *testing.T) {
++	setClientIdentityOptionForTest(t, baseClientIdentitySetting())
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	headers.Set("User-Agent", "claude-cli/2.1.167 (external, cli)")
++	headers.Set("X-Claude-Code-Session-Id", "client-session")
++	body := strings.NewReader(`{"metadata":{"user_id":"{\"device_id\":\"client-device\",\"session_id\":\"client-session\"}"},"messages":[]}`)
++
++	modifiedReader, _, headerPatch, err := ApplyClientIdentityToRequestBody("/v1/messages", headers, body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	modified, err := io.ReadAll(modifiedReader)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	var payload map[string]any
++	if err := json.Unmarshal(modified, &payload); err != nil {
++		t.Fatal(err)
++	}
++	metadata := payload["metadata"].(map[string]any)
++	var userID map[string]any
++	if err := json.Unmarshal([]byte(metadata["user_id"].(string)), &userID); err != nil {
++		t.Fatal(err)
++	}
++	if got := userID["device_id"]; got != "claude-device-fixed" {
++		t.Fatalf("claude device_id = %v, want claude-device-fixed", got)
++	}
++	if got := userID["session_id"]; got != "claude-session-fixed" {
++		t.Fatalf("claude session_id = %v, want claude-session-fixed", got)
++	}
++	if got := headerPatch.Get("X-Claude-Code-Session-Id"); got != "claude-session-fixed" {
++		t.Fatalf("header patch session = %q, want claude-session-fixed", got)
++	}
++}
++
++func TestApplyClientIdentityAppliesGenericHeader(t *testing.T) {
++	setting := baseClientIdentitySetting()
++	setting.Codex.Enabled = false
++	setting.Claude.Enabled = false
++	setting.Generic = []model.GenericIdentityConfig{
++		{
++			Name:       "Custom",
++			Enabled:    true,
++			Mode:       model.IdentityModeForceGlobal,
++			PathType:   model.PathTypeHeader,
++			FieldPath:  "X-Device-Id",
++			FieldValue: "generic-fixed",
++		},
++	}
++	setClientIdentityOptionForTest(t, setting)
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	body := strings.NewReader(`{"messages":[]}`)
++
++	_, _, headerPatch, err := ApplyClientIdentityToRequestBody("/v1/chat/completions", headers, body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got := headerPatch.Get("X-Device-Id"); got != "generic-fixed" {
++		t.Fatalf("generic header = %q, want generic-fixed", got)
++	}
 +}
 diff --git a/service/convert.go b/service/convert.go
 index 95acf83..2a5de8c 100644
@@ -8748,10 +8994,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..9ff0d0f
+index 0000000..bdbbbf3
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,307 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -8770,7 +9016,7 @@ index 0000000..9ff0d0f
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
-+import { useEffect, useCallback, useState, useMemo } from 'react'
++import { useEffect, useState, useMemo } from 'react'
 +import { useNavigate } from '@tanstack/react-router'
 +import {
 +  CommandDialog,
@@ -8794,7 +9040,6 @@ index 0000000..9ff0d0f
 +  Palette,
 +  Shield,
 +  Zap,
-+  Globe,
 +  type LucideIcon,
 +} from 'lucide-react'
 +
@@ -8881,7 +9126,7 @@ index 0000000..9ff0d0f
 +        keywords: ['log', 'request', 'history', 'analytics'],
 +        section: 'Navigation',
 +        action: () => {
-+          navigate({ to: '/logs' })
++          navigate({ to: '/console/log' })
 +          close()
 +        },
 +      },
@@ -8908,7 +9153,10 @@ index 0000000..9ff0d0f
 +        keywords: ['model', 'pricing', 'ratio', 'claude', 'gpt'],
 +        section: 'Settings',
 +        action: () => {
-+          navigate({ to: '/system-settings/models/global' })
++          navigate({
++            to: '/system-settings/models/$section',
++            params: { section: 'global' },
++          })
 +          close()
 +        },
 +        requiresRole: 100,
@@ -8922,7 +9170,10 @@ index 0000000..9ff0d0f
 +        keywords: ['identity', 'uuid', 'device', 'codex', 'claude'],
 +        section: 'Settings',
 +        action: () => {
-+          navigate({ to: '/system-settings/models/client-identity' })
++          navigate({
++            to: '/system-settings/models/$section',
++            params: { section: 'client-identity' },
++          })
 +          close()
 +        },
 +        requiresRole: 100,
@@ -8936,7 +9187,10 @@ index 0000000..9ff0d0f
 +        keywords: ['theme', 'dark', 'light', 'appearance', 'color'],
 +        section: 'Settings',
 +        action: () => {
-+          navigate({ to: '/system-settings/content/appearance' })
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'appearance' },
++          })
 +          close()
 +        },
 +        requiresRole: 100,
@@ -10044,10 +10298,10 @@ index 0000000..d0b5fc9
 +}
 diff --git a/web/default/src/features/dashboard/model-distribution-chart.tsx b/web/default/src/features/dashboard/model-distribution-chart.tsx
 new file mode 100644
-index 0000000..aa671df
+index 0000000..5d4ee95
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-distribution-chart.tsx
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10112,12 +10366,14 @@ index 0000000..aa671df
 +              cx="50%"
 +              cy="50%"
 +              labelLine={false}
-+              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
++              label={({ name, percent }) =>
++                `${name} ${(((percent ?? 0) as number) * 100).toFixed(0)}%`
++              }
 +              outerRadius={80}
 +              fill="#8884d8"
 +              dataKey="value"
 +            >
-+              {chartData.map((entry, index) => (
++              {chartData.map((_, index) => (
 +                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
 +              ))}
 +            </Pie>
@@ -10266,19 +10522,20 @@ index 0000000..178b641
 +  )
 +}
 diff --git a/web/default/src/features/dashboard/section-registry.tsx b/web/default/src/features/dashboard/section-registry.tsx
-index db670f0..3b4d678 100644
+index db670f0..0c2a565 100644
 --- a/web/default/src/features/dashboard/section-registry.tsx
 +++ b/web/default/src/features/dashboard/section-registry.tsx
-@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
+@@ -18,6 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
  */
  import type { TFunction } from 'i18next'
  import { createSectionRegistry } from '@/features/system-settings/utils/section-registry'
 +import { OverviewDashboard } from './overview-dashboard'
 +import { ModelAnalyticsDashboard } from './model-analytics-dashboard'
++import { UserAnalyticsDashboard } from './user-analytics-dashboard'
  
  /**
   * Dashboard page section definitions
-@@ -26,12 +28,12 @@ const DASHBOARD_SECTIONS = [
+@@ -26,18 +29,18 @@ const DASHBOARD_SECTIONS = [
    {
      id: 'overview',
      titleKey: 'Overview',
@@ -10293,12 +10550,19 @@ index db670f0..3b4d678 100644
    },
    {
      id: 'users',
+     titleKey: 'User Analytics',
+     adminOnly: true,
+-    build: () => null,
++    build: () => <UserAnalyticsDashboard />,
+   },
+ ] as const
+ 
 diff --git a/web/default/src/features/dashboard/stats-api.ts b/web/default/src/features/dashboard/stats-api.ts
 new file mode 100644
-index 0000000..35b3cf2
+index 0000000..cadee7d
 --- /dev/null
 +++ b/web/default/src/features/dashboard/stats-api.ts
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,117 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10361,7 +10625,11 @@ index 0000000..35b3cf2
 +  user_id: number
 +  username: string
 +  total_requests: number
++  success_rate: number
++  avg_first_token: number
 +  total_cost: number
++  top_channel_id: number
++  top_channel_name: string
 +}
 +
 +export function useOverviewStats(timeRange: TimeRange, autoRefresh: boolean = true) {
@@ -10371,7 +10639,7 @@ index 0000000..35b3cf2
 +      const res = await api.get<{ success: boolean; data: OverviewStats }>(
 +        `/api/stats/overview?time_range=${timeRange}`
 +      )
-+      return res.data
++      return res.data.data
 +    },
 +    refetchInterval: autoRefresh ? 5000 : false,
 +  })
@@ -10384,7 +10652,7 @@ index 0000000..35b3cf2
 +      const res = await api.get<{ success: boolean; data: ChannelStat[] }>(
 +        `/api/stats/channels?time_range=${timeRange}`
 +      )
-+      return res.data
++      return res.data.data
 +    },
 +  })
 +}
@@ -10396,7 +10664,19 @@ index 0000000..35b3cf2
 +      const res = await api.get<{ success: boolean; data: ModelStat[] }>(
 +        `/api/stats/models?time_range=${timeRange}`
 +      )
-+      return res.data
++      return res.data.data
++    },
++  })
++}
++
++export function useUserStats(timeRange: TimeRange) {
++  return useQuery({
++    queryKey: ['user-stats', timeRange],
++    queryFn: async () => {
++      const res = await api.get<{ success: boolean; data: UserStat[] }>(
++        `/api/stats/users?time_range=${timeRange}`
++      )
++      return res.data.data
 +    },
 +  })
 +}
@@ -10551,6 +10831,156 @@ index 0000000..aebf0c1
 +        </ResponsiveContainer>
 +      </CardContent>
 +    </Card>
++  )
++}
+diff --git a/web/default/src/features/dashboard/user-analytics-dashboard.tsx b/web/default/src/features/dashboard/user-analytics-dashboard.tsx
+new file mode 100644
+index 0000000..184dc19
+--- /dev/null
++++ b/web/default/src/features/dashboard/user-analytics-dashboard.tsx
+@@ -0,0 +1,144 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useState } from 'react'
++import { Badge } from '@/components/ui/badge'
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
++import {
++  Table,
++  TableBody,
++  TableCell,
++  TableHead,
++  TableHeader,
++  TableRow,
++} from '@/components/ui/table'
++import { Alert, AlertDescription } from '@/components/ui/alert'
++import { Loader2 } from 'lucide-react'
++import { TimeRangeSelector } from './time-range-selector'
++import { useUserStats, type TimeRange } from './stats-api'
++
++export function UserAnalyticsDashboard() {
++  const [timeRange, setTimeRange] = useState<TimeRange>('7d')
++  const { data: users, isLoading, error } = useUserStats(timeRange)
++
++  if (isLoading && !users) {
++    return (
++      <div className='flex h-96 items-center justify-center'>
++        <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
++      </div>
++    )
++  }
++
++  if (error) {
++    return (
++      <Alert variant='destructive'>
++        <AlertDescription>
++          Failed to load user statistics. Please try again later.
++        </AlertDescription>
++      </Alert>
++    )
++  }
++
++  return (
++    <div className='space-y-6 p-6'>
++      <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
++        <div>
++          <h1 className='text-3xl font-bold tracking-tight'>User Analytics</h1>
++          <p className='text-muted-foreground'>
++            User spend, request volume, reliability, and dominant channels.
++          </p>
++        </div>
++        <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
++      </div>
++
++      <Card>
++        <CardHeader>
++          <CardTitle>User Consumption Overview</CardTitle>
++          <CardDescription>
++            Ranked by total spend in the selected time range.
++          </CardDescription>
++        </CardHeader>
++        <CardContent>
++          <div className='rounded-md border'>
++            <Table>
++              <TableHeader>
++                <TableRow>
++                  <TableHead>User</TableHead>
++                  <TableHead className='text-right'>Requests</TableHead>
++                  <TableHead className='text-right'>Success Rate</TableHead>
++                  <TableHead className='text-right'>Avg First Token</TableHead>
++                  <TableHead>Top Channel</TableHead>
++                  <TableHead className='text-right'>Cost</TableHead>
++                </TableRow>
++              </TableHeader>
++              <TableBody>
++                {!users || users.length === 0 ? (
++                  <TableRow>
++                    <TableCell colSpan={6} className='text-muted-foreground text-center'>
++                      No user data available
++                    </TableCell>
++                  </TableRow>
++                ) : (
++                  users.map((user) => (
++                    <TableRow key={user.user_id}>
++                      <TableCell>
++                        <div className='font-medium'>{user.username}</div>
++                        <div className='text-muted-foreground text-xs'>#{user.user_id}</div>
++                      </TableCell>
++                      <TableCell className='text-right'>
++                        {user.total_requests.toLocaleString()}
++                      </TableCell>
++                      <TableCell className='text-right'>
++                        <Badge
++                          variant={user.success_rate >= 95 ? 'default' : 'secondary'}
++                          className='font-mono'
++                        >
++                          {user.success_rate.toFixed(2)}%
++                        </Badge>
++                      </TableCell>
++                      <TableCell className='text-right font-mono'>
++                        {user.avg_first_token > 0
++                          ? `${user.avg_first_token.toFixed(0)}ms`
++                          : 'N/A'}
++                      </TableCell>
++                      <TableCell>
++                        {user.top_channel_id > 0 ? (
++                          <span>
++                            {user.top_channel_name}
++                            <span className='text-muted-foreground ml-2 text-xs'>
++                              #{user.top_channel_id}
++                            </span>
++                          </span>
++                        ) : (
++                          <span className='text-muted-foreground'>N/A</span>
++                        )}
++                      </TableCell>
++                      <TableCell className='text-right font-mono'>
++                        ${user.total_cost.toFixed(4)}
++                      </TableCell>
++                    </TableRow>
++                  ))
++                )}
++              </TableBody>
++            </Table>
++          </div>
++        </CardContent>
++      </Card>
++    </div>
 +  )
 +}
 diff --git a/web/default/src/features/keys/components/data-table-row-actions.tsx b/web/default/src/features/keys/components/data-table-row-actions.tsx
@@ -10929,10 +11359,10 @@ index 825850f..a6c6376 100644
    }
 diff --git a/web/default/src/features/system-settings/content/appearance-settings.tsx b/web/default/src/features/system-settings/content/appearance-settings.tsx
 new file mode 100644
-index 0000000..edc1fa0
+index 0000000..aca296d
 --- /dev/null
 +++ b/web/default/src/features/system-settings/content/appearance-settings.tsx
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,231 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10983,8 +11413,11 @@ index 0000000..edc1fa0
 +    setMode(value as ThemeMode)
 +  }
 +
-+  const handleFontSizeChange = (value: number[]) => {
-+    setFontSize(value[0])
++  const handleFontSizeChange = (value: number | readonly number[]) => {
++    const nextValue = typeof value === 'number' ? value : value[0]
++    if (typeof nextValue === 'number') {
++      setFontSize(nextValue)
++    }
 +  }
 +
 +  const handlePrimaryColorChange = (color: string) => {
@@ -11187,7 +11620,7 @@ index 1de3165..05533b8 100644
      titleKey: 'Announcements',
 diff --git a/web/default/src/features/system-settings/models/client-identity-api.ts b/web/default/src/features/system-settings/models/client-identity-api.ts
 new file mode 100644
-index 0000000..4cf98bb
+index 0000000..b90b14c
 --- /dev/null
 +++ b/web/default/src/features/system-settings/models/client-identity-api.ts
 @@ -0,0 +1,155 @@
@@ -11226,7 +11659,7 @@ index 0000000..4cf98bb
 +  enabled: boolean
 +  mode: 'force_global' | 'disabled'
 +  device_id: string
-+  session_id_mode: 'preserve_or_fill' | 'force_global' | 'disabled'
++  session_id_mode: 'force_global' | 'disabled'
 +  fixed_session_id: string
 +  sync_session_header: boolean
 +  rotate_enabled: boolean
@@ -11261,7 +11694,7 @@ index 0000000..4cf98bb
 +  const response = await api.get<{ success: boolean; data: ClientIdentitySetting }>(
 +    '/api/option/client_identity'
 +  )
-+  return response.data
++  return response.data.data
 +}
 +
 +async function updateClientIdentitySetting(
@@ -11274,28 +11707,28 @@ index 0000000..4cf98bb
 +  const response = await api.post<{ success: boolean; data: string }>(
 +    '/api/option/client_identity/codex/generate'
 +  )
-+  return response.data
++  return response.data.data
 +}
 +
 +async function rotateCodexId(): Promise<string> {
 +  const response = await api.post<{ success: boolean; data: string }>(
 +    '/api/option/client_identity/codex/rotate'
 +  )
-+  return response.data
++  return response.data.data
 +}
 +
 +async function generateClaudeId(): Promise<string> {
 +  const response = await api.post<{ success: boolean; data: string }>(
 +    '/api/option/client_identity/claude/generate'
 +  )
-+  return response.data
++  return response.data.data
 +}
 +
 +async function rotateClaudeId(): Promise<string> {
 +  const response = await api.post<{ success: boolean; data: string }>(
 +    '/api/option/client_identity/claude/rotate'
 +  )
-+  return response.data
++  return response.data.data
 +}
 +
 +export function useClientIdentitySetting() {
@@ -11348,10 +11781,10 @@ index 0000000..4cf98bb
 +}
 diff --git a/web/default/src/features/system-settings/models/client-identity-settings-card.tsx b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
 new file mode 100644
-index 0000000..a99c5c9
+index 0000000..bf5eca3
 --- /dev/null
 +++ b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
-@@ -0,0 +1,502 @@
+@@ -0,0 +1,846 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11370,11 +11803,10 @@ index 0000000..a99c5c9
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
-+import { useForm } from 'react-hook-form'
-+import { useState } from 'react'
++import { useFieldArray, useForm } from 'react-hook-form'
 +import { Button } from '@/components/ui/button'
 +import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
++import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form'
 +import { Input } from '@/components/ui/input'
 +import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 +import { Switch } from '@/components/ui/switch'
@@ -11388,8 +11820,36 @@ index 0000000..a99c5c9
 +  useRotateClaudeId,
 +  type ClientIdentitySetting,
 +} from './client-identity-api'
-+import { RefreshCw, Shuffle, Info, Clock } from 'lucide-react'
++import { Clock, Info, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
 +import { Alert, AlertDescription } from '@/components/ui/alert'
++
++const DEFAULT_SETTING: ClientIdentitySetting = {
++  enabled: true,
++  apply_to_all_openai_responses: false,
++  apply_to_all_claude_messages: false,
++  codex: {
++    enabled: true,
++    mode: 'force_global',
++    installation_id: '',
++    rotate_enabled: false,
++    rotate_interval_unit: 'month',
++    rotate_interval_value: 1,
++    next_rotate_at: 0,
++  },
++  claude: {
++    enabled: true,
++    mode: 'force_global',
++    device_id: '',
++    session_id_mode: 'force_global',
++    fixed_session_id: '',
++    sync_session_header: true,
++    rotate_enabled: false,
++    rotate_interval_unit: 'month',
++    rotate_interval_value: 1,
++    next_rotate_at: 0,
++  },
++  generic: [],
++}
 +
 +export function ClientIdentitySettingsCard() {
 +  const { data: setting, isLoading } = useClientIdentitySetting()
@@ -11400,8 +11860,12 @@ index 0000000..a99c5c9
 +  const rotateClaudeMutation = useRotateClaudeId()
 +
 +  const form = useForm<ClientIdentitySetting>({
-+    defaultValues: setting,
-+    values: setting,
++    defaultValues: DEFAULT_SETTING,
++    values: setting ?? DEFAULT_SETTING,
++  })
++  const { fields: genericFields, append: appendGeneric, remove: removeGeneric } = useFieldArray({
++    control: form.control,
++    name: 'generic',
 +  })
 +
 +  const onSubmit = async (data: ClientIdentitySetting) => {
@@ -11451,6 +11915,28 @@ index 0000000..a99c5c9
 +    }
 +  }
 +
++  const handleAddGeneric = () => {
++    appendGeneric({
++      name: 'Custom Provider',
++      enabled: true,
++      mode: 'force_global',
++      path_type: 'body_json',
++      field_path: 'metadata.device_id',
++      field_value: crypto.randomUUID(),
++      rotate_enabled: false,
++      rotate_interval_unit: 'month',
++      rotate_interval_value: 1,
++      next_rotate_at: 0,
++    })
++  }
++
++  const handleGenerateGeneric = (index: number) => {
++    form.setValue(`generic.${index}.field_value`, crypto.randomUUID(), {
++      shouldDirty: true,
++      shouldTouch: true,
++    })
++  }
++
 +  const formatTimestamp = (timestamp: number) => {
 +    if (!timestamp) return 'Not scheduled'
 +    return new Date(timestamp * 1000).toLocaleString()
@@ -11490,6 +11976,40 @@ index 0000000..a99c5c9
 +                    <FormLabel>Enable Client Identity Management</FormLabel>
 +                    <FormDescription>
 +                      When enabled, NewAPI will inject identifiers into matching requests
++                    </FormDescription>
++                  </div>
++                  <FormControl>
++                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                  </FormControl>
++                </FormItem>
++              )}
++            />
++            <FormField
++              control={form.control}
++              name="apply_to_all_openai_responses"
++              render={({ field }) => (
++                <FormItem className="flex items-center justify-between">
++                  <div className="space-y-0.5">
++                    <FormLabel>Apply to all OpenAI Responses requests</FormLabel>
++                    <FormDescription>
++                      Force Codex installation ID on every /v1/responses request, even when the User-Agent is not Codex.
++                    </FormDescription>
++                  </div>
++                  <FormControl>
++                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                  </FormControl>
++                </FormItem>
++              )}
++            />
++            <FormField
++              control={form.control}
++              name="apply_to_all_claude_messages"
++              render={({ field }) => (
++                <FormItem className="flex items-center justify-between">
++                  <div className="space-y-0.5">
++                    <FormLabel>Apply to all Claude Messages requests</FormLabel>
++                    <FormDescription>
++                      Force Claude device/session IDs on every /v1/messages request.
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -11760,14 +12280,56 @@ index 0000000..a99c5c9
 +                      </SelectTrigger>
 +                    </FormControl>
 +                    <SelectContent>
-+                      <SelectItem value="preserve_or_fill">Preserve or Fill</SelectItem>
 +                      <SelectItem value="force_global">Force Global</SelectItem>
 +                      <SelectItem value="disabled">Disabled</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                  <FormDescription>
-+                    Session IDs are conversation-scoped. Force Global not recommended.
++                    Force Global replaces request session IDs with NewAPI's configured value.
 +                  </FormDescription>
++                </FormItem>
++              )}
++            />
++            <FormField
++              control={form.control}
++              name="claude.fixed_session_id"
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>Fixed Session ID</FormLabel>
++                  <div className="flex gap-2">
++                    <FormControl>
++                      <Input {...field} placeholder="UUID will be auto-generated" />
++                    </FormControl>
++                    <Button
++                      type="button"
++                      variant="outline"
++                      size="icon"
++                      onClick={() => form.setValue('claude.fixed_session_id', crypto.randomUUID(), { shouldDirty: true })}
++                      title="Generate session ID"
++                    >
++                      <Shuffle className="h-4 w-4" />
++                    </Button>
++                  </div>
++                  <FormDescription>
++                    Written to metadata.user_id.session_id and the Claude session header when force mode is enabled.
++                  </FormDescription>
++                </FormItem>
++              )}
++            />
++            <FormField
++              control={form.control}
++              name="claude.sync_session_header"
++              render={({ field }) => (
++                <FormItem className="flex items-center justify-between">
++                  <div className="space-y-0.5">
++                    <FormLabel>Sync X-Claude-Code-Session-Id</FormLabel>
++                    <FormDescription>
++                      Keep the Claude session header aligned with the fixed session ID.
++                    </FormDescription>
++                  </div>
++                  <FormControl>
++                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                  </FormControl>
 +                </FormItem>
 +              )}
 +            />
@@ -11842,6 +12404,221 @@ index 0000000..a99c5c9
 +                </div>
 +              )}
 +            </div>
++          </CardContent>
++        </Card>
++
++        {/* Generic Provider Settings */}
++        <Card>
++          <CardHeader>
++            <div className="flex items-center justify-between gap-4">
++              <div>
++                <CardTitle>Generic Provider Fields</CardTitle>
++                <CardDescription>
++                  Force custom header or JSON body fields for other providers.
++                </CardDescription>
++              </div>
++              <Button type="button" variant="outline" onClick={handleAddGeneric}>
++                <Plus className="mr-2 h-4 w-4" />
++                Add Field
++              </Button>
++            </div>
++          </CardHeader>
++          <CardContent className="space-y-4">
++            {genericFields.length === 0 && (
++              <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
++                No generic identity fields configured.
++              </div>
++            )}
++            {genericFields.map((field, index) => (
++              <div key={field.id} className="space-y-4 rounded-md border p-4">
++                <div className="flex items-center justify-between gap-3">
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.enabled`}
++                    render={({ field }) => (
++                      <FormItem className="flex items-center gap-3 space-y-0">
++                        <FormControl>
++                          <Switch checked={field.value} onCheckedChange={field.onChange} />
++                        </FormControl>
++                        <FormLabel className="font-medium">Enabled</FormLabel>
++                      </FormItem>
++                    )}
++                  />
++                  <Button
++                    type="button"
++                    variant="ghost"
++                    size="icon"
++                    onClick={() => removeGeneric(index)}
++                    title="Remove field"
++                  >
++                    <Trash2 className="h-4 w-4" />
++                  </Button>
++                </div>
++
++                <div className="grid gap-4 md:grid-cols-2">
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.name`}
++                    render={({ field }) => (
++                      <FormItem>
++                        <FormLabel>Provider Name</FormLabel>
++                        <FormControl>
++                          <Input {...field} placeholder="Gemini / Tongyi / Custom" />
++                        </FormControl>
++                      </FormItem>
++                    )}
++                  />
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.mode`}
++                    render={({ field }) => (
++                      <FormItem>
++                        <FormLabel>Mode</FormLabel>
++                        <Select onValueChange={field.onChange} value={field.value}>
++                          <FormControl>
++                            <SelectTrigger>
++                              <SelectValue />
++                            </SelectTrigger>
++                          </FormControl>
++                          <SelectContent>
++                            <SelectItem value="force_global">Force Global</SelectItem>
++                            <SelectItem value="disabled">Disabled</SelectItem>
++                          </SelectContent>
++                        </Select>
++                      </FormItem>
++                    )}
++                  />
++                </div>
++
++                <div className="grid gap-4 md:grid-cols-2">
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.path_type`}
++                    render={({ field }) => (
++                      <FormItem>
++                        <FormLabel>Target</FormLabel>
++                        <Select onValueChange={field.onChange} value={field.value}>
++                          <FormControl>
++                            <SelectTrigger>
++                              <SelectValue />
++                            </SelectTrigger>
++                          </FormControl>
++                          <SelectContent>
++                            <SelectItem value="body_json">JSON Body</SelectItem>
++                            <SelectItem value="header">Header</SelectItem>
++                          </SelectContent>
++                        </Select>
++                      </FormItem>
++                    )}
++                  />
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.field_path`}
++                    render={({ field }) => (
++                      <FormItem>
++                        <FormLabel>Field Path</FormLabel>
++                        <FormControl>
++                          <Input {...field} placeholder="metadata.device_id or X-Device-Id" />
++                        </FormControl>
++                        <FormDescription>
++                          Dot path for JSON body, exact name for headers.
++                        </FormDescription>
++                      </FormItem>
++                    )}
++                  />
++                </div>
++
++                <FormField
++                  control={form.control}
++                  name={`generic.${index}.field_value`}
++                  render={({ field }) => (
++                    <FormItem>
++                      <FormLabel>Field Value</FormLabel>
++                      <div className="flex gap-2">
++                        <FormControl>
++                          <Input {...field} placeholder="UUID or fixed value" />
++                        </FormControl>
++                        <Button
++                          type="button"
++                          variant="outline"
++                          size="icon"
++                          onClick={() => handleGenerateGeneric(index)}
++                          title="Generate value"
++                        >
++                          <Shuffle className="h-4 w-4" />
++                        </Button>
++                      </div>
++                    </FormItem>
++                  )}
++                />
++
++                <div className="space-y-4 border-t pt-4">
++                  <FormField
++                    control={form.control}
++                    name={`generic.${index}.rotate_enabled`}
++                    render={({ field }) => (
++                      <FormItem className="flex items-center justify-between">
++                        <div className="space-y-0.5">
++                          <FormLabel>Enable Rotation</FormLabel>
++                          <FormDescription>
++                            Rotate this field value on the configured schedule.
++                          </FormDescription>
++                        </div>
++                        <FormControl>
++                          <Switch checked={field.value} onCheckedChange={field.onChange} />
++                        </FormControl>
++                      </FormItem>
++                    )}
++                  />
++                  <div className="grid grid-cols-2 gap-4">
++                    <FormField
++                      control={form.control}
++                      name={`generic.${index}.rotate_interval_value`}
++                      render={({ field }) => (
++                        <FormItem>
++                          <FormLabel>Interval Value</FormLabel>
++                          <FormControl>
++                            <Input
++                              type="number"
++                              min={1}
++                              {...field}
++                              onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
++                            />
++                          </FormControl>
++                        </FormItem>
++                      )}
++                    />
++                    <FormField
++                      control={form.control}
++                      name={`generic.${index}.rotate_interval_unit`}
++                      render={({ field }) => (
++                        <FormItem>
++                          <FormLabel>Interval Unit</FormLabel>
++                          <Select onValueChange={field.onChange} value={field.value}>
++                            <FormControl>
++                              <SelectTrigger>
++                                <SelectValue />
++                              </SelectTrigger>
++                            </FormControl>
++                            <SelectContent>
++                              <SelectItem value="week">Week(s)</SelectItem>
++                              <SelectItem value="month">Month(s)</SelectItem>
++                              <SelectItem value="year">Year(s)</SelectItem>
++                            </SelectContent>
++                          </Select>
++                        </FormItem>
++                      )}
++                    />
++                  </div>
++                  {form.watch(`generic.${index}.next_rotate_at`) > 0 && (
++                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
++                      <Clock className="h-4 w-4" />
++                      <span>Next rotation: {formatTimestamp(form.watch(`generic.${index}.next_rotate_at`))}</span>
++                    </div>
++                  )}
++                </div>
++              </div>
++            ))}
 +          </CardContent>
 +        </Card>
 +
