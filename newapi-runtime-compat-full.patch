@@ -1,0 +1,313 @@
+diff --git a/main.go b/main.go
+index ffcf58c..c433947 100644
+--- a/main.go
++++ b/main.go
+@@ -47,11 +47,12 @@ var buildFS embed.FS
+ //go:embed web/default/dist/index.html
+ var indexPage []byte
+ 
+-//go:embed web/classic/dist
+-var classicBuildFS embed.FS
++// Classic UI is optional - comment out if not present
++// //go:embed web/classic/dist
++// var classicBuildFS embed.FS
+ 
+-//go:embed web/classic/dist/index.html
+-var classicIndexPage []byte
++// //go:embed web/classic/dist/index.html
++// var classicIndexPage []byte
+ 
+ func main() {
+ 	startTime := time.Now()
+@@ -128,6 +129,9 @@ func main() {
+ 	// Subscription quota reset task (daily/weekly/monthly/custom)
+ 	service.StartSubscriptionQuotaResetTask()
+ 
++	// Client identity rotation worker
++	service.StartClientIdentityRotationWorker()
++
+ 	// Official model price sync task (daily from models.dev)
+ 	pricesync.Start()
+ 
+@@ -205,8 +209,8 @@ func main() {
+ 	router.SetRouter(server, router.ThemeAssets{
+ 		DefaultBuildFS:   buildFS,
+ 		DefaultIndexPage: indexPage,
+-		ClassicBuildFS:   classicBuildFS,
+-		ClassicIndexPage: classicIndexPage,
++		// ClassicBuildFS:   classicBuildFS,
++		// ClassicIndexPage: classicIndexPage,
+ 	})
+ 	var port = os.Getenv("PORT")
+ 	if port == "" {
+@@ -240,7 +244,7 @@ func InjectUmamiAnalytics() {
+ 	analyticsInject := []byte(analyticsInjectBuilder.String())
+ 	placeholder := []byte("<!--umami-->\n")
+ 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
+-	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
++	// classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
+ }
+ 
+ func InjectGoogleAnalytics() {
+@@ -264,7 +268,7 @@ func InjectGoogleAnalytics() {
+ 	analyticsInject := []byte(analyticsInjectBuilder.String())
+ 	placeholder := []byte("<!--Google Analytics-->\n")
+ 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
+-	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
++	// classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
+ }
+ 
+ func InitResources() error {
+diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
+index a04c7a6..956e4d4 100644
+--- a/relay/channel/api_request.go
++++ b/relay/channel/api_request.go
+@@ -455,6 +455,16 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+ 		return nil, fmt.Errorf("get request url failed: %w", err)
+ 	}
+ 	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
++
++	// 应用客户端标识符注入
++	processedBody, newContentLength, identityErr := service.ApplyClientIdentityToRequestBody(c.Request.URL.Path, c.Request.Header, requestBody)
++	if identityErr != nil {
++		logger.LogError(c, fmt.Sprintf("client identity injection failed: %s", identityErr.Error()))
++	} else if newContentLength > 0 && processedBody != nil {
++		requestBody = processedBody
++		info.UpstreamRequestBodySize = newContentLength
++	}
++
+ 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("new request failed: %w", err)
+diff --git a/router/api-router.go b/router/api-router.go
+index 4c2c61e..036eae5 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -196,6 +196,14 @@ func SetApiRouter(router *gin.Engine) {
+ 			optionRoute.POST("/waffo-pancake/save", controller.SaveWaffoPancake)
+ 			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
+ 			optionRoute.POST("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
++
++			// Client Identity Management
++			optionRoute.GET("/client_identity", controller.GetClientIdentitySetting)
++			optionRoute.PUT("/client_identity", controller.UpdateClientIdentitySetting)
++			optionRoute.POST("/client_identity/codex/generate", controller.GenerateCodexInstallationID)
++			optionRoute.POST("/client_identity/codex/rotate", controller.RotateCodexInstallationID)
++			optionRoute.POST("/client_identity/claude/generate", controller.GenerateClaudeDeviceID)
++			optionRoute.POST("/client_identity/claude/rotate", controller.RotateClaudeDeviceID)
+ 		}
+ 
+ 		// Custom OAuth provider management (root only)
+@@ -209,6 +217,17 @@ func SetApiRouter(router *gin.Engine) {
+ 			customOAuthRoute.PUT("/:id", controller.UpdateCustomOAuthProvider)
+ 			customOAuthRoute.DELETE("/:id", controller.DeleteCustomOAuthProvider)
+ 		}
++
++		// Statistics API
++		statsRoute := apiRouter.Group("/stats")
++		statsRoute.Use(middleware.UserAuth())
++		{
++			statsRoute.GET("/overview", controller.GetOverviewStats)
++			statsRoute.GET("/channels", controller.GetChannelStats)
++			statsRoute.GET("/models", controller.GetModelStats)
++			statsRoute.GET("/users", middleware.AdminAuth(), controller.GetUserStats)
++		}
++
+ 		performanceRoute := apiRouter.Group("/performance")
+ 		performanceRoute.Use(middleware.RootAuth())
+ 		{
+diff --git a/web/default/src/components/layout/components/app-header.tsx b/web/default/src/components/layout/components/app-header.tsx
+index 43a3b5b..ae5be91 100644
+--- a/web/default/src/components/layout/components/app-header.tsx
++++ b/web/default/src/components/layout/components/app-header.tsx
+@@ -23,6 +23,8 @@ import { LanguageSwitcher } from '@/components/language-switcher'
+ import { NotificationPopover } from '@/components/notification-popover'
+ import { ProfileDropdown } from '@/components/profile-dropdown'
+ import { Search } from '@/components/search'
++import { CommandPaletteTrigger } from './command-palette-trigger'
++import { ThemeToggle } from './theme-toggle'
+ import { defaultTopNavLinks } from '../config/top-nav.config'
+ import { type TopNavLink } from '../types'
+ import { Header } from './header'
+@@ -125,7 +127,16 @@ export function AppHeader({
+                 <TopNav links={links} />
+               </div>
+             )}
+-            {showSearch && <Search />}
++            {showSearch && (
++              <div className="hidden sm:block">
++                <CommandPaletteTrigger />
++              </div>
++            )}
++            {showSearch && (
++              <div className="sm:hidden">
++                <Search />
++              </div>
++            )}
+             {showNotifications && (
+               <NotificationPopover
+                 open={notifications.popoverOpen}
+@@ -139,6 +150,7 @@ export function AppHeader({
+               />
+             )}
+             <LanguageSwitcher />
++            <ThemeToggle />
+             {showConfigDrawer && <ConfigDrawer />}
+             {showProfileDropdown && <ProfileDropdown />}
+           </div>
+diff --git a/web/default/src/components/layout/components/authenticated-layout.tsx b/web/default/src/components/layout/components/authenticated-layout.tsx
+index 129625e..cb13a2f 100644
+--- a/web/default/src/components/layout/components/authenticated-layout.tsx
++++ b/web/default/src/components/layout/components/authenticated-layout.tsx
+@@ -25,6 +25,7 @@ import { AnimatedOutlet } from '@/components/page-transition'
+ import { SkipToMain } from '@/components/skip-to-main'
+ import { AppHeader } from './app-header'
+ import { AppSidebar } from './app-sidebar'
++import { CommandPalette } from './command-palette'
+ 
+ type AuthenticatedLayoutProps = {
+   children?: React.ReactNode
+@@ -38,6 +39,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
+       <SearchProvider>
+         <SidebarProvider defaultOpen={defaultOpen} className='flex-col'>
+           <SkipToMain />
++          <CommandPalette />
+           <AppHeader />
+           <div className='flex min-h-0 w-full flex-1'>
+             <AppSidebar />
+diff --git a/web/default/src/features/dashboard/section-registry.tsx b/web/default/src/features/dashboard/section-registry.tsx
+index db670f0..3b4d678 100644
+--- a/web/default/src/features/dashboard/section-registry.tsx
++++ b/web/default/src/features/dashboard/section-registry.tsx
+@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
+ */
+ import type { TFunction } from 'i18next'
+ import { createSectionRegistry } from '@/features/system-settings/utils/section-registry'
++import { OverviewDashboard } from './overview-dashboard'
++import { ModelAnalyticsDashboard } from './model-analytics-dashboard'
+ 
+ /**
+  * Dashboard page section definitions
+@@ -26,12 +28,12 @@ const DASHBOARD_SECTIONS = [
+   {
+     id: 'overview',
+     titleKey: 'Overview',
+-    build: () => null,
++    build: () => <OverviewDashboard />,
+   },
+   {
+     id: 'models',
+     titleKey: 'Model Call Analytics',
+-    build: () => null,
++    build: () => <ModelAnalyticsDashboard />,
+   },
+   {
+     id: 'users',
+diff --git a/web/default/src/features/system-settings/content/section-registry.tsx b/web/default/src/features/system-settings/content/section-registry.tsx
+index 1de3165..05533b8 100644
+--- a/web/default/src/features/system-settings/content/section-registry.tsx
++++ b/web/default/src/features/system-settings/content/section-registry.tsx
+@@ -20,6 +20,7 @@ import type { ContentSettings } from '../types'
+ import { createSectionRegistry } from '../utils/section-registry'
+ import { AnnouncementsSection } from './announcements-section'
+ import { ApiInfoSection } from './api-info-section'
++import { AppearanceSettings } from './appearance-settings'
+ import { ChatSettingsSection } from './chat-settings-section'
+ import { DashboardSection } from './dashboard-section'
+ import { DrawingSettingsSection } from './drawing-settings-section'
+@@ -53,6 +54,11 @@ const CONTENT_SECTIONS = [
+       />
+     ),
+   },
++  {
++    id: 'appearance',
++    titleKey: 'Appearance',
++    build: () => <AppearanceSettings />,
++  },
+   {
+     id: 'announcements',
+     titleKey: 'Announcements',
+diff --git a/web/default/src/features/system-settings/models/section-registry.tsx b/web/default/src/features/system-settings/models/section-registry.tsx
+index 66d3313..3c75911 100644
+--- a/web/default/src/features/system-settings/models/section-registry.tsx
++++ b/web/default/src/features/system-settings/models/section-registry.tsx
+@@ -21,6 +21,7 @@ import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment
+ import type { ModelSettings } from '../types'
+ import { createSectionRegistry } from '../utils/section-registry'
+ import { ClaudeSettingsCard } from './claude-settings-card'
++import { ClientIdentitySettingsCard } from './client-identity-settings-card'
+ import { GeminiSettingsCard } from './gemini-settings-card'
+ import { GlobalSettingsCard } from './global-settings-card'
+ import { GrokSettingsCard } from './grok-settings-card'
+@@ -126,6 +127,11 @@ const MODELS_SECTIONS = [
+     titleKey: 'User-Agent Management',
+     build: () => <UserAgentSettingsSection />,
+   },
++  {
++    id: 'client-identity',
++    titleKey: 'Client Identity',
++    build: () => <ClientIdentitySettingsCard />,
++  },
+   {
+     id: 'channel-affinity',
+     titleKey: 'Channel Affinity',
+diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
+index c38d9a1..fe43158 100644
+--- a/web/default/src/styles/index.css
++++ b/web/default/src/styles/index.css
+@@ -48,6 +48,10 @@ For commercial licensing, please contact support@quantumnous.com
+   }
+   html {
+     @apply overflow-x-hidden font-sans;
++    /* 优化文本渲染 */
++    -webkit-font-smoothing: antialiased;
++    -moz-osx-font-smoothing: grayscale;
++    text-rendering: optimizeLegibility;
+   }
+   body {
+     @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full;
+@@ -55,6 +59,9 @@ For commercial licensing, please contact support@quantumnous.com
+      * (defined in theme.css, swapped by `[data-theme-font='...']` blocks
+      * in theme-presets.css). Defaults to the project's humanist sans. */
+     font-family: var(--font-body);
++    /* 设置基础字体大小，可通过主题配置调整 */
++    font-size: var(--font-size-base, 14px);
++    line-height: 1.6;
+   }
+ 
+   /* Keep sticky headers stable while primitives lock body scrolling. */
+@@ -68,6 +75,11 @@ For commercial licensing, please contact support@quantumnous.com
+     cursor: pointer;
+   }
+ 
++  /* 优化代码字体显示 */
++  code, pre, kbd, samp {
++    font-family: var(--font-mono);
++  }
++
+   /* Prevent focus zoom on mobile devices */
+   @media screen and (max-width: 767px) {
+     input,
+diff --git a/web/default/src/styles/theme.css b/web/default/src/styles/theme.css
+index 5464a4d..8730875 100644
+--- a/web/default/src/styles/theme.css
++++ b/web/default/src/styles/theme.css
+@@ -19,7 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
+ @custom-variant dark (&:is(.dark *));
+ 
+ @theme inline {
+-  --font-sans: 'Public Sans', sans-serif;
++  /* 优化的字体栈 - 优先使用系统字体以获得最佳性能和一致性 */
++  --font-sans:
++    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue',
++    'Arial', 'Noto Sans', 'Liberation Sans', sans-serif,
++    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
++
++  /* 等宽字体栈 - 用于代码显示 */
++  --font-mono:
++    'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Consolas',
++    'Liberation Mono', 'Courier New', monospace;
++
+   /* Editorial serif token — the body face used by the `serif` font axis
+    * and by presets that opt in (currently Anthropic). Lora carries only
+    * Latin glyphs, so the stack walks through CJK serifs (Noto / Source Han
