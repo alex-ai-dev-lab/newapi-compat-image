@@ -12571,43 +12571,6 @@ index 0000000..d6f425a
 +    }
 +  })
 +}
-diff --git a/web/default/src/styles/index.css b/web/default/src/styles/index.css
-index c38d9a1..fe43158 100644
---- a/web/default/src/styles/index.css
-+++ b/web/default/src/styles/index.css
-@@ -48,6 +48,10 @@ For commercial licensing, please contact support@quantumnous.com
-   }
-   html {
-     @apply overflow-x-hidden font-sans;
-+    /* 优化文本渲染 */
-+    -webkit-font-smoothing: antialiased;
-+    -moz-osx-font-smoothing: grayscale;
-+    text-rendering: optimizeLegibility;
-   }
-   body {
-     @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full;
-@@ -55,6 +59,9 @@ For commercial licensing, please contact support@quantumnous.com
-      * (defined in theme.css, swapped by `[data-theme-font='...']` blocks
-      * in theme-presets.css). Defaults to the project's humanist sans. */
-     font-family: var(--font-body);
-+    /* 设置基础字体大小，可通过主题配置调整 */
-+    font-size: var(--font-size-base, 14px);
-+    line-height: 1.6;
-   }
- 
-   /* Keep sticky headers stable while primitives lock body scrolling. */
-@@ -68,6 +75,11 @@ For commercial licensing, please contact support@quantumnous.com
-     cursor: pointer;
-   }
- 
-+  /* 优化代码字体显示 */
-+  code, pre, kbd, samp {
-+    font-family: var(--font-mono);
-+  }
-+
-   /* Prevent focus zoom on mobile devices */
-   @media screen and (max-width: 767px) {
-     input,
 diff --git a/web/default/src/styles/theme.css b/web/default/src/styles/theme.css
 index 5464a4d..8730875 100644
 --- a/web/default/src/styles/theme.css
