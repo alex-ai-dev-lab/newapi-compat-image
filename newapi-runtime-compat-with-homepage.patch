@@ -2200,10 +2200,18 @@ index b6a1ab9..03b2315 100644
  	UpstreamModelUpdateAutoSyncEnabled    bool          `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
  	UpstreamModelUpdateLastCheckTime      int64         `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
 diff --git a/main.go b/main.go
-index 3361b8c..9c10f1e 100644
+index 3361b8c..ffcf58c 100644
 --- a/main.go
 +++ b/main.go
-@@ -19,6 +19,11 @@ import (
+@@ -2,6 +2,7 @@ package main
+ 
+ import (
+ 	"bytes"
++	"context"
+ 	"embed"
+ 	"fmt"
+ 	"log"
+@@ -19,6 +20,11 @@ import (
  	"github.com/QuantumNous/new-api/middleware"
  	"github.com/QuantumNous/new-api/model"
  	"github.com/QuantumNous/new-api/oauth"
@@ -2215,7 +2223,7 @@ index 3361b8c..9c10f1e 100644
  	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
  	"github.com/QuantumNous/new-api/relay"
  	"github.com/QuantumNous/new-api/router"
-@@ -97,6 +102,9 @@ func main() {
+@@ -97,6 +103,9 @@ func main() {
  		go model.SyncChannelCache(common.SyncFrequency)
  	}
  
@@ -2225,7 +2233,7 @@ index 3361b8c..9c10f1e 100644
  	// 热更新配置
  	go model.SyncOptions(common.SyncFrequency)
  
-@@ -119,6 +127,9 @@ func main() {
+@@ -119,6 +128,9 @@ func main() {
  	// Subscription quota reset task (daily/weekly/monthly/custom)
  	service.StartSubscriptionQuotaResetTask()
  
@@ -2235,7 +2243,7 @@ index 3361b8c..9c10f1e 100644
  	// Wire task polling adaptor factory (breaks service -> relay import cycle)
  	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
  		a := relay.GetTaskAdaptor(platform)
-@@ -129,7 +140,7 @@ func main() {
+@@ -129,7 +141,7 @@ func main() {
  	}
  
  	// Channel upstream model update check task
@@ -2244,12 +2252,23 @@ index 3361b8c..9c10f1e 100644
  
  	if common.IsMasterNode && constant.UpdateTask {
  		gopool.Go(func() {
-@@ -309,6 +320,9 @@ func InitResources() error {
+@@ -309,6 +321,20 @@ func InitResources() error {
  
  	perfmetrics.Init()
  
 +	// Register compat hooks (Step 3: overlay layer)
 +	compat.Register(errornorm.New())
++
++	// Initialize errornorm DB-backed rules store (Step 4)
++	if err := errornorm.EnsureSchema(model.DB); err != nil {
++		common.SysError("errornorm: failed to ensure schema: " + err.Error())
++	} else {
++		store := errornorm.NewStore(model.DB)
++		if err := store.Reload(context.Background()); err != nil {
++			common.SysError("errornorm: initial reload failed: " + err.Error())
++		}
++		errornorm.SetGlobalStore(store)
++	}
 +
  	// 启动系统监控
  	common.StartSystemMonitor()
@@ -2799,12 +2818,143 @@ index 0000000..4c60bb9
 +func Register(h RelayHook) {
 +	globalHookChain.Register(h)
 +}
+diff --git a/pkg/compat/errornorm/api.go b/pkg/compat/errornorm/api.go
+new file mode 100644
+index 0000000..7cbe44d
+--- /dev/null
++++ b/pkg/compat/errornorm/api.go
+@@ -0,0 +1,125 @@
++// Package errornorm — admin HTTP handlers for managing rules.
++package errornorm
++
++import (
++	"context"
++	"net/http"
++	"strconv"
++
++	"github.com/gin-gonic/gin"
++)
++
++// RegisterAdminRoutes mounts CRUD endpoints under the given router group.
++// Caller is responsible for applying admin auth middleware.
++//
++// Routes:
++//   GET    /         - list all rules
++//   POST   /         - create rule
++//   GET    /:id      - get single rule
++//   PUT    /:id      - update rule
++//   DELETE /:id      - delete rule
++//   POST   /reload   - force reload from DB
++func RegisterAdminRoutes(rg *gin.RouterGroup, s *Store) {
++	if rg == nil || s == nil {
++		return
++	}
++	rg.GET("", listRules(s))
++	rg.POST("", createRule(s))
++	rg.GET("/:id", getRule(s))
++	rg.PUT("/:id", updateRule(s))
++	rg.DELETE("/:id", deleteRule(s))
++	rg.POST("/reload", reloadRules(s))
++}
++
++func listRules(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		var rules []Rule
++		if err := s.db.WithContext(c.Request.Context()).Order("priority ASC, id ASC").Find(&rules).Error; err != nil {
++			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		c.JSON(http.StatusOK, gin.H{"success": true, "data": rules})
++	}
++}
++
++func createRule(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		var r Rule
++		if err := c.ShouldBindJSON(&r); err != nil {
++			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		r.ID = 0 // ignore client-supplied ID
++		if err := s.db.WithContext(c.Request.Context()).Create(&r).Error; err != nil {
++			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		// Reload synchronously so caller sees fresh state.
++		_ = s.Reload(context.Background())
++		c.JSON(http.StatusOK, gin.H{"success": true, "data": r})
++	}
++}
++
++func getRule(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
++		if err != nil {
++			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid id"})
++			return
++		}
++		var r Rule
++		if err := s.db.WithContext(c.Request.Context()).First(&r, id).Error; err != nil {
++			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		c.JSON(http.StatusOK, gin.H{"success": true, "data": r})
++	}
++}
++
++func updateRule(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
++		if err != nil {
++			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid id"})
++			return
++		}
++		var r Rule
++		if err := c.ShouldBindJSON(&r); err != nil {
++			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		r.ID = id
++		if err := s.db.WithContext(c.Request.Context()).Save(&r).Error; err != nil {
++			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		_ = s.Reload(context.Background())
++		c.JSON(http.StatusOK, gin.H{"success": true, "data": r})
++	}
++}
++
++func deleteRule(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
++		if err != nil {
++			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid id"})
++			return
++		}
++		if err := s.db.WithContext(c.Request.Context()).Delete(&Rule{}, id).Error; err != nil {
++			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		_ = s.Reload(context.Background())
++		c.JSON(http.StatusOK, gin.H{"success": true})
++	}
++}
++
++func reloadRules(s *Store) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if err := s.Reload(c.Request.Context()); err != nil {
++			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
++			return
++		}
++		c.JSON(http.StatusOK, gin.H{"success": true, "count": s.Count()})
++	}
++}
 diff --git a/pkg/compat/errornorm/hook.go b/pkg/compat/errornorm/hook.go
 new file mode 100644
-index 0000000..c4357e0
+index 0000000..1a0f90e
 --- /dev/null
 +++ b/pkg/compat/errornorm/hook.go
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,152 @@
 +// Package errornorm normalizes upstream errors before they reach the client.
 +// This module implements compat.RelayHook.OnClientResponseError.
 +package errornorm
@@ -2846,9 +2996,59 @@ index 0000000..c4357e0
 +		common.SysLog(fmt.Sprintf("normalized upstream error for client: channel=%d status=%d original=%s",
 +			channelIDForLog(info), status, common.LocalLogPreview(original)))
 +	}
++
++	// DB rule first; fall back to built-in FixedMessage.
++	if rule := matchRuleFromContext(info, status, original); rule != nil {
++		applyRule(err, rule, status)
++		compat.GetMetrics().ErrorNormalizeHit.Add(1)
++		return err
++	}
++
 +	err.SetMessage(FixedMessage(status))
 +	compat.GetMetrics().ErrorNormalizeHit.Add(1)
 +	return err
++}
++
++// matchRuleFromContext queries the global Store using channel-derived platform string.
++func matchRuleFromContext(info *relaycommon.RelayInfo, status int, body string) *Rule {
++	store := GlobalStore()
++	if store == nil {
++		return nil
++	}
++	platform := ""
++	if info != nil {
++		platform = itoaPlatform(info.ChannelType)
++	}
++	return store.Match(platform, status, body)
++}
++
++// applyRule mutates err according to the DB rule.
++func applyRule(err *types.NewAPIError, r *Rule, upstreamStatus int) {
++	if !r.PassthroughCode && r.ResponseCode != 0 {
++		err.StatusCode = r.ResponseCode
++	}
++	if !r.PassthroughBody {
++		if r.CustomMessage != "" {
++			err.SetMessage(r.CustomMessage)
++		} else {
++			err.SetMessage(FixedMessage(upstreamStatus))
++		}
++	}
++}
++
++// itoaPlatform converts int channel type to its string form.
++func itoaPlatform(channelType int) string {
++	if channelType == 0 {
++		return ""
++	}
++	var buf [20]byte
++	i := len(buf)
++	for channelType > 0 {
++		i--
++		buf[i] = byte('0' + channelType%10)
++		channelType /= 10
++	}
++	return string(buf[i:])
 +}
 +
 +func shouldNormalize(info *relaycommon.RelayInfo) bool {
@@ -2952,6 +3152,306 @@ index 0000000..38e4549
 +	normalized := h.OnClientResponseError(&gin.Context{}, nil, err)
 +
 +	require.Equal(t, "local validation message", normalized.Error())
++}
+diff --git a/pkg/compat/errornorm/rule.go b/pkg/compat/errornorm/rule.go
+new file mode 100644
+index 0000000..790ebb2
+--- /dev/null
++++ b/pkg/compat/errornorm/rule.go
+@@ -0,0 +1,107 @@
++package errornorm
++
++import (
++	"strings"
++
++	"gorm.io/gorm"
++)
++
++// Rule represents a DB-driven error normalization rule.
++//
++// Match semantics:
++//   - Platforms: empty list matches all platforms; otherwise channel.Type's string form must be in list
++//   - UpstreamStatus: 0 matches all; otherwise must equal err.StatusCode
++//   - Keywords: empty list matches all; otherwise body must contain at least one keyword (case-insensitive)
++//
++// Transform semantics:
++//   - PassthroughCode=true: keep upstream status code as-is
++//   - PassthroughCode=false: use ResponseCode (default: upstream status)
++//   - PassthroughBody=true: keep upstream error message (extracted from body)
++//   - PassthroughBody=false: use CustomMessage (or default FixedMessage if empty)
++//   - SkipMonitoring=true: do not record in ops error log
++type Rule struct {
++	ID              int64  `gorm:"primaryKey" json:"id"`
++	Enabled         bool   `gorm:"default:true" json:"enabled"`
++	Description     string `gorm:"type:varchar(255)" json:"description"`
++	Platforms       string `gorm:"type:varchar(255)" json:"platforms"`        // comma-separated channel type strings
++	UpstreamStatus  int    `gorm:"default:0" json:"upstream_status"`           // 0 = any
++	Keywords        string `gorm:"type:text" json:"keywords"`                  // comma-separated, case-insensitive substring match
++	PassthroughCode bool   `gorm:"default:false" json:"passthrough_code"`
++	ResponseCode    int    `gorm:"default:0" json:"response_code"`             // 0 = use upstream status
++	PassthroughBody bool   `gorm:"default:false" json:"passthrough_body"`
++	CustomMessage   string `gorm:"type:text" json:"custom_message"`            // empty = use FixedMessage(status)
++	SkipMonitoring  bool   `gorm:"default:false" json:"skip_monitoring"`
++	Priority        int    `gorm:"default:100" json:"priority"`                // lower runs first
++	CreatedAt       int64  `gorm:"autoCreateTime" json:"created_at"`
++	UpdatedAt       int64  `gorm:"autoUpdateTime" json:"updated_at"`
++}
++
++// TableName overrides GORM default to clarify ownership.
++func (Rule) TableName() string {
++	return "error_passthrough_rules"
++}
++
++// cachedRule is the pre-processed Rule with lowercased keywords/platforms for hot-path matching.
++type cachedRule struct {
++	rule          *Rule
++	lowerKeys     []string
++	lowerPlatform map[string]struct{}
++}
++
++func newCachedRule(r *Rule) *cachedRule {
++	c := &cachedRule{rule: r}
++	if r.Keywords != "" {
++		for _, k := range strings.Split(r.Keywords, ",") {
++			k = strings.TrimSpace(strings.ToLower(k))
++			if k != "" {
++				c.lowerKeys = append(c.lowerKeys, k)
++			}
++		}
++	}
++	if r.Platforms != "" {
++		c.lowerPlatform = make(map[string]struct{})
++		for _, p := range strings.Split(r.Platforms, ",") {
++			p = strings.TrimSpace(strings.ToLower(p))
++			if p != "" {
++				c.lowerPlatform[p] = struct{}{}
++			}
++		}
++	}
++	return c
++}
++
++func (c *cachedRule) matches(platform string, status int, body string) bool {
++	if c.rule == nil || !c.rule.Enabled {
++		return false
++	}
++	if len(c.lowerPlatform) > 0 {
++		if _, ok := c.lowerPlatform[strings.ToLower(platform)]; !ok {
++			return false
++		}
++	}
++	if c.rule.UpstreamStatus != 0 && c.rule.UpstreamStatus != status {
++		return false
++	}
++	if len(c.lowerKeys) > 0 {
++		lowerBody := strings.ToLower(body)
++		matched := false
++		for _, k := range c.lowerKeys {
++			if strings.Contains(lowerBody, k) {
++				matched = true
++				break
++			}
++		}
++		if !matched {
++			return false
++		}
++	}
++	return true
++}
++
++// EnsureSchema creates/migrates the error_passthrough_rules table.
++func EnsureSchema(db *gorm.DB) error {
++	if db == nil {
++		return nil
++	}
++	return db.AutoMigrate(&Rule{})
++}
+diff --git a/pkg/compat/errornorm/rule_test.go b/pkg/compat/errornorm/rule_test.go
+new file mode 100644
+index 0000000..fe0d436
+--- /dev/null
++++ b/pkg/compat/errornorm/rule_test.go
+@@ -0,0 +1,51 @@
++package errornorm
++
++import (
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestRule_Matches(t *testing.T) {
++	rule := &Rule{
++		Enabled:        true,
++		Platforms:      "1,14",
++		UpstreamStatus: 429,
++		Keywords:       "rate limit, quota exceeded",
++	}
++	c := newCachedRule(rule)
++
++	require.True(t, c.matches("1", 429, "Rate Limit exceeded for org"))
++	require.True(t, c.matches("14", 429, "your QUOTA EXCEEDED for today"))
++	require.False(t, c.matches("99", 429, "rate limit"), "platform mismatch")
++	require.False(t, c.matches("1", 500, "rate limit"), "status mismatch")
++	require.False(t, c.matches("1", 429, "everything is fine"), "keyword mismatch")
++}
++
++func TestRule_DisabledNeverMatches(t *testing.T) {
++	rule := &Rule{Enabled: false, UpstreamStatus: 400}
++	c := newCachedRule(rule)
++	require.False(t, c.matches("1", 400, "any body"))
++}
++
++func TestRule_EmptyFiltersMatchAll(t *testing.T) {
++	rule := &Rule{Enabled: true}
++	c := newCachedRule(rule)
++	require.True(t, c.matches("99", 0, ""))
++	require.True(t, c.matches("anything", 500, "literally anything"))
++}
++
++func TestStore_MatchPicksFirstByPriority(t *testing.T) {
++	s := &Store{}
++	rules := []*cachedRule{
++		newCachedRule(&Rule{ID: 2, Enabled: true, UpstreamStatus: 429, Priority: 100, CustomMessage: "second"}),
++		newCachedRule(&Rule{ID: 1, Enabled: true, UpstreamStatus: 429, Priority: 50, CustomMessage: "first"}),
++	}
++	// Sort by priority manually (mimics Reload's behavior).
++	rulesSorted := []*cachedRule{rules[1], rules[0]}
++	s.rules.Store(&rulesSorted)
++
++	hit := s.Match("any", 429, "anything")
++	require.NotNil(t, hit)
++	require.Equal(t, "first", hit.CustomMessage)
++}
+diff --git a/pkg/compat/errornorm/store.go b/pkg/compat/errornorm/store.go
+new file mode 100644
+index 0000000..e0fc39e
+--- /dev/null
++++ b/pkg/compat/errornorm/store.go
+@@ -0,0 +1,124 @@
++package errornorm
++
++import (
++	"context"
++	"sort"
++	"sync"
++	"sync/atomic"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
++)
++
++// Store loads rules from DB, caches them locally, and exposes matching API.
++type Store struct {
++	db    *gorm.DB
++	rules atomic.Pointer[[]*cachedRule]
++	mu    sync.Mutex // serializes Reload calls
++}
++
++// NewStore creates a Store. Call Reload() once at startup before serving traffic.
++func NewStore(db *gorm.DB) *Store {
++	return &Store{db: db}
++}
++
++// Reload fetches all enabled rules from DB and atomically swaps the in-memory cache.
++// Safe to call from a background sync goroutine.
++func (s *Store) Reload(ctx context.Context) error {
++	if s == nil || s.db == nil {
++		return nil
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++
++	var rules []*Rule
++	if err := s.db.WithContext(ctx).Where("enabled = ?", true).Order("priority ASC, id ASC").Find(&rules).Error; err != nil {
++		return err
++	}
++
++	cached := make([]*cachedRule, 0, len(rules))
++	for _, r := range rules {
++		cached = append(cached, newCachedRule(r))
++	}
++	// Defensive: ensure deterministic order even if DB ignored ORDER BY
++	sort.SliceStable(cached, func(i, j int) bool {
++		if cached[i].rule.Priority != cached[j].rule.Priority {
++			return cached[i].rule.Priority < cached[j].rule.Priority
++		}
++		return cached[i].rule.ID < cached[j].rule.ID
++	})
++
++	s.rules.Store(&cached)
++	common.SysLog(formatReloadMsg(len(cached)))
++	return nil
++}
++
++// Match returns the first matching rule (by priority) or nil.
++func (s *Store) Match(platform string, status int, body string) *Rule {
++	if s == nil {
++		return nil
++	}
++	rulesPtr := s.rules.Load()
++	if rulesPtr == nil {
++		return nil
++	}
++	for _, c := range *rulesPtr {
++		if c.matches(platform, status, body) {
++			return c.rule
++		}
++	}
++	return nil
++}
++
++// Count returns the number of cached rules (for /api/status integration).
++func (s *Store) Count() int {
++	rulesPtr := s.rules.Load()
++	if rulesPtr == nil {
++		return 0
++	}
++	return len(*rulesPtr)
++}
++
++// globalStore is set by SetGlobalStore() at startup. Nil means "no DB rules,
++// fall back to FixedMessage()".
++var globalStore atomic.Pointer[Store]
++
++// SetGlobalStore registers the store for the Hook to use.
++func SetGlobalStore(s *Store) {
++	globalStore.Store(s)
++}
++
++// GlobalStore returns the registered store, or nil if not set.
++func GlobalStore() *Store {
++	return globalStore.Load()
++}
++
++func formatReloadMsg(n int) string {
++	if n == 0 {
++		return "errornorm: reloaded 0 rules (no DB rules configured, will use built-in FixedMessage)"
++	}
++	return "errornorm: reloaded " + itoa(n) + " rules from DB"
++}
++
++// itoa avoids strconv import (kept minimal for log path).
++func itoa(n int) string {
++	if n == 0 {
++		return "0"
++	}
++	neg := n < 0
++	if neg {
++		n = -n
++	}
++	var buf [20]byte
++	i := len(buf)
++	for n > 0 {
++		i--
++		buf[i] = byte('0' + n%10)
++		n /= 10
++	}
++	if neg {
++		i--
++		buf[i] = '-'
++	}
++	return string(buf[i:])
 +}
 diff --git a/pkg/compat/metrics.go b/pkg/compat/metrics.go
 new file mode 100644
@@ -5151,10 +5651,18 @@ index 010c38b..1c49412 100644
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/router/api-router.go b/router/api-router.go
-index 381d2cc..5cd81e7 100644
+index 381d2cc..4c2c61e 100644
 --- a/router/api-router.go
 +++ b/router/api-router.go
-@@ -224,6 +224,24 @@ func SetApiRouter(router *gin.Engine) {
+@@ -3,6 +3,7 @@ package router
+ import (
+ 	"github.com/QuantumNous/new-api/controller"
+ 	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/pkg/compat/errornorm"
+ 
+ 	// Import oauth package to register providers via init()
+ 	_ "github.com/QuantumNous/new-api/oauth"
+@@ -224,6 +225,28 @@ func SetApiRouter(router *gin.Engine) {
  			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
  			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
  		}
@@ -5176,10 +5684,14 @@ index 381d2cc..5cd81e7 100644
 +			userAgentRoute.PUT("/:id", controller.UpdateUserAgent)
 +			userAgentRoute.DELETE("/:id", controller.DeleteUserAgent)
 +		}
++		// Compat error normalization rules (Step 4)
++		errorRulesRoute := apiRouter.Group("/compat/error-rules")
++		errorRulesRoute.Use(middleware.AdminAuth())
++		errornorm.RegisterAdminRoutes(errorRulesRoute, errornorm.GlobalStore())
  		channelRoute := apiRouter.Group("/channel")
  		channelRoute.Use(middleware.AdminAuth())
  		{
-@@ -267,6 +285,18 @@ func SetApiRouter(router *gin.Engine) {
+@@ -267,6 +290,18 @@ func SetApiRouter(router *gin.Engine) {
  			channelRoute.POST("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates)
  			channelRoute.POST("/upstream_updates/detect_all", controller.DetectAllChannelUpstreamModelUpdates)
  		}
