@@ -146,20 +146,23 @@ index 17c4398..fadaed4 100644
 +ENTRYPOINT ["/app/docker-entrypoint.sh"]
 +CMD ["/app/new-api"]
 diff --git a/common/constants.go b/common/constants.go
-index c7d5637..884e672 100644
+index c7d5637..8b27884 100644
 --- a/common/constants.go
 +++ b/common/constants.go
-@@ -68,6 +68,9 @@ var TaskEnabled = true
+@@ -68,6 +68,12 @@ var TaskEnabled = true
  var DataExportEnabled = true
  var DataExportInterval = 5         // unit: minute
  var DataExportDefaultTime = "hour" // unit: minute
 +var DashboardDefaultTimeRange = "7d"
 +var DashboardAutoRefreshEnabled = true
 +var DashboardRefreshIntervalSeconds = 5
++var DashboardDefaultPageSize = 25
++var DashboardDefaultHealthFilter = "all"
++var DashboardDefaultTrendMode = "overview"
  var DefaultCollapseSidebar = false // default value of collapse sidebar
  
  // Any options with "Secret", "Token" in its key won't be return by GetOptions
-@@ -168,7 +171,8 @@ var SyncFrequency int // unit is second
+@@ -168,7 +174,8 @@ var SyncFrequency int // unit is second
  var BatchUpdateEnabled = false
  var BatchUpdateInterval int
  
@@ -1110,7 +1113,7 @@ index 0000000..b8974dd
 +	assert.Nil(t, compatStreamRetryError(info))
 +}
 diff --git a/controller/misc.go b/controller/misc.go
-index eada490..8f13ac2 100644
+index eada490..85e4005 100644
 --- a/controller/misc.go
 +++ b/controller/misc.go
 @@ -47,6 +47,7 @@ func GetStatus(c *gin.Context) {
@@ -1157,13 +1160,16 @@ index eada490..8f13ac2 100644
  		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
  		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
  		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
-@@ -82,6 +90,9 @@ func GetStatus(c *gin.Context) {
+@@ -82,6 +90,12 @@ func GetStatus(c *gin.Context) {
  		"enable_task":                   common.TaskEnabled,
  		"enable_data_export":            common.DataExportEnabled,
  		"data_export_default_time":      common.DataExportDefaultTime,
 +		"dashboard_default_time_range":  common.DashboardDefaultTimeRange,
 +		"dashboard_auto_refresh":        common.DashboardAutoRefreshEnabled,
 +		"dashboard_refresh_interval":    common.DashboardRefreshIntervalSeconds,
++		"dashboard_default_page_size":   common.DashboardDefaultPageSize,
++		"dashboard_default_health":      common.DashboardDefaultHealthFilter,
++		"dashboard_default_trend_mode":  common.DashboardDefaultTrendMode,
  		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
  		"mj_notify_enabled":             setting.MjNotifyEnabled,
  		"chats":                         setting.Chats,
@@ -1543,7 +1549,7 @@ index 0000000..67f1d2f
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/option.go b/controller/option.go
-index b5fdfdc..38615d0 100644
+index b5fdfdc..adc8fff 100644
 --- a/controller/option.go
 +++ b/controller/option.go
 @@ -42,6 +42,15 @@ func isPositiveOptionValue(value string) bool {
@@ -1562,7 +1568,7 @@ index b5fdfdc..38615d0 100644
  func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
  	if strings.TrimSpace(raw) == "" {
  		return
-@@ -223,6 +232,62 @@ func UpdateOption(c *gin.Context) {
+@@ -223,6 +232,86 @@ func UpdateOption(c *gin.Context) {
  			})
  			return
  		}
@@ -1619,6 +1625,30 @@ index b5fdfdc..38615d0 100644
 +			c.JSON(http.StatusOK, gin.H{
 +				"success": false,
 +				"message": "无效的统计刷新间隔",
++			})
++			return
++		}
++	case "DashboardDefaultPageSize":
++		if !isOneOfOptionValue(option.Value.(string), "10", "25", "50", "100") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的统计表格页大小",
++			})
++			return
++		}
++	case "DashboardDefaultHealthFilter":
++		if !isOneOfOptionValue(option.Value.(string), "all", "active", "risk", "slow") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的统计默认健康筛选",
++			})
++			return
++		}
++	case "DashboardDefaultTrendMode":
++		if !isOneOfOptionValue(option.Value.(string), "overview", "traffic", "reliability", "latency", "spend") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的统计默认趋势模式",
 +			})
 +			return
 +		}
@@ -3492,20 +3522,23 @@ index 9083ee5..45f32e2 100644
  	// 动态计算migration数量，确保errChan缓冲区足够大
  	errChan := make(chan error, len(migrations))
 diff --git a/model/option.go b/model/option.go
-index ed1af72..c842040 100644
+index ed1af72..77bbd2c 100644
 --- a/model/option.go
 +++ b/model/option.go
-@@ -155,6 +155,9 @@ func InitOptionMap() {
+@@ -155,6 +155,12 @@ func InitOptionMap() {
  	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
  	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
  	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
 +	common.OptionMap["DashboardDefaultTimeRange"] = common.DashboardDefaultTimeRange
 +	common.OptionMap["DashboardAutoRefreshEnabled"] = strconv.FormatBool(common.DashboardAutoRefreshEnabled)
 +	common.OptionMap["DashboardRefreshIntervalSeconds"] = strconv.Itoa(common.DashboardRefreshIntervalSeconds)
++	common.OptionMap["DashboardDefaultPageSize"] = strconv.Itoa(common.DashboardDefaultPageSize)
++	common.OptionMap["DashboardDefaultHealthFilter"] = common.DashboardDefaultHealthFilter
++	common.OptionMap["DashboardDefaultTrendMode"] = common.DashboardDefaultTrendMode
  	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
  	common.OptionMap["MjNotifyEnabled"] = strconv.FormatBool(setting.MjNotifyEnabled)
  	common.OptionMap["MjAccountFilterEnabled"] = strconv.FormatBool(setting.MjAccountFilterEnabled)
-@@ -324,6 +327,8 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -324,6 +330,8 @@ func updateOptionMap(key string, value string) (err error) {
  			common.TaskEnabled = boolValue
  		case "DataExportEnabled":
  			common.DataExportEnabled = boolValue
@@ -3514,7 +3547,7 @@ index ed1af72..c842040 100644
  		case "DefaultCollapseSidebar":
  			common.DefaultCollapseSidebar = boolValue
  		case "MjNotifyEnabled":
-@@ -376,6 +381,10 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -376,6 +384,16 @@ func updateOptionMap(key string, value string) (err error) {
  		common.SMTPToken = value
  	case "ServerAddress":
  		system_setting.ServerAddress = value
@@ -3522,6 +3555,12 @@ index ed1af72..c842040 100644
 +		common.DashboardDefaultTimeRange = value
 +	case "DashboardRefreshIntervalSeconds":
 +		common.DashboardRefreshIntervalSeconds, _ = strconv.Atoi(value)
++	case "DashboardDefaultPageSize":
++		common.DashboardDefaultPageSize, _ = strconv.Atoi(value)
++	case "DashboardDefaultHealthFilter":
++		common.DashboardDefaultHealthFilter = value
++	case "DashboardDefaultTrendMode":
++		common.DashboardDefaultTrendMode = value
  	case "WorkerUrl":
  		system_setting.WorkerUrl = value
  	case "WorkerValidKey":
@@ -12402,10 +12441,10 @@ index 0000000..1c5c035
 +}
 diff --git a/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..0394c79
+index 0000000..a065387
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
-@@ -0,0 +1,1507 @@
+@@ -0,0 +1,1631 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -12450,17 +12489,12 @@ index 0000000..0394c79
 +  XAxis,
 +  YAxis,
 +} from 'recharts'
++import { cn } from '@/lib/utils'
 +import { Alert, AlertDescription } from '@/components/ui/alert'
 +import { Badge } from '@/components/ui/badge'
 +import { Button } from '@/components/ui/button'
-+import {
-+  Card,
-+  CardContent,
-+  CardHeader,
-+  CardTitle,
-+} from '@/components/ui/card'
++import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 +import { Input } from '@/components/ui/input'
-+import { Skeleton } from '@/components/ui/skeleton'
 +import {
 +  Select,
 +  SelectContent,
@@ -12468,6 +12502,7 @@ index 0000000..0394c79
 +  SelectTrigger,
 +  SelectValue,
 +} from '@/components/ui/select'
++import { Skeleton } from '@/components/ui/skeleton'
 +import {
 +  Table,
 +  TableBody,
@@ -12476,7 +12511,7 @@ index 0000000..0394c79
 +  TableHeader,
 +  TableRow,
 +} from '@/components/ui/table'
-+import { cn } from '@/lib/utils'
++import { AutoRefreshToggle } from '../../auto-refresh-toggle'
 +import {
 +  type ChannelUserStat,
 +  type ChannelStat,
@@ -12485,12 +12520,14 @@ index 0000000..0394c79
 +  useChannelTrendStats,
 +  useChannelUserStats,
 +} from '../../stats-api'
-+import { AutoRefreshToggle } from '../../auto-refresh-toggle'
 +import { TimeRangeSelector } from '../../time-range-selector'
 +import { buildUsageLogsTimeSearch } from '../../time-range-utils'
 +import { TrendChart } from '../../trend-chart'
 +import {
 +  useDashboardControls,
++  useDashboardDefaultHealthFilter,
++  useDashboardDefaultPageSize,
++  useDashboardDefaultPreference,
 +  useDashboardPreference,
 +} from '../../use-dashboard-controls'
 +
@@ -12511,7 +12548,9 @@ index 0000000..0394c79
 +  }).format(value)}`
 +}
 +
-+function successBadgeVariant(rate: number): 'default' | 'secondary' | 'destructive' {
++function successBadgeVariant(
++  rate: number
++): 'default' | 'secondary' | 'destructive' {
 +  if (rate >= 95) return 'default'
 +  if (rate >= 85) return 'secondary'
 +  return 'destructive'
@@ -12624,9 +12663,7 @@ index 0000000..0394c79
 +  )
 +}
 +
-+function isChannelUserSortState(
-+  value: unknown
-+): value is ChannelUserSortState {
++function isChannelUserSortState(value: unknown): value is ChannelUserSortState {
 +  if (!value || typeof value !== 'object') return false
 +  const sort = value as Partial<ChannelUserSortState>
 +  return (
@@ -12703,7 +12740,10 @@ index 0000000..0394c79
 +  key: ChannelUserSortKey
 +): number {
 +  if (key === 'user') {
-+    return left.username.localeCompare(right.username) || left.user_id - right.user_id
++    return (
++      left.username.localeCompare(right.username) ||
++      left.user_id - right.user_id
++    )
 +  }
 +  const leftValue =
 +    key === 'requests'
@@ -12751,16 +12791,20 @@ index 0000000..0394c79
 +    setAutoRefresh,
 +    setRefreshInterval,
 +  } = useDashboardControls('dashboard:channel-analytics')
-+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
++  const defaultHealthFilter = useDashboardDefaultHealthFilter()
++  const defaultPageSize = useDashboardDefaultPageSize()
++  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
++    null
++  )
 +  const [channelQuery, setChannelQuery] = useDashboardPreference(
 +    'dashboard:channel-analytics:channel-query',
 +    '',
 +    (value): value is string => typeof value === 'string'
 +  )
 +  const [channelHealthFilter, setChannelHealthFilter] =
-+    useDashboardPreference<HealthFilter>(
++    useDashboardDefaultPreference<HealthFilter>(
 +      'dashboard:channel-analytics:channel-health',
-+      'all',
++      defaultHealthFilter,
 +      isHealthFilter
 +    )
 +  const [channelSort, setChannelSort] =
@@ -12772,21 +12816,21 @@ index 0000000..0394c79
 +  const [channelPage, setChannelPage] = useState(1)
 +  const [channelPageSize, setChannelPageSize] = useDashboardPreference<number>(
 +    'dashboard:channel-analytics:channel-page-size',
-+    25,
++    defaultPageSize,
 +    isPageSize
 +  )
 +  const channelViewDirty =
 +    channelQuery !== '' ||
-+    channelHealthFilter !== 'all' ||
++    channelHealthFilter !== defaultHealthFilter ||
 +    channelSort.key !== DEFAULT_CHANNEL_SORT.key ||
 +    channelSort.direction !== DEFAULT_CHANNEL_SORT.direction ||
-+    channelPageSize !== 25
++    channelPageSize !== defaultPageSize
 +
 +  function resetChannelView() {
 +    setChannelQuery('')
-+    setChannelHealthFilter('all')
++    setChannelHealthFilter(defaultHealthFilter)
 +    setChannelSort(DEFAULT_CHANNEL_SORT)
-+    setChannelPageSize(25)
++    setChannelPageSize(defaultPageSize)
 +    setChannelPage(1)
 +  }
 +  const {
@@ -12796,11 +12840,7 @@ index 0000000..0394c79
 +    error,
 +    refetch,
 +    dataUpdatedAt,
-+  } = useChannelStats(
-+    timeRange,
-+    autoRefresh,
-+    refreshInterval
-+  )
++  } = useChannelStats(timeRange, autoRefresh, refreshInterval)
 +  const rows = channels ?? []
 +  const {
 +    data: channelUsers,
@@ -12836,7 +12876,10 @@ index 0000000..0394c79
 +
 +  const summary = useMemo(() => {
 +    const totalRequests = rows.reduce((sum, row) => sum + row.total_requests, 0)
-+    const failedRequests = rows.reduce((sum, row) => sum + row.failed_requests, 0)
++    const failedRequests = rows.reduce(
++      (sum, row) => sum + row.failed_requests,
++      0
++    )
 +    const totalCost = rows.reduce((sum, row) => sum + row.total_cost, 0)
 +    return {
 +      totalRequests,
@@ -12902,7 +12945,10 @@ index 0000000..0394c79
 +    () =>
 +      [...rows]
 +        .filter((row) => row.failed_requests > 0)
-+        .sort((a, b) => b.error_rate - a.error_rate || b.total_requests - a.total_requests)
++        .sort(
++          (a, b) =>
++            b.error_rate - a.error_rate || b.total_requests - a.total_requests
++        )
 +        .slice(0, 6),
 +    [rows]
 +  )
@@ -12952,7 +12998,10 @@ index 0000000..0394c79
 +        ? search.channel_id
 +        : null
 +    const nextChannelId = requestedChannelId ?? selectedChannelId
-+    if (!nextChannelId || !rows.some((row) => row.channel_id === nextChannelId)) {
++    if (
++      !nextChannelId ||
++      !rows.some((row) => row.channel_id === nextChannelId)
++    ) {
 +      setSelectedChannelId(rows[0].channel_id)
 +      return
 +    }
@@ -12991,8 +13040,9 @@ index 0000000..0394c79
 +    <div className='space-y-4'>
 +      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +        <div className='min-w-0'>
-+          <p className='text-sm text-muted-foreground'>
-+            Channel reliability, traffic, first-token latency, and spend for the selected window.
++          <p className='text-muted-foreground text-sm'>
++            Channel reliability, traffic, first-token latency, and spend for the
++            selected window.
 +          </p>
 +        </div>
 +        <div className='flex flex-wrap items-center gap-3'>
@@ -13008,7 +13058,9 @@ index 0000000..0394c79
 +                void refetchChannelTrend()
 +              }
 +            }}
-+            isRefreshing={isFetching || channelUsersFetching || channelTrendFetching}
++            isRefreshing={
++              isFetching || channelUsersFetching || channelTrendFetching
++            }
 +            lastUpdatedAt={lastUpdatedAt}
 +          />
 +          <TimeRangeSelector value={timeRange} onChange={changeTimeRange} />
@@ -13033,7 +13085,9 @@ index 0000000..0394c79
 +          label='Failures'
 +          value={formatCount(summary.failedRequests)}
 +          loading={isLoading}
-+          valueClassName={summary.failedRequests > 0 ? 'text-warning' : 'text-success'}
++          valueClassName={
++            summary.failedRequests > 0 ? 'text-warning' : 'text-success'
++          }
 +        />
 +        <MetricCard
 +          icon={Timer}
@@ -13058,22 +13112,31 @@ index 0000000..0394c79
 +            {isLoading ? (
 +              <Skeleton className='h-80 w-full rounded-lg' />
 +            ) : trafficChart.length === 0 ? (
-+              <div className='flex h-80 items-center justify-center text-sm text-muted-foreground'>
++              <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
 +                No channel traffic in this period
 +              </div>
 +            ) : (
 +              <ResponsiveContainer width='100%' height={320}>
 +                <BarChart data={trafficChart}>
-+                  <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++                  <CartesianGrid
++                    strokeDasharray='3 3'
++                    stroke='hsl(var(--border))'
++                  />
 +                  <XAxis
 +                    dataKey='name'
-+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                    tick={{
++                      fill: 'hsl(var(--muted-foreground))',
++                      fontSize: 11,
++                    }}
 +                    tickLine={false}
 +                    axisLine={false}
 +                    minTickGap={16}
 +                  />
 +                  <YAxis
-+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                    tick={{
++                      fill: 'hsl(var(--muted-foreground))',
++                      fontSize: 11,
++                    }}
 +                    tickLine={false}
 +                    axisLine={false}
 +                  />
@@ -13084,8 +13147,18 @@ index 0000000..0394c79
 +                      borderRadius: 8,
 +                    }}
 +                  />
-+                  <Bar dataKey='requests' fill='hsl(var(--primary))' radius={[4, 4, 0, 0]} name='Requests' />
-+                  <Bar dataKey='failures' fill='hsl(var(--destructive))' radius={[4, 4, 0, 0]} name='Failures' />
++                  <Bar
++                    dataKey='requests'
++                    fill='hsl(var(--primary))'
++                    radius={[4, 4, 0, 0]}
++                    name='Requests'
++                  />
++                  <Bar
++                    dataKey='failures'
++                    fill='hsl(var(--destructive))'
++                    radius={[4, 4, 0, 0]}
++                    name='Failures'
++                  />
 +                </BarChart>
 +              </ResponsiveContainer>
 +            )}
@@ -13093,8 +13166,18 @@ index 0000000..0394c79
 +        </Card>
 +
 +        <div className='grid gap-4'>
-+          <CompactRank title='Slowest channels' rows={slowest} loading={isLoading} metric='latency' />
-+          <CompactRank title='Risk channels' rows={riskiest} loading={isLoading} metric='risk' />
++          <CompactRank
++            title='Slowest channels'
++            rows={slowest}
++            loading={isLoading}
++            metric='latency'
++          />
++          <CompactRank
++            title='Risk channels'
++            rows={riskiest}
++            loading={isLoading}
++            metric='risk'
++          />
 +        </div>
 +      </div>
 +
@@ -13130,8 +13213,9 @@ index 0000000..0394c79
 +        <CardHeader className='flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between'>
 +          <div>
 +            <CardTitle className='text-sm'>Channel user spend</CardTitle>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              User consumption, reliability, and first-token latency for one selected channel.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              User consumption, reliability, and first-token latency for one
++              selected channel.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -13159,7 +13243,9 @@ index 0000000..0394c79
 +            </Button>
 +            <Select
 +              value={selectedChannelId ? String(selectedChannelId) : undefined}
-+              onValueChange={(value) => selectChannel(value ? Number(value) : null)}
++              onValueChange={(value) =>
++                selectChannel(value ? Number(value) : null)
++              }
 +              disabled={rows.length === 0 || isLoading}
 +            >
 +              <SelectTrigger className='w-full sm:w-[18rem]'>
@@ -13201,13 +13287,14 @@ index 0000000..0394c79
 +        <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
 +          <div>
 +            <CardTitle className='text-sm'>Channel detail</CardTitle>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              Showing {formatCount(filteredRows.length)} of {formatCount(rows.length)} channels.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              Showing {formatCount(filteredRows.length)} of{' '}
++              {formatCount(rows.length)} channels.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
 +            <div className='relative w-full sm:w-72'>
-+              <Search className='pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground' />
++              <Search className='text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4' />
 +              <Input
 +                value={channelQuery}
 +                onChange={(event) => setChannelQuery(event.target.value)}
@@ -13253,7 +13340,9 @@ index 0000000..0394c79
 +                      label='Channel'
 +                      active={channelSort.key === 'channel'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'channel'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'channel'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13262,7 +13351,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'requests'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'requests'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'requests'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13271,7 +13362,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'success'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'success'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'success'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13280,7 +13373,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'failures'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'failures'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'failures'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13289,7 +13384,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'error_rate'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'error_rate'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'error_rate'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13298,7 +13395,11 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'first_token'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'first_token'))}
++                      onClick={() =>
++                        setChannelSort(
++                          nextSortState(channelSort, 'first_token')
++                        )
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13307,7 +13408,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'use_time'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'use_time'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'use_time'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -13316,7 +13419,9 @@ index 0000000..0394c79
 +                      align='right'
 +                      active={channelSort.key === 'cost'}
 +                      direction={channelSort.direction}
-+                      onClick={() => setChannelSort(nextSortState(channelSort, 'cost'))}
++                      onClick={() =>
++                        setChannelSort(nextSortState(channelSort, 'cost'))
++                      }
 +                    />
 +                  </TableHead>
 +                </TableRow>
@@ -13332,13 +13437,19 @@ index 0000000..0394c79
 +                  ))
 +                ) : rows.length === 0 ? (
 +                  <TableRow>
-+                    <TableCell colSpan={8} className='py-10 text-center text-muted-foreground'>
++                    <TableCell
++                      colSpan={8}
++                      className='text-muted-foreground py-10 text-center'
++                    >
 +                      No channel data available
 +                    </TableCell>
 +                  </TableRow>
 +                ) : filteredRows.length === 0 ? (
 +                  <TableRow>
-+                    <TableCell colSpan={8} className='py-10 text-center text-muted-foreground'>
++                    <TableCell
++                      colSpan={8}
++                      className='text-muted-foreground py-10 text-center'
++                    >
 +                      No channels match the current filters
 +                    </TableCell>
 +                  </TableRow>
@@ -13354,7 +13465,7 @@ index 0000000..0394c79
 +                      tabIndex={0}
 +                      role='button'
 +                      aria-label={`Inspect trend for ${channel.channel_name}`}
-+                      className='cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring'
++                      className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
 +                      onClick={() => selectChannel(channel.channel_id)}
 +                      onKeyDown={(event) => {
 +                        if (event.key === 'Enter' || event.key === ' ') {
@@ -13364,8 +13475,12 @@ index 0000000..0394c79
 +                      }}
 +                    >
 +                      <TableCell>
-+                        <div className='font-medium'>{channel.channel_name}</div>
-+                        <div className='text-xs text-muted-foreground'>#{channel.channel_id}</div>
++                        <div className='font-medium'>
++                          {channel.channel_name}
++                        </div>
++                        <div className='text-muted-foreground text-xs'>
++                          #{channel.channel_id}
++                        </div>
 +                      </TableCell>
 +                      <TableCell className='text-right font-mono'>
 +                        {formatCount(channel.total_requests)}
@@ -13381,7 +13496,12 @@ index 0000000..0394c79
 +                      <TableCell className='text-right font-mono'>
 +                        {formatCount(channel.failed_requests)}
 +                      </TableCell>
-+                      <TableCell className={cn('text-right font-mono', riskClass(channel.error_rate))}>
++                      <TableCell
++                        className={cn(
++                          'text-right font-mono',
++                          riskClass(channel.error_rate)
++                        )}
++                      >
 +                        {channel.error_rate.toFixed(2)}%
 +                      </TableCell>
 +                      <TableCell className='text-right font-mono'>
@@ -13401,8 +13521,9 @@ index 0000000..0394c79
 +          </div>
 +          {!isLoading && filteredRows.length > 0 ? (
 +            <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
-+              <div className='text-xs text-muted-foreground'>
-+                Showing {formatCount(channelPageStart)}-{formatCount(channelPageEnd)} of{' '}
++              <div className='text-muted-foreground text-xs'>
++                Showing {formatCount(channelPageStart)}-
++                {formatCount(channelPageEnd)} of{' '}
 +                {formatCount(sortedRows.length)} channels
 +              </div>
 +              <div className='flex flex-wrap items-center gap-2'>
@@ -13432,7 +13553,7 @@ index 0000000..0394c79
 +                  >
 +                    <ChevronLeft className='size-4' aria-hidden='true' />
 +                  </Button>
-+                  <span className='min-w-20 text-center text-xs text-muted-foreground'>
++                  <span className='text-muted-foreground min-w-20 text-center text-xs'>
 +                    {channelPage} / {totalChannelPages}
 +                  </span>
 +                  <Button
@@ -13474,7 +13595,7 @@ index 0000000..0394c79
 +      variant='ghost'
 +      size='sm'
 +      className={cn(
-+        'h-7 px-1 text-xs font-medium text-muted-foreground hover:text-foreground',
++        'text-muted-foreground hover:text-foreground h-7 px-1 text-xs font-medium',
 +        props.align === 'right' && 'ml-auto'
 +      )}
 +      onClick={props.onClick}
@@ -13494,11 +13615,13 @@ index 0000000..0394c79
 +}) {
 +  const Icon = props.icon
 +  return (
-+    <div className='rounded-lg border bg-card p-3 shadow-xs'>
++    <div className='bg-card rounded-lg border p-3 shadow-xs'>
 +      <div className='flex items-center justify-between gap-2'>
-+        <span className='text-xs font-medium text-muted-foreground'>{props.label}</span>
-+        <span className='flex size-7 items-center justify-center rounded-md bg-muted'>
-+          <Icon className='size-3.5 text-muted-foreground' aria-hidden='true' />
++        <span className='text-muted-foreground text-xs font-medium'>
++          {props.label}
++        </span>
++        <span className='bg-muted flex size-7 items-center justify-center rounded-md'>
++          <Icon className='text-muted-foreground size-3.5' aria-hidden='true' />
 +        </span>
 +      </div>
 +      {props.loading ? (
@@ -13522,41 +13645,42 @@ index 0000000..0394c79
 +  loading: boolean
 +  selectedChannel: ChannelStat | null
 +}) {
++  const defaultHealthFilter = useDashboardDefaultHealthFilter()
++  const defaultPageSize = useDashboardDefaultPageSize()
 +  const [userQuery, setUserQuery] = useDashboardPreference(
 +    'dashboard:channel-analytics:channel-users-query',
 +    '',
 +    (value): value is string => typeof value === 'string'
 +  )
 +  const [userHealthFilter, setUserHealthFilter] =
-+    useDashboardPreference<HealthFilter>(
++    useDashboardDefaultPreference<HealthFilter>(
 +      'dashboard:channel-analytics:channel-users-health',
-+      'all',
++      defaultHealthFilter,
 +      isHealthFilter
 +    )
-+  const [userSort, setUserSort] =
-+    useDashboardPreference<ChannelUserSortState>(
-+      'dashboard:channel-analytics:channel-users-sort',
-+      DEFAULT_CHANNEL_USER_SORT,
-+      isChannelUserSortState
-+    )
++  const [userSort, setUserSort] = useDashboardPreference<ChannelUserSortState>(
++    'dashboard:channel-analytics:channel-users-sort',
++    DEFAULT_CHANNEL_USER_SORT,
++    isChannelUserSortState
++  )
 +  const [userPage, setUserPage] = useState(1)
 +  const [userPageSize, setUserPageSize] = useDashboardPreference<number>(
 +    'dashboard:channel-analytics:channel-users-page-size',
-+    25,
++    defaultPageSize,
 +    isPageSize
 +  )
 +  const userViewDirty =
 +    userQuery !== '' ||
-+    userHealthFilter !== 'all' ||
++    userHealthFilter !== defaultHealthFilter ||
 +    userSort.key !== DEFAULT_CHANNEL_USER_SORT.key ||
 +    userSort.direction !== DEFAULT_CHANNEL_USER_SORT.direction ||
-+    userPageSize !== 25
++    userPageSize !== defaultPageSize
 +
 +  function resetUserView() {
 +    setUserQuery('')
-+    setUserHealthFilter('all')
++    setUserHealthFilter(defaultHealthFilter)
 +    setUserSort(DEFAULT_CHANNEL_USER_SORT)
-+    setUserPageSize(25)
++    setUserPageSize(defaultPageSize)
 +    setUserPage(1)
 +  }
 +
@@ -13586,10 +13710,7 @@ index 0000000..0394c79
 +  const totalPages = Math.max(1, Math.ceil(sortedRows.length / userPageSize))
 +  const pagedRows = useMemo(
 +    () =>
-+      sortedRows.slice(
-+        (userPage - 1) * userPageSize,
-+        userPage * userPageSize
-+      ),
++      sortedRows.slice((userPage - 1) * userPageSize, userPage * userPageSize),
 +    [sortedRows, userPage, userPageSize]
 +  )
 +  const pageStart =
@@ -13615,12 +13736,13 @@ index 0000000..0394c79
 +  return (
 +    <div>
 +      <div className='flex flex-col gap-3 border-b p-3 lg:flex-row lg:items-center lg:justify-between'>
-+        <div className='text-xs text-muted-foreground'>
-+          Showing {formatCount(filteredRows.length)} of {formatCount(props.rows.length)} users.
++        <div className='text-muted-foreground text-xs'>
++          Showing {formatCount(filteredRows.length)} of{' '}
++          {formatCount(props.rows.length)} users.
 +        </div>
 +        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
 +          <div className='relative w-full sm:w-72'>
-+            <Search className='pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground' />
++            <Search className='text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4' />
 +            <Input
 +              value={userQuery}
 +              onChange={(event) => setUserQuery(event.target.value)}
@@ -13667,7 +13789,9 @@ index 0000000..0394c79
 +                  label='User'
 +                  active={userSort.key === 'user'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'user'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'user'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13676,7 +13800,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'requests'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'requests'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'requests'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13685,7 +13811,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'success'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'success'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'success'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13694,7 +13822,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'failures'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'failures'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'failures'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13703,7 +13833,11 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'error_rate'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'error_rate'))}
++                  onClick={() =>
++                    setUserSort(
++                      nextChannelUserSortState(userSort, 'error_rate')
++                    )
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13712,7 +13846,11 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'first_token'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'first_token'))}
++                  onClick={() =>
++                    setUserSort(
++                      nextChannelUserSortState(userSort, 'first_token')
++                    )
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13721,7 +13859,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'use_time'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'use_time'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'use_time'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13730,7 +13870,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'tokens'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'tokens'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'tokens'))
++                  }
 +                />
 +              </TableHead>
 +              <TableHead className='text-right'>
@@ -13739,7 +13881,9 @@ index 0000000..0394c79
 +                  align='right'
 +                  active={userSort.key === 'cost'}
 +                  direction={userSort.direction}
-+                  onClick={() => setUserSort(nextChannelUserSortState(userSort, 'cost'))}
++                  onClick={() =>
++                    setUserSort(nextChannelUserSortState(userSort, 'cost'))
++                  }
 +                />
 +              </TableHead>
 +            </TableRow>
@@ -13757,7 +13901,7 @@ index 0000000..0394c79
 +              <TableRow>
 +                <TableCell
 +                  colSpan={9}
-+                  className='py-10 text-center text-sm text-muted-foreground'
++                  className='text-muted-foreground py-10 text-center text-sm'
 +                >
 +                  {props.selectedChannel
 +                    ? 'No user spend for this channel in the selected period'
@@ -13768,7 +13912,7 @@ index 0000000..0394c79
 +              <TableRow>
 +                <TableCell
 +                  colSpan={9}
-+                  className='py-10 text-center text-sm text-muted-foreground'
++                  className='text-muted-foreground py-10 text-center text-sm'
 +                >
 +                  No users match the current filters
 +                </TableCell>
@@ -13778,7 +13922,9 @@ index 0000000..0394c79
 +                <TableRow key={`${user.channel_id}-${user.user_id}`}>
 +                  <TableCell>
 +                    <div className='font-medium'>{user.username}</div>
-+                    <div className='text-xs text-muted-foreground'>#{user.user_id}</div>
++                    <div className='text-muted-foreground text-xs'>
++                      #{user.user_id}
++                    </div>
 +                  </TableCell>
 +                  <TableCell className='text-right font-mono'>
 +                    {formatCount(user.total_requests)}
@@ -13794,7 +13940,12 @@ index 0000000..0394c79
 +                  <TableCell className='text-right font-mono'>
 +                    {formatCount(user.failed_requests)}
 +                  </TableCell>
-+                  <TableCell className={cn('text-right font-mono', riskClass(user.error_rate))}>
++                  <TableCell
++                    className={cn(
++                      'text-right font-mono',
++                      riskClass(user.error_rate)
++                    )}
++                  >
 +                    {user.error_rate.toFixed(2)}%
 +                  </TableCell>
 +                  <TableCell className='text-right font-mono'>
@@ -13804,7 +13955,9 @@ index 0000000..0394c79
 +                    {formatMs(user.avg_use_time * 1000)}
 +                  </TableCell>
 +                  <TableCell className='text-right font-mono'>
-+                    {formatCount(user.total_prompt_tokens + user.total_output_tokens)}
++                    {formatCount(
++                      user.total_prompt_tokens + user.total_output_tokens
++                    )}
 +                  </TableCell>
 +                  <TableCell className='text-right font-mono'>
 +                    {formatUsd(user.total_cost)}
@@ -13817,7 +13970,7 @@ index 0000000..0394c79
 +      </div>
 +      {!props.loading && filteredRows.length > 0 ? (
 +        <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
-+          <div className='text-xs text-muted-foreground'>
++          <div className='text-muted-foreground text-xs'>
 +            Showing {formatCount(pageStart)}-{formatCount(pageEnd)} of{' '}
 +            {formatCount(sortedRows.length)} users
 +          </div>
@@ -13846,7 +13999,7 @@ index 0000000..0394c79
 +              >
 +                <ChevronLeft className='size-4' aria-hidden='true' />
 +              </Button>
-+              <span className='min-w-20 text-center text-xs text-muted-foreground'>
++              <span className='text-muted-foreground min-w-20 text-center text-xs'>
 +                {userPage} / {totalPages}
 +              </span>
 +              <Button
@@ -13884,17 +14037,22 @@ index 0000000..0394c79
 +            <Skeleton key={index} className='h-10 w-full rounded-md' />
 +          ))
 +        ) : props.rows.length === 0 ? (
-+          <div className='py-6 text-center text-xs text-muted-foreground'>No data</div>
++          <div className='text-muted-foreground py-6 text-center text-xs'>
++            No data
++          </div>
 +        ) : (
 +          props.rows.map((channel) => (
 +            <div
 +              key={`${props.title}-${channel.channel_id}`}
-+              className='flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50'
++              className='hover:bg-muted/50 flex items-center justify-between gap-3 rounded-md px-2 py-1.5'
 +            >
 +              <div className='min-w-0'>
-+                <div className='truncate text-sm font-medium'>{channel.channel_name}</div>
-+                <div className='text-xs text-muted-foreground'>
-+                  #{channel.channel_id} · {formatCount(channel.total_requests)} req
++                <div className='truncate text-sm font-medium'>
++                  {channel.channel_name}
++                </div>
++                <div className='text-muted-foreground text-xs'>
++                  #{channel.channel_id} · {formatCount(channel.total_requests)}{' '}
++                  req
 +                </div>
 +              </div>
 +              {props.metric === 'latency' ? (
@@ -13902,7 +14060,12 @@ index 0000000..0394c79
 +                  {formatMs(channel.avg_first_token)}
 +                </span>
 +              ) : (
-+                <span className={cn('font-mono text-sm tabular-nums', riskClass(channel.error_rate))}>
++                <span
++                  className={cn(
++                    'font-mono text-sm tabular-nums',
++                    riskClass(channel.error_rate)
++                  )}
++                >
 +                  {channel.error_rate.toFixed(2)}%
 +                </span>
 +              )}
@@ -14512,10 +14675,10 @@ index 297bdbe..f0c6459 100644
            className={cn(
 diff --git a/web/default/src/features/dashboard/components/users/user-operations-panel.tsx b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
 new file mode 100644
-index 0000000..abc4cac
+index 0000000..8dbde15
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
-@@ -0,0 +1,1022 @@
+@@ -0,0 +1,1091 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -14560,15 +14723,11 @@ index 0000000..abc4cac
 +  XAxis,
 +  YAxis,
 +} from 'recharts'
++import { cn } from '@/lib/utils'
 +import { Alert, AlertDescription } from '@/components/ui/alert'
 +import { Badge } from '@/components/ui/badge'
 +import { Button } from '@/components/ui/button'
-+import {
-+  Card,
-+  CardContent,
-+  CardHeader,
-+  CardTitle,
-+} from '@/components/ui/card'
++import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 +import { Input } from '@/components/ui/input'
 +import {
 +  Select,
@@ -14586,7 +14745,6 @@ index 0000000..abc4cac
 +  TableHeader,
 +  TableRow,
 +} from '@/components/ui/table'
-+import { cn } from '@/lib/utils'
 +import { AutoRefreshToggle } from '../../auto-refresh-toggle'
 +import {
 +  type TimeRange,
@@ -14599,6 +14757,9 @@ index 0000000..abc4cac
 +import { TrendChart } from '../../trend-chart'
 +import {
 +  useDashboardControls,
++  useDashboardDefaultHealthFilter,
++  useDashboardDefaultPageSize,
++  useDashboardDefaultPreference,
 +  useDashboardPreference,
 +} from '../../use-dashboard-controls'
 +
@@ -14619,7 +14780,9 @@ index 0000000..abc4cac
 +  }).format(value)}`
 +}
 +
-+function successBadgeVariant(rate: number): 'default' | 'secondary' | 'destructive' {
++function successBadgeVariant(
++  rate: number
++): 'default' | 'secondary' | 'destructive' {
 +  if (rate >= 95) return 'default'
 +  if (rate >= 85) return 'secondary'
 +  return 'destructive'
@@ -14724,7 +14887,10 @@ index 0000000..abc4cac
 +  key: UserSortKey
 +): number {
 +  if (key === 'user') {
-+    return left.username.localeCompare(right.username) || left.user_id - right.user_id
++    return (
++      left.username.localeCompare(right.username) ||
++      left.user_id - right.user_id
++    )
 +  }
 +  if (key === 'top_channel') {
 +    return (
@@ -14770,6 +14936,8 @@ index 0000000..abc4cac
 +    setAutoRefresh,
 +    setRefreshInterval,
 +  } = useDashboardControls('dashboard:user-operations')
++  const defaultHealthFilter = useDashboardDefaultHealthFilter()
++  const defaultPageSize = useDashboardDefaultPageSize()
 +  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
 +  const [userQuery, setUserQuery] = useDashboardPreference(
 +    'dashboard:user-operations:user-query',
@@ -14777,9 +14945,9 @@ index 0000000..abc4cac
 +    (value): value is string => typeof value === 'string'
 +  )
 +  const [userHealthFilter, setUserHealthFilter] =
-+    useDashboardPreference<HealthFilter>(
++    useDashboardDefaultPreference<HealthFilter>(
 +      'dashboard:user-operations:user-health',
-+      'all',
++      defaultHealthFilter,
 +      isHealthFilter
 +    )
 +  const [userSort, setUserSort] = useDashboardPreference<UserSortState>(
@@ -14790,21 +14958,21 @@ index 0000000..abc4cac
 +  const [userPage, setUserPage] = useState(1)
 +  const [userPageSize, setUserPageSize] = useDashboardPreference<number>(
 +    'dashboard:user-operations:user-page-size',
-+    25,
++    defaultPageSize,
 +    isPageSize
 +  )
 +  const userViewDirty =
 +    userQuery !== '' ||
-+    userHealthFilter !== 'all' ||
++    userHealthFilter !== defaultHealthFilter ||
 +    userSort.key !== DEFAULT_USER_SORT.key ||
 +    userSort.direction !== DEFAULT_USER_SORT.direction ||
-+    userPageSize !== 25
++    userPageSize !== defaultPageSize
 +
 +  function resetUserView() {
 +    setUserQuery('')
-+    setUserHealthFilter('all')
++    setUserHealthFilter(defaultHealthFilter)
 +    setUserSort(DEFAULT_USER_SORT)
-+    setUserPageSize(25)
++    setUserPageSize(defaultPageSize)
 +    setUserPage(1)
 +  }
 +  const {
@@ -14814,11 +14982,7 @@ index 0000000..abc4cac
 +    error,
 +    refetch,
 +    dataUpdatedAt,
-+  } = useUserStats(
-+    timeRange,
-+    autoRefresh,
-+    refreshInterval
-+  )
++  } = useUserStats(timeRange, autoRefresh, refreshInterval)
 +  const rows = users ?? []
 +  const {
 +    data: userTrend,
@@ -14827,17 +14991,15 @@ index 0000000..abc4cac
 +    error: userTrendError,
 +    refetch: refetchUserTrend,
 +    dataUpdatedAt: userTrendUpdatedAt,
-+  } = useUserTrendStats(
-+    timeRange,
-+    selectedUserId,
-+    autoRefresh,
-+    refreshInterval
-+  )
++  } = useUserTrendStats(timeRange, selectedUserId, autoRefresh, refreshInterval)
 +  const lastUpdatedAt = Math.max(dataUpdatedAt, userTrendUpdatedAt)
 +
 +  const summary = useMemo(() => {
 +    const totalRequests = rows.reduce((sum, row) => sum + row.total_requests, 0)
-+    const failedRequests = rows.reduce((sum, row) => sum + row.failed_requests, 0)
++    const failedRequests = rows.reduce(
++      (sum, row) => sum + row.failed_requests,
++      0
++    )
 +    const totalCost = rows.reduce((sum, row) => sum + row.total_cost, 0)
 +    return {
 +      activeUsers: rows.filter((row) => row.total_requests > 0).length,
@@ -14875,13 +15037,13 @@ index 0000000..abc4cac
 +      }),
 +    [filteredRows, userSort]
 +  )
-+  const totalUserPages = Math.max(1, Math.ceil(sortedRows.length / userPageSize))
++  const totalUserPages = Math.max(
++    1,
++    Math.ceil(sortedRows.length / userPageSize)
++  )
 +  const pagedRows = useMemo(
 +    () =>
-+      sortedRows.slice(
-+        (userPage - 1) * userPageSize,
-+        userPage * userPageSize
-+      ),
++      sortedRows.slice((userPage - 1) * userPageSize, userPage * userPageSize),
 +    [sortedRows, userPage, userPageSize]
 +  )
 +  const userPageStart =
@@ -14899,15 +15061,16 @@ index 0000000..abc4cac
 +    () =>
 +      [...rows]
 +        .filter((row) => row.failed_requests > 0)
-+        .sort((a, b) => b.error_rate - a.error_rate || b.total_requests - a.total_requests)
++        .sort(
++          (a, b) =>
++            b.error_rate - a.error_rate || b.total_requests - a.total_requests
++        )
 +        .slice(0, 6),
 +    [rows]
 +  )
 +  const selectedUser = useMemo(
 +    () =>
-+      rows.find((user) => user.user_id === selectedUserId) ??
-+      rows[0] ??
-+      null,
++      rows.find((user) => user.user_id === selectedUserId) ?? rows[0] ?? null,
 +    [rows, selectedUserId]
 +  )
 +
@@ -14988,8 +15151,9 @@ index 0000000..abc4cac
 +      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +        <div>
 +          <h3 className='text-base font-semibold'>User operations</h3>
-+          <p className='text-sm text-muted-foreground'>
-+            User spend, reliability, first-token latency, and dominant channel for the selected window.
++          <p className='text-muted-foreground text-sm'>
++            User spend, reliability, first-token latency, and dominant channel
++            for the selected window.
 +          </p>
 +        </div>
 +        <div className='flex flex-wrap items-center gap-3'>
@@ -15029,7 +15193,9 @@ index 0000000..abc4cac
 +          label='Failures'
 +          value={formatCount(summary.failedRequests)}
 +          loading={isLoading}
-+          valueClassName={summary.failedRequests > 0 ? 'text-warning' : 'text-success'}
++          valueClassName={
++            summary.failedRequests > 0 ? 'text-warning' : 'text-success'
++          }
 +        />
 +        <MetricCard
 +          icon={Timer}
@@ -15054,22 +15220,31 @@ index 0000000..abc4cac
 +            {isLoading ? (
 +              <Skeleton className='h-80 w-full rounded-lg' />
 +            ) : spendChart.length === 0 ? (
-+              <div className='flex h-80 items-center justify-center text-sm text-muted-foreground'>
++              <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
 +                No user spend in this period
 +              </div>
 +            ) : (
 +              <ResponsiveContainer width='100%' height={320}>
 +                <BarChart data={spendChart}>
-+                  <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++                  <CartesianGrid
++                    strokeDasharray='3 3'
++                    stroke='hsl(var(--border))'
++                  />
 +                  <XAxis
 +                    dataKey='name'
-+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                    tick={{
++                      fill: 'hsl(var(--muted-foreground))',
++                      fontSize: 11,
++                    }}
 +                    tickLine={false}
 +                    axisLine={false}
 +                    minTickGap={16}
 +                  />
 +                  <YAxis
-+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                    tick={{
++                      fill: 'hsl(var(--muted-foreground))',
++                      fontSize: 11,
++                    }}
 +                    tickLine={false}
 +                    axisLine={false}
 +                  />
@@ -15080,7 +15255,12 @@ index 0000000..abc4cac
 +                      borderRadius: 8,
 +                    }}
 +                  />
-+                  <Bar dataKey='cost' fill='hsl(var(--primary))' radius={[4, 4, 0, 0]} name='Cost' />
++                  <Bar
++                    dataKey='cost'
++                    fill='hsl(var(--primary))'
++                    radius={[4, 4, 0, 0]}
++                    name='Cost'
++                  />
 +                </BarChart>
 +              </ResponsiveContainer>
 +            )}
@@ -15088,8 +15268,18 @@ index 0000000..abc4cac
 +        </Card>
 +
 +        <div className='grid gap-4'>
-+          <CompactRank title='Slowest users' rows={slowestUsers} loading={isLoading} metric='latency' />
-+          <CompactRank title='Risk users' rows={riskUsers} loading={isLoading} metric='risk' />
++          <CompactRank
++            title='Slowest users'
++            rows={slowestUsers}
++            loading={isLoading}
++            metric='latency'
++          />
++          <CompactRank
++            title='Risk users'
++            rows={riskUsers}
++            loading={isLoading}
++            metric='risk'
++          />
 +        </div>
 +      </div>
 +
@@ -15097,8 +15287,9 @@ index 0000000..abc4cac
 +        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +          <div>
 +            <h3 className='text-sm font-semibold'>Selected user trend</h3>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              Inspect request volume, reliability, first-token latency, cost, and tokens for one user.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              Inspect request volume, reliability, first-token latency, cost,
++              and tokens for one user.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -15124,7 +15315,9 @@ index 0000000..abc4cac
 +            </Button>
 +            <Select
 +              value={selectedUserId ? String(selectedUserId) : undefined}
-+              onValueChange={(value) => selectUser(value ? Number(value) : null)}
++              onValueChange={(value) =>
++                selectUser(value ? Number(value) : null)
++              }
 +              disabled={rows.length === 0 || isLoading}
 +            >
 +              <SelectTrigger className='w-full sm:w-[22rem]'>
@@ -15162,7 +15355,7 @@ index 0000000..abc4cac
 +            storageKey='dashboard:user-operations:trend'
 +          />
 +        ) : (
-+          <div className='rounded-lg border py-10 text-center text-sm text-muted-foreground'>
++          <div className='text-muted-foreground rounded-lg border py-10 text-center text-sm'>
 +            Select a user to inspect their operational trend
 +          </div>
 +        )}
@@ -15172,13 +15365,14 @@ index 0000000..abc4cac
 +        <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
 +          <div>
 +            <CardTitle className='text-sm'>User detail</CardTitle>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              Showing {formatCount(filteredRows.length)} of {formatCount(rows.length)} users.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              Showing {formatCount(filteredRows.length)} of{' '}
++              {formatCount(rows.length)} users.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
 +            <div className='relative w-full sm:w-72'>
-+              <Search className='pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground' />
++              <Search className='text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4' />
 +              <Input
 +                value={userQuery}
 +                onChange={(event) => setUserQuery(event.target.value)}
@@ -15224,7 +15418,9 @@ index 0000000..abc4cac
 +                      label='User'
 +                      active={userSort.key === 'user'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'user'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'user'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15233,7 +15429,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'requests'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'requests'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'requests'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15242,7 +15440,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'success'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'success'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'success'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15251,7 +15451,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'failures'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'failures'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'failures'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15260,7 +15462,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'error_rate'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'error_rate'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'error_rate'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15269,7 +15473,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'first_token'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'first_token'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'first_token'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead>
@@ -15277,7 +15483,9 @@ index 0000000..abc4cac
 +                      label='Top channel'
 +                      active={userSort.key === 'top_channel'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'top_channel'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'top_channel'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -15286,7 +15494,9 @@ index 0000000..abc4cac
 +                      align='right'
 +                      active={userSort.key === 'cost'}
 +                      direction={userSort.direction}
-+                      onClick={() => setUserSort(nextSortState(userSort, 'cost'))}
++                      onClick={() =>
++                        setUserSort(nextSortState(userSort, 'cost'))
++                      }
 +                    />
 +                  </TableHead>
 +                </TableRow>
@@ -15302,13 +15512,19 @@ index 0000000..abc4cac
 +                  ))
 +                ) : rows.length === 0 ? (
 +                  <TableRow>
-+                    <TableCell colSpan={8} className='py-10 text-center text-muted-foreground'>
++                    <TableCell
++                      colSpan={8}
++                      className='text-muted-foreground py-10 text-center'
++                    >
 +                      No user data available
 +                    </TableCell>
 +                  </TableRow>
 +                ) : filteredRows.length === 0 ? (
 +                  <TableRow>
-+                    <TableCell colSpan={8} className='py-10 text-center text-muted-foreground'>
++                    <TableCell
++                      colSpan={8}
++                      className='text-muted-foreground py-10 text-center'
++                    >
 +                      No users match the current filters
 +                    </TableCell>
 +                  </TableRow>
@@ -15317,14 +15533,12 @@ index 0000000..abc4cac
 +                    <TableRow
 +                      key={user.user_id}
 +                      data-state={
-+                        selectedUserId === user.user_id
-+                          ? 'selected'
-+                          : undefined
++                        selectedUserId === user.user_id ? 'selected' : undefined
 +                      }
 +                      tabIndex={0}
 +                      role='button'
 +                      aria-label={`Inspect trend for ${user.username}`}
-+                      className='cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring'
++                      className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
 +                      onClick={() => selectUser(user.user_id)}
 +                      onKeyDown={(event) => {
 +                        if (event.key === 'Enter' || event.key === ' ') {
@@ -15335,7 +15549,9 @@ index 0000000..abc4cac
 +                    >
 +                      <TableCell>
 +                        <div className='font-medium'>{user.username}</div>
-+                        <div className='text-xs text-muted-foreground'>#{user.user_id}</div>
++                        <div className='text-muted-foreground text-xs'>
++                          #{user.user_id}
++                        </div>
 +                      </TableCell>
 +                      <TableCell className='text-right font-mono'>
 +                        {formatCount(user.total_requests)}
@@ -15351,7 +15567,12 @@ index 0000000..abc4cac
 +                      <TableCell className='text-right font-mono'>
 +                        {formatCount(user.failed_requests)}
 +                      </TableCell>
-+                      <TableCell className={cn('text-right font-mono', riskClass(user.error_rate))}>
++                      <TableCell
++                        className={cn(
++                          'text-right font-mono',
++                          riskClass(user.error_rate)
++                        )}
++                      >
 +                        {user.error_rate.toFixed(2)}%
 +                      </TableCell>
 +                      <TableCell className='text-right font-mono'>
@@ -15361,7 +15582,7 @@ index 0000000..abc4cac
 +                        {user.top_channel_id > 0 ? (
 +                          <span>
 +                            {user.top_channel_name}
-+                            <span className='ml-2 text-xs text-muted-foreground'>
++                            <span className='text-muted-foreground ml-2 text-xs'>
 +                              #{user.top_channel_id}
 +                            </span>
 +                          </span>
@@ -15380,9 +15601,9 @@ index 0000000..abc4cac
 +          </div>
 +          {!isLoading && filteredRows.length > 0 ? (
 +            <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
-+              <div className='text-xs text-muted-foreground'>
-+                Showing {formatCount(userPageStart)}-{formatCount(userPageEnd)} of{' '}
-+                {formatCount(sortedRows.length)} users
++              <div className='text-muted-foreground text-xs'>
++                Showing {formatCount(userPageStart)}-{formatCount(userPageEnd)}{' '}
++                of {formatCount(sortedRows.length)} users
 +              </div>
 +              <div className='flex flex-wrap items-center gap-2'>
 +                <Select
@@ -15409,7 +15630,7 @@ index 0000000..abc4cac
 +                  >
 +                    <ChevronLeft className='size-4' aria-hidden='true' />
 +                  </Button>
-+                  <span className='min-w-20 text-center text-xs text-muted-foreground'>
++                  <span className='text-muted-foreground min-w-20 text-center text-xs'>
 +                    {userPage} / {totalUserPages}
 +                  </span>
 +                  <Button
@@ -15449,7 +15670,7 @@ index 0000000..abc4cac
 +      variant='ghost'
 +      size='sm'
 +      className={cn(
-+        'h-7 px-1 text-xs font-medium text-muted-foreground hover:text-foreground',
++        'text-muted-foreground hover:text-foreground h-7 px-1 text-xs font-medium',
 +        props.align === 'right' && 'ml-auto'
 +      )}
 +      onClick={props.onClick}
@@ -15469,11 +15690,13 @@ index 0000000..abc4cac
 +}) {
 +  const Icon = props.icon
 +  return (
-+    <div className='rounded-lg border bg-card p-3 shadow-xs'>
++    <div className='bg-card rounded-lg border p-3 shadow-xs'>
 +      <div className='flex items-center justify-between gap-2'>
-+        <span className='text-xs font-medium text-muted-foreground'>{props.label}</span>
-+        <span className='flex size-7 items-center justify-center rounded-md bg-muted'>
-+          <Icon className='size-3.5 text-muted-foreground' aria-hidden='true' />
++        <span className='text-muted-foreground text-xs font-medium'>
++          {props.label}
++        </span>
++        <span className='bg-muted flex size-7 items-center justify-center rounded-md'>
++          <Icon className='text-muted-foreground size-3.5' aria-hidden='true' />
 +        </span>
 +      </div>
 +      {props.loading ? (
@@ -15509,16 +15732,20 @@ index 0000000..abc4cac
 +            <Skeleton key={index} className='h-10 w-full rounded-md' />
 +          ))
 +        ) : props.rows.length === 0 ? (
-+          <div className='py-6 text-center text-xs text-muted-foreground'>No data</div>
++          <div className='text-muted-foreground py-6 text-center text-xs'>
++            No data
++          </div>
 +        ) : (
 +          props.rows.map((user) => (
 +            <div
 +              key={`${props.title}-${user.user_id}`}
-+              className='flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50'
++              className='hover:bg-muted/50 flex items-center justify-between gap-3 rounded-md px-2 py-1.5'
 +            >
 +              <div className='min-w-0'>
-+                <div className='truncate text-sm font-medium'>{user.username}</div>
-+                <div className='text-xs text-muted-foreground'>
++                <div className='truncate text-sm font-medium'>
++                  {user.username}
++                </div>
++                <div className='text-muted-foreground text-xs'>
 +                  #{user.user_id} · {formatCount(user.total_requests)} req
 +                </div>
 +              </div>
@@ -15527,7 +15754,12 @@ index 0000000..abc4cac
 +                  {formatMs(user.avg_first_token)}
 +                </span>
 +              ) : (
-+                <span className={cn('font-mono text-sm tabular-nums', riskClass(user.error_rate))}>
++                <span
++                  className={cn(
++                    'font-mono text-sm tabular-nums',
++                    riskClass(user.error_rate)
++                  )}
++                >
 +                  {user.error_rate.toFixed(2)}%
 +                </span>
 +              )}
@@ -15739,10 +15971,10 @@ index 0000000..088640a
 +}
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..1ed269b
+index 0000000..3686474
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
-@@ -0,0 +1,1043 @@
+@@ -0,0 +1,1083 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -15787,12 +16019,12 @@ index 0000000..1ed269b
 +  XAxis,
 +  YAxis,
 +} from 'recharts'
++import { cn } from '@/lib/utils'
 +import { Alert, AlertDescription } from '@/components/ui/alert'
 +import { Badge } from '@/components/ui/badge'
 +import { Button } from '@/components/ui/button'
 +import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 +import { Input } from '@/components/ui/input'
-+import { Skeleton } from '@/components/ui/skeleton'
 +import {
 +  Select,
 +  SelectContent,
@@ -15800,6 +16032,7 @@ index 0000000..1ed269b
 +  SelectTrigger,
 +  SelectValue,
 +} from '@/components/ui/select'
++import { Skeleton } from '@/components/ui/skeleton'
 +import {
 +  Table,
 +  TableBody,
@@ -15808,7 +16041,6 @@ index 0000000..1ed269b
 +  TableHeader,
 +  TableRow,
 +} from '@/components/ui/table'
-+import { cn } from '@/lib/utils'
 +import { AutoRefreshToggle } from './auto-refresh-toggle'
 +import {
 +  type ModelStat,
@@ -15821,6 +16053,9 @@ index 0000000..1ed269b
 +import { TrendChart } from './trend-chart'
 +import {
 +  useDashboardControls,
++  useDashboardDefaultHealthFilter,
++  useDashboardDefaultPageSize,
++  useDashboardDefaultPreference,
 +  useDashboardPreference,
 +} from './use-dashboard-controls'
 +
@@ -15991,16 +16226,20 @@ index 0000000..1ed269b
 +    setAutoRefresh,
 +    setRefreshInterval,
 +  } = useDashboardControls('dashboard:model-analytics')
-+  const [selectedModelName, setSelectedModelName] = useState<string | null>(null)
++  const defaultHealthFilter = useDashboardDefaultHealthFilter()
++  const defaultPageSize = useDashboardDefaultPageSize()
++  const [selectedModelName, setSelectedModelName] = useState<string | null>(
++    null
++  )
 +  const [modelQuery, setModelQuery] = useDashboardPreference(
 +    'dashboard:model-analytics:model-query',
 +    '',
 +    (value): value is string => typeof value === 'string'
 +  )
 +  const [modelHealthFilter, setModelHealthFilter] =
-+    useDashboardPreference<HealthFilter>(
++    useDashboardDefaultPreference<HealthFilter>(
 +      'dashboard:model-analytics:model-health',
-+      'all',
++      defaultHealthFilter,
 +      isHealthFilter
 +    )
 +  const [modelSort, setModelSort] = useDashboardPreference<ModelSortState>(
@@ -16011,21 +16250,21 @@ index 0000000..1ed269b
 +  const [modelPage, setModelPage] = useState(1)
 +  const [modelPageSize, setModelPageSize] = useDashboardPreference<number>(
 +    'dashboard:model-analytics:model-page-size',
-+    25,
++    defaultPageSize,
 +    isPageSize
 +  )
 +  const modelViewDirty =
 +    modelQuery !== '' ||
-+    modelHealthFilter !== 'all' ||
++    modelHealthFilter !== defaultHealthFilter ||
 +    modelSort.key !== DEFAULT_MODEL_SORT.key ||
 +    modelSort.direction !== DEFAULT_MODEL_SORT.direction ||
-+    modelPageSize !== 25
++    modelPageSize !== defaultPageSize
 +
 +  function resetModelView() {
 +    setModelQuery('')
-+    setModelHealthFilter('all')
++    setModelHealthFilter(defaultHealthFilter)
 +    setModelSort(DEFAULT_MODEL_SORT)
-+    setModelPageSize(25)
++    setModelPageSize(defaultPageSize)
 +    setModelPage(1)
 +  }
 +  const {
@@ -16035,11 +16274,7 @@ index 0000000..1ed269b
 +    error,
 +    refetch,
 +    dataUpdatedAt,
-+  } = useModelStats(
-+    timeRange,
-+    autoRefresh,
-+    refreshInterval
-+  )
++  } = useModelStats(timeRange, autoRefresh, refreshInterval)
 +  const rows = models ?? []
 +  const {
 +    data: modelTrend,
@@ -16058,7 +16293,10 @@ index 0000000..1ed269b
 +
 +  const summary = useMemo(() => {
 +    const totalRequests = rows.reduce((sum, row) => sum + row.total_requests, 0)
-+    const failedRequests = rows.reduce((sum, row) => sum + row.failed_requests, 0)
++    const failedRequests = rows.reduce(
++      (sum, row) => sum + row.failed_requests,
++      0
++    )
 +    const totalCost = rows.reduce((sum, row) => sum + row.total_cost, 0)
 +    return {
 +      activeModels: rows.filter((row) => row.total_requests > 0).length,
@@ -16120,7 +16358,8 @@ index 0000000..1ed269b
 +      [...rows]
 +        .filter((row) => row.failed_requests > 0)
 +        .sort(
-+          (a, b) => b.error_rate - a.error_rate || b.total_requests - a.total_requests
++          (a, b) =>
++            b.error_rate - a.error_rate || b.total_requests - a.total_requests
 +        )
 +        .slice(0, 6),
 +    [rows]
@@ -16166,11 +16405,15 @@ index 0000000..1ed269b
 +      return
 +    }
 +    const requestedModelName =
-+      search.model_name && rows.some((row) => row.model_name === search.model_name)
++      search.model_name &&
++      rows.some((row) => row.model_name === search.model_name)
 +        ? search.model_name
 +        : null
 +    const nextModelName = requestedModelName ?? selectedModelName
-+    if (!nextModelName || !rows.some((row) => row.model_name === nextModelName)) {
++    if (
++      !nextModelName ||
++      !rows.some((row) => row.model_name === nextModelName)
++    ) {
 +      setSelectedModelName(rows[0].model_name)
 +      return
 +    }
@@ -16210,8 +16453,9 @@ index 0000000..1ed269b
 +      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +        <div>
 +          <h3 className='text-base font-semibold'>Model operations</h3>
-+          <p className='text-sm text-muted-foreground'>
-+            Model request volume, reliability, first-token latency, and spend for the selected window.
++          <p className='text-muted-foreground text-sm'>
++            Model request volume, reliability, first-token latency, and spend
++            for the selected window.
 +          </p>
 +        </div>
 +        <div className='flex flex-wrap items-center gap-3'>
@@ -16251,7 +16495,9 @@ index 0000000..1ed269b
 +          label='Failures'
 +          value={formatCount(summary.failedRequests)}
 +          loading={isLoading}
-+          valueClassName={summary.failedRequests > 0 ? 'text-warning' : 'text-success'}
++          valueClassName={
++            summary.failedRequests > 0 ? 'text-warning' : 'text-success'
++          }
 +        />
 +        <MetricCard
 +          icon={Timer}
@@ -16276,13 +16522,16 @@ index 0000000..1ed269b
 +            {isLoading ? (
 +              <Skeleton className='h-80 w-full rounded-lg' />
 +            ) : trafficChart.length === 0 ? (
-+              <div className='flex h-80 items-center justify-center text-sm text-muted-foreground'>
++              <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
 +                No model traffic in this period
 +              </div>
 +            ) : (
 +              <ResponsiveContainer width='100%' height={320}>
 +                <BarChart data={trafficChart}>
-+                  <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++                  <CartesianGrid
++                    strokeDasharray='3 3'
++                    stroke='hsl(var(--border))'
++                  />
 +                  <XAxis
 +                    dataKey='name'
 +                    tick={{ fontSize: 11 }}
@@ -16339,8 +16588,9 @@ index 0000000..1ed269b
 +        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +          <div>
 +            <h3 className='text-sm font-semibold'>Selected model trend</h3>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              Inspect request volume, reliability, first-token latency, cost, and tokens for one model.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              Inspect request volume, reliability, first-token latency, cost,
++              and tokens for one model.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -16404,7 +16654,7 @@ index 0000000..1ed269b
 +            storageKey='dashboard:model-analytics:trend'
 +          />
 +        ) : (
-+          <div className='rounded-lg border py-10 text-center text-sm text-muted-foreground'>
++          <div className='text-muted-foreground rounded-lg border py-10 text-center text-sm'>
 +            Select a model to inspect its operational trend
 +          </div>
 +        )}
@@ -16414,13 +16664,14 @@ index 0000000..1ed269b
 +        <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
 +          <div>
 +            <CardTitle className='text-sm'>Model detail</CardTitle>
-+            <p className='mt-1 text-xs text-muted-foreground'>
-+              Showing {formatCount(filteredRows.length)} of {formatCount(rows.length)} models.
++            <p className='text-muted-foreground mt-1 text-xs'>
++              Showing {formatCount(filteredRows.length)} of{' '}
++              {formatCount(rows.length)} models.
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
 +            <div className='relative w-full sm:w-72'>
-+              <Search className='pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground' />
++              <Search className='text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4' />
 +              <Input
 +                value={modelQuery}
 +                onChange={(event) => setModelQuery(event.target.value)}
@@ -16466,7 +16717,9 @@ index 0000000..1ed269b
 +                      label='Model'
 +                      active={modelSort.key === 'model'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'model'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'model'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16475,7 +16728,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'requests'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'requests'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'requests'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16484,7 +16739,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'failures'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'failures'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'failures'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16493,7 +16750,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'success'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'success'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'success'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16502,7 +16761,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'first_token'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'first_token'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'first_token'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16511,7 +16772,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'use_time'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'use_time'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'use_time'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16520,7 +16783,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'tokens'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'tokens'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'tokens'))
++                      }
 +                    />
 +                  </TableHead>
 +                  <TableHead className='text-right'>
@@ -16529,7 +16794,9 @@ index 0000000..1ed269b
 +                      align='right'
 +                      active={modelSort.key === 'cost'}
 +                      direction={modelSort.direction}
-+                      onClick={() => setModelSort(nextSortState(modelSort, 'cost'))}
++                      onClick={() =>
++                        setModelSort(nextSortState(modelSort, 'cost'))
++                      }
 +                    />
 +                  </TableHead>
 +                </TableRow>
@@ -16547,7 +16814,7 @@ index 0000000..1ed269b
 +                  <TableRow>
 +                    <TableCell
 +                      colSpan={8}
-+                      className='h-24 text-center text-sm text-muted-foreground'
++                      className='text-muted-foreground h-24 text-center text-sm'
 +                    >
 +                      No model data for this period
 +                    </TableCell>
@@ -16556,7 +16823,7 @@ index 0000000..1ed269b
 +                  <TableRow>
 +                    <TableCell
 +                      colSpan={8}
-+                      className='h-24 text-center text-sm text-muted-foreground'
++                      className='text-muted-foreground h-24 text-center text-sm'
 +                    >
 +                      No models match the current filters
 +                    </TableCell>
@@ -16573,7 +16840,7 @@ index 0000000..1ed269b
 +                      tabIndex={0}
 +                      role='button'
 +                      aria-label={`Inspect trend for ${model.model_name}`}
-+                      className='cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring'
++                      className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
 +                      onClick={() => selectModel(model.model_name)}
 +                      onKeyDown={(event) => {
 +                        if (event.key === 'Enter' || event.key === ' ') {
@@ -16623,9 +16890,10 @@ index 0000000..1ed269b
 +          </div>
 +          {!isLoading && filteredRows.length > 0 ? (
 +            <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
-+              <div className='text-xs text-muted-foreground'>
-+                Showing {formatCount(modelPageStart)}-{formatCount(modelPageEnd)} of{' '}
-+                {formatCount(sortedRows.length)} models
++              <div className='text-muted-foreground text-xs'>
++                Showing {formatCount(modelPageStart)}-
++                {formatCount(modelPageEnd)} of {formatCount(sortedRows.length)}{' '}
++                models
 +              </div>
 +              <div className='flex flex-wrap items-center gap-2'>
 +                <Select
@@ -16647,19 +16915,23 @@ index 0000000..1ed269b
 +                  <Button
 +                    variant='outline'
 +                    size='icon-sm'
-+                    onClick={() => setModelPage((page) => Math.max(1, page - 1))}
++                    onClick={() =>
++                      setModelPage((page) => Math.max(1, page - 1))
++                    }
 +                    disabled={modelPage <= 1}
 +                  >
 +                    <ChevronLeft className='size-4' aria-hidden='true' />
 +                  </Button>
-+                  <span className='min-w-20 text-center text-xs text-muted-foreground'>
++                  <span className='text-muted-foreground min-w-20 text-center text-xs'>
 +                    {modelPage} / {totalModelPages}
 +                  </span>
 +                  <Button
 +                    variant='outline'
 +                    size='icon-sm'
 +                    onClick={() =>
-+                      setModelPage((page) => Math.min(totalModelPages, page + 1))
++                      setModelPage((page) =>
++                        Math.min(totalModelPages, page + 1)
++                      )
 +                    }
 +                    disabled={modelPage >= totalModelPages}
 +                  >
@@ -16692,7 +16964,7 @@ index 0000000..1ed269b
 +      variant='ghost'
 +      size='sm'
 +      className={cn(
-+        'h-7 px-1 text-xs font-medium text-muted-foreground hover:text-foreground',
++        'text-muted-foreground hover:text-foreground h-7 px-1 text-xs font-medium',
 +        props.align === 'right' && 'ml-auto'
 +      )}
 +      onClick={props.onClick}
@@ -16715,10 +16987,10 @@ index 0000000..1ed269b
 +    <Card className='rounded-lg shadow-none'>
 +      <CardContent className='flex items-center gap-3 p-4'>
 +        <div className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
-+          <Icon className='size-4 text-muted-foreground' />
++          <Icon className='text-muted-foreground size-4' />
 +        </div>
 +        <div className='min-w-0'>
-+          <p className='text-xs text-muted-foreground'>{props.label}</p>
++          <p className='text-muted-foreground text-xs'>{props.label}</p>
 +          {props.loading ? (
 +            <Skeleton className='mt-1 h-6 w-20' />
 +          ) : (
@@ -16756,7 +17028,7 @@ index 0000000..1ed269b
 +            <Skeleton key={index} className='h-8 w-full' />
 +          ))
 +        ) : props.rows.length === 0 ? (
-+          <p className='py-6 text-center text-sm text-muted-foreground'>
++          <p className='text-muted-foreground py-6 text-center text-sm'>
 +            {props.empty}
 +          </p>
 +        ) : (
@@ -16767,7 +17039,7 @@ index 0000000..1ed269b
 +            >
 +              <div className='min-w-0'>
 +                <p className='truncate font-medium'>{row.model_name}</p>
-+                <p className='text-xs text-muted-foreground'>
++                <p className='text-muted-foreground text-xs'>
 +                  {formatCount(row.total_requests)} requests
 +                </p>
 +              </div>
@@ -17521,10 +17793,10 @@ index 0000000..8334f0a
 +}
 diff --git a/web/default/src/features/dashboard/trend-chart.tsx b/web/default/src/features/dashboard/trend-chart.tsx
 new file mode 100644
-index 0000000..9f0afb6
+index 0000000..7a23f48
 --- /dev/null
 +++ b/web/default/src/features/dashboard/trend-chart.tsx
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,446 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -17544,15 +17816,6 @@ index 0000000..9f0afb6
 +For commercial licensing, please contact support@quantumnous.com
 +*/
 +import {
-+  Card,
-+  CardContent,
-+  CardDescription,
-+  CardHeader,
-+  CardTitle,
-+} from '@/components/ui/card'
-+import { Button } from '@/components/ui/button'
-+import { cn } from '@/lib/utils'
-+import {
 +  Area,
 +  AreaChart,
 +  CartesianGrid,
@@ -17563,9 +17826,19 @@ index 0000000..9f0afb6
 +  XAxis,
 +  YAxis,
 +} from 'recharts'
++import { cn } from '@/lib/utils'
++import { Button } from '@/components/ui/button'
++import {
++  Card,
++  CardContent,
++  CardDescription,
++  CardHeader,
++  CardTitle,
++} from '@/components/ui/card'
 +import type { TrendPoint } from './stats-api'
 +import {
-+  useDashboardPreference,
++  useDashboardDefaultPreference,
++  useDashboardDefaultTrendMode,
 +} from './use-dashboard-controls'
 +
 +interface TrendChartProps {
@@ -17648,7 +17921,8 @@ index 0000000..9f0afb6
 +    requests,
 +    successRate: rateDenominator > 0 ? (success / rateDenominator) * 100 : 0,
 +    failure,
-+    avgFirstToken: firstTokenWeight > 0 ? firstTokenTotal / firstTokenWeight : 0,
++    avgFirstToken:
++      firstTokenWeight > 0 ? firstTokenTotal / firstTokenWeight : 0,
 +    cost,
 +    tokens,
 +  }
@@ -17660,9 +17934,10 @@ index 0000000..9f0afb6
 +  description = 'Requests, reliability, first-token latency, cost, and token volume over time.',
 +  storageKey = 'dashboard:trend-chart',
 +}: TrendChartProps) {
-+  const [mode, setMode] = useDashboardPreference<TrendMode>(
++  const defaultTrendMode = useDashboardDefaultTrendMode()
++  const [mode, setMode] = useDashboardDefaultPreference<TrendMode>(
 +    `${storageKey}:trend-mode`,
-+    'overview',
++    defaultTrendMode,
 +    isTrendMode
 +  )
 +  const chartData = data.map((point) => ({
@@ -17715,13 +17990,28 @@ index 0000000..9f0afb6
 +        </div>
 +      </CardHeader>
 +      <CardContent className='space-y-4'>
-+        <div className='grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 xl:grid-cols-6'>
-+          <TrendSummaryItem label='Requests' value={formatCount(summary.requests)} />
-+          <TrendSummaryItem label='Success' value={formatPercent(summary.successRate)} />
-+          <TrendSummaryItem label='Failures' value={formatCount(summary.failure)} />
-+          <TrendSummaryItem label='First token' value={formatMs(summary.avgFirstToken)} />
++        <div className='bg-muted/20 grid gap-2 rounded-lg border p-3 sm:grid-cols-2 xl:grid-cols-6'>
++          <TrendSummaryItem
++            label='Requests'
++            value={formatCount(summary.requests)}
++          />
++          <TrendSummaryItem
++            label='Success'
++            value={formatPercent(summary.successRate)}
++          />
++          <TrendSummaryItem
++            label='Failures'
++            value={formatCount(summary.failure)}
++          />
++          <TrendSummaryItem
++            label='First token'
++            value={formatMs(summary.avgFirstToken)}
++          />
 +          <TrendSummaryItem label='Cost' value={formatUsd(summary.cost)} />
-+          <TrendSummaryItem label='Tokens' value={formatCount(summary.tokens)} />
++          <TrendSummaryItem
++            label='Tokens'
++            value={formatCount(summary.tokens)}
++          />
 +        </div>
 +        <div
 +          className={cn(
@@ -17736,8 +18026,16 @@ index 0000000..9f0afb6
 +              kind='area'
 +              expanded={mode !== 'overview'}
 +              series={[
-+                { key: 'requests', name: 'Requests', color: 'hsl(var(--primary))' },
-+                { key: 'failure', name: 'Failures', color: 'hsl(var(--destructive))' },
++                {
++                  key: 'requests',
++                  name: 'Requests',
++                  color: 'hsl(var(--primary))',
++                },
++                {
++                  key: 'failure',
++                  name: 'Failures',
++                  color: 'hsl(var(--destructive))',
++                },
 +              ]}
 +            />
 +          ) : null}
@@ -17747,8 +18045,16 @@ index 0000000..9f0afb6
 +              title='Reliability'
 +              expanded={mode !== 'overview'}
 +              series={[
-+                { key: 'successRate', name: 'Success %', color: 'hsl(var(--success))' },
-+                { key: 'errorRate', name: 'Error %', color: 'hsl(var(--destructive))' },
++                {
++                  key: 'successRate',
++                  name: 'Success %',
++                  color: 'hsl(var(--success))',
++                },
++                {
++                  key: 'errorRate',
++                  name: 'Error %',
++                  color: 'hsl(var(--destructive))',
++                },
 +              ]}
 +              unit='%'
 +            />
@@ -17759,8 +18065,16 @@ index 0000000..9f0afb6
 +              title='Latency'
 +              expanded={mode !== 'overview'}
 +              series={[
-+                { key: 'firstToken', name: 'First token ms', color: 'hsl(var(--warning))' },
-+                { key: 'useTime', name: 'Avg use time ms', color: 'hsl(var(--primary))' },
++                {
++                  key: 'firstToken',
++                  name: 'First token ms',
++                  color: 'hsl(var(--warning))',
++                },
++                {
++                  key: 'useTime',
++                  name: 'Avg use time ms',
++                  color: 'hsl(var(--primary))',
++                },
 +              ]}
 +            />
 +          ) : null}
@@ -17783,8 +18097,8 @@ index 0000000..9f0afb6
 +
 +function TrendSummaryItem(props: { label: string; value: string }) {
 +  return (
-+    <div className='min-w-0 rounded-md bg-background/70 px-3 py-2'>
-+      <div className='text-[11px] font-medium uppercase text-muted-foreground'>
++    <div className='bg-background/70 min-w-0 rounded-md px-3 py-2'>
++      <div className='text-muted-foreground text-[11px] font-medium uppercase'>
 +        {props.label}
 +      </div>
 +      <div className='mt-1 truncate font-mono text-sm font-semibold tabular-nums'>
@@ -17828,12 +18142,12 @@ index 0000000..9f0afb6
 +  }
 +
 +  return (
-+    <div className='rounded-lg border bg-background/50 p-3'>
++    <div className='bg-background/50 rounded-lg border p-3'>
 +      <div className='mb-2 text-sm font-medium'>{props.title}</div>
 +      <TrendLegend series={props.series} />
 +      {props.data.length === 0 ? (
 +        <div
-+          className='mt-3 flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground'
++          className='text-muted-foreground mt-3 flex items-center justify-center rounded-md border border-dashed text-sm'
 +          style={{ height: props.expanded ? 320 : 210 }}
 +        >
 +          No trend data for this period
@@ -17842,7 +18156,10 @@ index 0000000..9f0afb6
 +        <ResponsiveContainer width='100%' height={props.expanded ? 320 : 210}>
 +          {props.kind === 'area' ? (
 +            <AreaChart data={props.data}>
-+              <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++              <CartesianGrid
++                strokeDasharray='3 3'
++                stroke='hsl(var(--border))'
++              />
 +              <XAxis
 +                dataKey='time'
 +                minTickGap={24}
@@ -17871,7 +18188,10 @@ index 0000000..9f0afb6
 +            </AreaChart>
 +          ) : (
 +            <LineChart data={props.data}>
-+              <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++              <CartesianGrid
++                strokeDasharray='3 3'
++                stroke='hsl(var(--border))'
++              />
 +              <XAxis
 +                dataKey='time'
 +                minTickGap={24}
@@ -17911,7 +18231,7 @@ index 0000000..9f0afb6
 +      {props.series.map((item) => (
 +        <div
 +          key={item.key}
-+          className='flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground'
++          className='text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs'
 +        >
 +          <span
 +            className='size-2 shrink-0 rounded-full'
@@ -17925,10 +18245,10 @@ index 0000000..9f0afb6
 +}
 diff --git a/web/default/src/features/dashboard/use-dashboard-controls.ts b/web/default/src/features/dashboard/use-dashboard-controls.ts
 new file mode 100644
-index 0000000..6eb2744
+index 0000000..2da1ba2
 --- /dev/null
 +++ b/web/default/src/features/dashboard/use-dashboard-controls.ts
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,267 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -17953,6 +18273,12 @@ index 0000000..6eb2744
 +  DASHBOARD_REFRESH_INTERVAL_MS_VALUES,
 +  DASHBOARD_TIME_RANGE_VALUES,
 +  DEFAULT_DASHBOARD_DEFAULTS,
++  isDashboardHealthFilter,
++  isDashboardPageSize,
++  isDashboardTrendMode,
++  type DashboardHealthFilter,
++  type DashboardPageSize,
++  type DashboardTrendMode,
 +} from '@/lib/dashboard-defaults'
 +import { type RefreshIntervalMs, type TimeRange } from './stats-api'
 +
@@ -18037,6 +18363,13 @@ index 0000000..6eb2744
 +  }
 +}
 +
++function hasSavedPreference(storageKey: string) {
++  return (
++    typeof window !== 'undefined' &&
++    window.localStorage.getItem(storageKey) != null
++  )
++}
++
 +export function useDashboardControls(
 +  storageKey: string,
 +  fallback?: DashboardControls
@@ -18115,6 +18448,74 @@ index 0000000..6eb2744
 +
 +  return [value, setValue] as const
 +}
++
++export function useDashboardDefaultPreference<T>(
++  storageKey: string,
++  fallback: T,
++  validate?: Validator<T>
++) {
++  const systemConfigLoading = useSystemConfigStore((state) => state.loading)
++  const [value, setValue] = useState<T>(() =>
++    readPreference(storageKey, fallback, validate)
++  )
++  const [hasLocalPreference, setHasLocalPreference] = useState(() =>
++    hasSavedPreference(storageKey)
++  )
++
++  useEffect(() => {
++    if (typeof window === 'undefined') return
++    const hasSaved = hasSavedPreference(storageKey)
++    setHasLocalPreference(hasSaved)
++    if (!hasSaved && !systemConfigLoading) {
++      setValue(fallback)
++    }
++  }, [fallback, storageKey, systemConfigLoading])
++
++  useEffect(() => {
++    if (!hasLocalPreference || systemConfigLoading) return
++    try {
++      window.localStorage.setItem(storageKey, JSON.stringify(value))
++    } catch {
++      // localStorage can be unavailable in strict browser privacy modes.
++    }
++  }, [hasLocalPreference, storageKey, systemConfigLoading, value])
++
++  const setPreference = (next: T | ((current: T) => T)) => {
++    setHasLocalPreference(true)
++    setValue(next)
++  }
++
++  return [value, setPreference] as const
++}
++
++export function useDashboardDefaultPageSize() {
++  return useSystemConfigStore((state) => {
++    const value = state.config.dashboardDefaults.pageSize
++    return isDashboardPageSize(value)
++      ? value
++      : DEFAULT_DASHBOARD_DEFAULTS.pageSize
++  })
++}
++
++export function useDashboardDefaultHealthFilter() {
++  return useSystemConfigStore((state) => {
++    const value = state.config.dashboardDefaults.healthFilter
++    return isDashboardHealthFilter(value)
++      ? value
++      : DEFAULT_DASHBOARD_DEFAULTS.healthFilter
++  })
++}
++
++export function useDashboardDefaultTrendMode() {
++  return useSystemConfigStore((state) => {
++    const value = state.config.dashboardDefaults.trendMode
++    return isDashboardTrendMode(value)
++      ? value
++      : DEFAULT_DASHBOARD_DEFAULTS.trendMode
++  })
++}
++
++export type { DashboardHealthFilter, DashboardPageSize, DashboardTrendMode }
 diff --git a/web/default/src/features/home/components/sections/iz-closing.tsx b/web/default/src/features/home/components/sections/iz-closing.tsx
 new file mode 100644
 index 0000000..a189443
@@ -19598,21 +19999,27 @@ index 0000000..1f21fcf
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/content/dashboard-section.tsx b/web/default/src/features/system-settings/content/dashboard-section.tsx
-index e21f6eb..54a300c 100644
+index e21f6eb..0b322cf 100644
 --- a/web/default/src/features/system-settings/content/dashboard-section.tsx
 +++ b/web/default/src/features/system-settings/content/dashboard-section.tsx
-@@ -21,6 +21,10 @@ import * as z from 'zod'
+@@ -21,6 +21,16 @@ import * as z from 'zod'
  import { useForm } from 'react-hook-form'
  import { zodResolver } from '@hookform/resolvers/zod'
  import { useTranslation } from 'react-i18next'
 +import {
++  DASHBOARD_HEALTH_FILTER_VALUES,
++  DASHBOARD_PAGE_SIZE_VALUES,
 +  DASHBOARD_TIME_RANGE_VALUES,
++  DASHBOARD_TREND_MODE_VALUES,
++  type DashboardHealthFilter,
++  type DashboardPageSize,
 +  type DashboardTimeRange,
++  type DashboardTrendMode,
 +} from '@/lib/dashboard-defaults'
  import {
    Form,
    FormControl,
-@@ -54,6 +58,14 @@ const dataDashboardSchema = z.object({
+@@ -54,6 +64,22 @@ const dataDashboardSchema = z.object({
    DataExportEnabled: z.boolean(),
    DataExportInterval: z.number().int().min(1).max(1440),
    DataExportDefaultTime: z.enum(['hour', 'day', 'week']),
@@ -19624,10 +20031,18 @@ index e21f6eb..54a300c 100644
 +    z.literal(30),
 +    z.literal(60),
 +  ]),
++  DashboardDefaultPageSize: z.union([
++    z.literal(10),
++    z.literal(25),
++    z.literal(50),
++    z.literal(100),
++  ]),
++  DashboardDefaultHealthFilter: z.enum(DASHBOARD_HEALTH_FILTER_VALUES),
++  DashboardDefaultTrendMode: z.enum(DASHBOARD_TREND_MODE_VALUES),
  })
  
  type DataDashboardFormValues = z.infer<typeof dataDashboardSchema>
-@@ -68,6 +80,24 @@ const granularityOptions = [
+@@ -68,6 +94,53 @@ const granularityOptions = [
    { label: 'Week', value: 'week' },
  ]
  
@@ -19649,10 +20064,39 @@ index e21f6eb..54a300c 100644
 +  { label: '60 seconds', value: 60 },
 +] as const
 +
++const dashboardPageSizeOptions: Array<{
++  label: string
++  value: DashboardPageSize
++}> = DASHBOARD_PAGE_SIZE_VALUES.map((value) => ({
++  label: `${value} rows`,
++  value,
++}))
++
++const dashboardHealthFilterOptions: Array<{
++  label: string
++  value: DashboardHealthFilter
++}> = [
++  { label: 'All rows', value: 'all' },
++  { label: 'Active only', value: 'active' },
++  { label: 'With failures', value: 'risk' },
++  { label: 'Slow first token', value: 'slow' },
++]
++
++const dashboardTrendModeOptions: Array<{
++  label: string
++  value: DashboardTrendMode
++}> = [
++  { label: 'Overview', value: 'overview' },
++  { label: 'Traffic', value: 'traffic' },
++  { label: 'Reliability', value: 'reliability' },
++  { label: 'Latency', value: 'latency' },
++  { label: 'Spend', value: 'spend' },
++]
++
  export function DashboardSection({ defaultValues }: DashboardSectionProps) {
    const { t } = useTranslation()
    const updateOption = useUpdateOption()
-@@ -187,6 +217,118 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+@@ -187,6 +260,234 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                )}
              />
            </div>
@@ -19768,11 +20212,127 @@ index e21f6eb..54a300c 100644
 +              </SettingsSwitchItem>
 +            )}
 +          />
++
++          <div className='grid gap-6 sm:grid-cols-3'>
++            <FormField
++              control={form.control}
++              name='DashboardDefaultPageSize'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default table page size')}</FormLabel>
++                  <Select
++                    items={dashboardPageSizeOptions.map((option) => ({
++                      value: String(option.value),
++                      label: t(option.label),
++                    }))}
++                    onValueChange={(value) => field.onChange(Number(value))}
++                    value={String(field.value)}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select page size')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardPageSizeOptions.map((option) => (
++                          <SelectItem
++                            key={option.value}
++                            value={String(option.value)}
++                          >
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t('Used by model, channel, channel-user, and user tables')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardDefaultHealthFilter'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default health filter')}</FormLabel>
++                  <Select
++                    items={dashboardHealthFilterOptions.map((option) => ({
++                      value: option.value,
++                      label: t(option.label),
++                    }))}
++                    onValueChange={field.onChange}
++                    value={field.value}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select filter')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardHealthFilterOptions.map((option) => (
++                          <SelectItem key={option.value} value={option.value}>
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t('Applied when a dashboard table has no saved view')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardDefaultTrendMode'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default trend mode')}</FormLabel>
++                  <Select
++                    items={dashboardTrendModeOptions.map((option) => ({
++                      value: option.value,
++                      label: t(option.label),
++                    }))}
++                    onValueChange={field.onChange}
++                    value={field.value}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select trend mode')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardTrendModeOptions.map((option) => (
++                          <SelectItem key={option.value} value={option.value}>
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t('Initial trend view for overview and drilldown charts')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++          </div>
          </SettingsForm>
        </Form>
      </SettingsSection>
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
-index 147a11d..7831ec6 100644
+index 147a11d..b29f1bf 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
 +++ b/web/default/src/features/system-settings/content/index.tsx
 @@ -25,6 +25,11 @@ import {
@@ -19787,26 +20347,35 @@ index 147a11d..7831ec6 100644
    'console_setting.api_info': '[]',
    'console_setting.announcements': '[]',
    'console_setting.faq': '[]',
-@@ -36,6 +41,9 @@ const defaultContentSettings: ContentSettings = {
+@@ -36,6 +41,12 @@ const defaultContentSettings: ContentSettings = {
    DataExportEnabled: false,
    DataExportDefaultTime: 'hour',
    DataExportInterval: 5,
 +  DashboardDefaultTimeRange: '7d',
 +  DashboardAutoRefreshEnabled: true,
 +  DashboardRefreshIntervalSeconds: 5,
++  DashboardDefaultPageSize: 25,
++  DashboardDefaultHealthFilter: 'all',
++  DashboardDefaultTrendMode: 'overview',
    Chats: '[]',
    DrawingEnabled: false,
    MjNotifyEnabled: false,
 diff --git a/web/default/src/features/system-settings/content/section-registry.tsx b/web/default/src/features/system-settings/content/section-registry.tsx
-index 1de3165..760d1ed 100644
+index 1de3165..1d13db1 100644
 --- a/web/default/src/features/system-settings/content/section-registry.tsx
 +++ b/web/default/src/features/system-settings/content/section-registry.tsx
-@@ -16,10 +16,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+@@ -16,10 +16,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
  
  For commercial licensing, please contact support@quantumnous.com
  */
 +import {
 +  DASHBOARD_TIME_RANGE_VALUES,
++  DASHBOARD_HEALTH_FILTER_VALUES,
++  DASHBOARD_TREND_MODE_VALUES,
++  DASHBOARD_PAGE_SIZE_VALUES,
++  type DashboardHealthFilter,
++  type DashboardTrendMode,
++  type DashboardPageSize,
 +  type DashboardTimeRange,
 +} from '@/lib/dashboard-defaults'
 +import {
@@ -19830,7 +20399,7 @@ index 1de3165..760d1ed 100644
  import { ChatSettingsSection } from './chat-settings-section'
  import { DashboardSection } from './dashboard-section'
  import { DrawingSettingsSection } from './drawing-settings-section'
-@@ -37,6 +55,26 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
+@@ -37,6 +61,44 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
    return 'hour'
  }
  
@@ -19846,6 +20415,24 @@ index 1de3165..760d1ed 100644
 +  return value === 5 || value === 15 || value === 30 || value === 60 ? value : 5
 +}
 +
++function validateDashboardPageSize(value: number): DashboardPageSize {
++  return DASHBOARD_PAGE_SIZE_VALUES.includes(value as DashboardPageSize)
++    ? (value as DashboardPageSize)
++    : 25
++}
++
++function validateDashboardHealthFilter(value: string): DashboardHealthFilter {
++  return DASHBOARD_HEALTH_FILTER_VALUES.includes(value as DashboardHealthFilter)
++    ? (value as DashboardHealthFilter)
++    : 'all'
++}
++
++function validateDashboardTrendMode(value: string): DashboardTrendMode {
++  return DASHBOARD_TREND_MODE_VALUES.includes(value as DashboardTrendMode)
++    ? (value as DashboardTrendMode)
++    : 'overview'
++}
++
 +function safeThemeValue<T extends string>(
 +  value: string,
 +  allowed: ReadonlySet<T>,
@@ -19857,7 +20444,7 @@ index 1de3165..760d1ed 100644
  const CONTENT_SECTIONS = [
    {
      id: 'dashboard',
-@@ -49,6 +87,51 @@ const CONTENT_SECTIONS = [
+@@ -49,6 +111,60 @@ const CONTENT_SECTIONS = [
            DataExportDefaultTime: validateDataExportDefaultTime(
              settings.DataExportDefaultTime
            ),
@@ -19869,6 +20456,15 @@ index 1de3165..760d1ed 100644
 +            validateDashboardRefreshIntervalSeconds(
 +              settings.DashboardRefreshIntervalSeconds
 +            ),
++          DashboardDefaultPageSize: validateDashboardPageSize(
++            settings.DashboardDefaultPageSize
++          ),
++          DashboardDefaultHealthFilter: validateDashboardHealthFilter(
++            settings.DashboardDefaultHealthFilter
++          ),
++          DashboardDefaultTrendMode: validateDashboardTrendMode(
++            settings.DashboardDefaultTrendMode
++          ),
 +        }}
 +      />
 +    ),
@@ -23659,7 +24255,7 @@ index 6cea57a..e553edb 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..1b3d8cc 100644
+index 2122268..68259a5 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,7 @@ export type SiteSettings = {
@@ -23682,17 +24278,20 @@ index 2122268..1b3d8cc 100644
    'console_setting.api_info': string
    'console_setting.announcements': string
    'console_setting.faq': string
-@@ -127,6 +133,9 @@ export type ContentSettings = {
+@@ -127,6 +133,12 @@ export type ContentSettings = {
    DataExportEnabled: boolean
    DataExportDefaultTime: string
    DataExportInterval: number
 +  DashboardDefaultTimeRange: string
 +  DashboardAutoRefreshEnabled: boolean
 +  DashboardRefreshIntervalSeconds: number
++  DashboardDefaultPageSize: number
++  DashboardDefaultHealthFilter: string
++  DashboardDefaultTrendMode: string
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +384,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +387,29 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -23773,16 +24372,19 @@ index e1b99d0..06d59f9 100644
              icon: Settings,
            },
 diff --git a/web/default/src/hooks/use-system-config.ts b/web/default/src/hooks/use-system-config.ts
-index 256bd7d..7b321e7 100644
+index 256bd7d..e32b0c1 100644
 --- a/web/default/src/hooks/use-system-config.ts
 +++ b/web/default/src/hooks/use-system-config.ts
-@@ -25,7 +25,26 @@ import {
+@@ -25,7 +25,29 @@ import {
    DEFAULT_CURRENCY_CONFIG,
  } from '@/stores/system-config-store'
  import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 +import {
 +  DEFAULT_DASHBOARD_DEFAULTS,
 +  isDashboardTimeRange,
++  isDashboardHealthFilter,
++  isDashboardPageSize,
++  isDashboardTrendMode,
 +  secondsToDashboardRefreshIntervalMs,
 +} from '@/lib/dashboard-defaults'
  import { applyFaviconToDom } from '@/lib/dom-utils'
@@ -23803,13 +24405,16 @@ index 256bd7d..7b321e7 100644
  
  interface UseSystemConfigOptions {
    /** Automatically fetch config from backend (use only in root component) */
-@@ -46,6 +65,16 @@ interface StatusApiResponse {
+@@ -46,6 +68,19 @@ interface StatusApiResponse {
      usd_exchange_rate?: number
      custom_currency_symbol?: string
      custom_currency_exchange_rate?: number
 +    dashboard_default_time_range?: string
 +    dashboard_auto_refresh?: boolean
 +    dashboard_refresh_interval?: number
++    dashboard_default_page_size?: number
++    dashboard_default_health?: string
++    dashboard_default_trend_mode?: string
 +    theme_customization?: {
 +      preset?: string
 +      font?: string
@@ -23820,7 +24425,7 @@ index 256bd7d..7b321e7 100644
    }
  }
  
-@@ -58,6 +87,16 @@ function toNumber(value: unknown, fallback: number): number {
+@@ -58,6 +93,16 @@ function toNumber(value: unknown, fallback: number): number {
    return fallback
  }
  
@@ -23837,7 +24442,7 @@ index 256bd7d..7b321e7 100644
  /**
   * Map `/api/status` response data to our persisted system config structure
   */
-@@ -91,6 +130,48 @@ export function mapStatusDataToConfig(
+@@ -91,6 +136,57 @@ export function mapStatusDataToConfig(
      ),
    }
  
@@ -23881,12 +24486,21 @@ index 256bd7d..7b321e7 100644
 +      data.dashboard_refresh_interval,
 +      DEFAULT_DASHBOARD_DEFAULTS.refreshInterval
 +    ),
++    pageSize: isDashboardPageSize(data.dashboard_default_page_size)
++      ? data.dashboard_default_page_size
++      : DEFAULT_DASHBOARD_DEFAULTS.pageSize,
++    healthFilter: isDashboardHealthFilter(data.dashboard_default_health)
++      ? data.dashboard_default_health
++      : DEFAULT_DASHBOARD_DEFAULTS.healthFilter,
++    trendMode: isDashboardTrendMode(data.dashboard_default_trend_mode)
++      ? data.dashboard_default_trend_mode
++      : DEFAULT_DASHBOARD_DEFAULTS.trendMode,
 +  }
 +
    return {
      systemName: data.system_name || DEFAULT_SYSTEM_NAME,
      logo: data.logo || DEFAULT_LOGO,
-@@ -98,6 +179,8 @@ export function mapStatusDataToConfig(
+@@ -98,6 +194,8 @@ export function mapStatusDataToConfig(
      demoSiteEnabled: data.demo_site_enabled,
      displayTokenStatEnabled: data.display_token_stat_enabled,
      currency,
@@ -23897,10 +24511,10 @@ index 256bd7d..7b321e7 100644
  
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
-index 0000000..519efe5
+index 0000000..167c9fe
 --- /dev/null
 +++ b/web/default/src/lib/dashboard-defaults.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,131 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -23922,11 +24536,22 @@ index 0000000..519efe5
 +
 +export type DashboardTimeRange = '1d' | '7d' | '30d' | '1y' | 'all'
 +export type DashboardRefreshIntervalMs = 5000 | 15000 | 30000 | 60000
++export type DashboardHealthFilter = 'all' | 'active' | 'risk' | 'slow'
++export type DashboardTrendMode =
++  | 'overview'
++  | 'traffic'
++  | 'reliability'
++  | 'latency'
++  | 'spend'
++export type DashboardPageSize = 10 | 25 | 50 | 100
 +
 +export interface DashboardDefaults {
 +  timeRange: DashboardTimeRange
 +  autoRefresh: boolean
 +  refreshInterval: DashboardRefreshIntervalMs
++  pageSize: DashboardPageSize
++  healthFilter: DashboardHealthFilter
++  trendMode: DashboardTrendMode
 +}
 +
 +export const DASHBOARD_TIME_RANGE_VALUES: readonly DashboardTimeRange[] = [
@@ -23939,11 +24564,26 @@ index 0000000..519efe5
 +
 +export const DASHBOARD_REFRESH_INTERVAL_MS_VALUES: readonly DashboardRefreshIntervalMs[] =
 +  [5000, 15000, 30000, 60000]
++export const DASHBOARD_PAGE_SIZE_VALUES: readonly DashboardPageSize[] = [
++  10, 25, 50, 100,
++]
++export const DASHBOARD_HEALTH_FILTER_VALUES: readonly DashboardHealthFilter[] =
++  ['all', 'active', 'risk', 'slow']
++export const DASHBOARD_TREND_MODE_VALUES: readonly DashboardTrendMode[] = [
++  'overview',
++  'traffic',
++  'reliability',
++  'latency',
++  'spend',
++]
 +
 +export const DEFAULT_DASHBOARD_DEFAULTS: DashboardDefaults = {
 +  timeRange: '7d',
 +  autoRefresh: true,
 +  refreshInterval: 5000,
++  pageSize: 25,
++  healthFilter: 'all',
++  trendMode: 'overview',
 +}
 +
 +export function isDashboardTimeRange(
@@ -23963,6 +24603,33 @@ index 0000000..519efe5
 +    DASHBOARD_REFRESH_INTERVAL_MS_VALUES.includes(
 +      value as DashboardRefreshIntervalMs
 +    )
++  )
++}
++
++export function isDashboardPageSize(
++  value: unknown
++): value is DashboardPageSize {
++  return (
++    typeof value === 'number' &&
++    DASHBOARD_PAGE_SIZE_VALUES.includes(value as DashboardPageSize)
++  )
++}
++
++export function isDashboardHealthFilter(
++  value: unknown
++): value is DashboardHealthFilter {
++  return (
++    typeof value === 'string' &&
++    DASHBOARD_HEALTH_FILTER_VALUES.includes(value as DashboardHealthFilter)
++  )
++}
++
++export function isDashboardTrendMode(
++  value: unknown
++): value is DashboardTrendMode {
++  return (
++    typeof value === 'string' &&
++    DASHBOARD_TREND_MODE_VALUES.includes(value as DashboardTrendMode)
 +  )
 +}
 +
