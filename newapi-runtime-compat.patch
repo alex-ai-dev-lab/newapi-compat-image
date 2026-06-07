@@ -3212,10 +3212,10 @@ index 9083ee5..aaea5dc 100644
  	errChan := make(chan error, len(migrations))
 diff --git a/model/stats.go b/model/stats.go
 new file mode 100644
-index 0000000..2868043
+index 0000000..39790b7
 --- /dev/null
 +++ b/model/stats.go
-@@ -0,0 +1,386 @@
+@@ -0,0 +1,392 @@
 +package model
 +
 +import (
@@ -3259,6 +3259,7 @@ index 0000000..2868043
 +	ModelName     string  `json:"model_name"`
 +	TotalRequests int64   `json:"total_requests"`
 +	SuccessRate   float64 `json:"success_rate"`
++	AvgFirstToken float64 `json:"avg_first_token"`
 +	TotalCost     float64 `json:"total_cost"`
 +}
 +
@@ -3475,6 +3476,7 @@ index 0000000..2868043
 +			model_name,
 +			COUNT(*) AS total_requests,
 +			CAST(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			AVG(` + frtExpr() + `) AS avg_first_token,
 +			COALESCE(SUM(quota), 0) AS total_quota
 +		FROM logs
 +	`
@@ -3496,8 +3498,12 @@ index 0000000..2868043
 +	for rows.Next() {
 +		var stat ModelStat
 +		var totalQuota int64
-+		if err := rows.Scan(&stat.ModelName, &stat.TotalRequests, &stat.SuccessRate, &totalQuota); err != nil {
++		var avgFirstToken sql.NullFloat64
++		if err := rows.Scan(&stat.ModelName, &stat.TotalRequests, &stat.SuccessRate, &avgFirstToken, &totalQuota); err != nil {
 +			continue
++		}
++		if avgFirstToken.Valid {
++			stat.AvgFirstToken = avgFirstToken.Float64
 +		}
 +		stat.TotalCost = quotaToUSD(totalQuota)
 +		stats = append(stats, stat)
@@ -3601,6 +3607,66 @@ index 0000000..2868043
 +		return 0
 +	}
 +	return float64(part) * 100 / float64(total)
++}
+diff --git a/model/stats_test.go b/model/stats_test.go
+new file mode 100644
+index 0000000..68dd517
+--- /dev/null
++++ b/model/stats_test.go
+@@ -0,0 +1,54 @@
++package model
++
++import (
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestGetModelStatsIncludesAverageFirstToken(t *testing.T) {
++	truncateTables(t)
++
++	now := time.Now().Unix()
++	require.NoError(t, LOG_DB.Create(&Log{
++		CreatedAt: now,
++		Type:      LogTypeConsume,
++		ModelName: "gpt-test",
++		Quota:     1000,
++		Other:     `{"frt":120}`,
++	}).Error)
++	require.NoError(t, LOG_DB.Create(&Log{
++		CreatedAt: now,
++		Type:      LogTypeConsume,
++		ModelName: "gpt-test",
++		Quota:     1000,
++		Other:     `{"frt":180}`,
++	}).Error)
++	require.NoError(t, LOG_DB.Create(&Log{
++		CreatedAt: now,
++		Type:      LogTypeError,
++		ModelName: "gpt-test",
++		Other:     `{"frt":300}`,
++	}).Error)
++	require.NoError(t, LOG_DB.Create(&Log{
++		CreatedAt: now,
++		Type:      LogTypeConsume,
++		ModelName: "broken-json",
++		Other:     ``,
++	}).Error)
++
++	stats, err := GetModelStats(time.Now().Add(-time.Hour))
++	require.NoError(t, err)
++
++	var got *ModelStat
++	for i := range stats {
++		if stats[i].ModelName == "gpt-test" {
++			got = &stats[i]
++			break
++		}
++	}
++	require.NotNil(t, got)
++	require.Equal(t, int64(3), got.TotalRequests)
++	require.InDelta(t, 200, got.AvgFirstToken, 0.001)
 +}
 diff --git a/model/user_agent.go b/model/user_agent.go
 new file mode 100644
@@ -10551,10 +10617,10 @@ index 0000000..088640a
 +}
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..d0b5fc9
+index 0000000..e9b61f5
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,170 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10688,6 +10754,7 @@ index 0000000..d0b5fc9
 +                  <TableHead>Model Name</TableHead>
 +                  <TableHead className="text-right">Requests</TableHead>
 +                  <TableHead className="text-right">Success Rate</TableHead>
++                  <TableHead className="text-right">Avg First Token</TableHead>
 +                  <TableHead className="text-right">Total Cost</TableHead>
 +                </TableRow>
 +              </TableHeader>
@@ -10705,6 +10772,11 @@ index 0000000..d0b5fc9
 +                      >
 +                        {model.success_rate.toFixed(2)}%
 +                      </Badge>
++                    </TableCell>
++                    <TableCell className="text-right font-mono">
++                      {model.avg_first_token > 0
++                        ? `${model.avg_first_token.toFixed(0)}ms`
++                        : 'N/A'}
 +                    </TableCell>
 +                    <TableCell className="text-right font-mono">
 +                      ${model.total_cost.toFixed(4)}
@@ -10982,10 +11054,10 @@ index db670f0..0c2a565 100644
  
 diff --git a/web/default/src/features/dashboard/stats-api.ts b/web/default/src/features/dashboard/stats-api.ts
 new file mode 100644
-index 0000000..cadee7d
+index 0000000..e7f5322
 --- /dev/null
 +++ b/web/default/src/features/dashboard/stats-api.ts
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,118 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11041,6 +11113,7 @@ index 0000000..cadee7d
 +  model_name: string
 +  total_requests: number
 +  success_rate: number
++  avg_first_token: number
 +  total_cost: number
 +}
 +

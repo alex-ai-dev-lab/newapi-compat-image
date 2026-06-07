@@ -36,6 +36,7 @@
   - 用户统计页不再是空白占位。
   - `logs.other` 损坏 JSON 不会炸首字延迟统计。
   - 日志统计避免在 `LOG_DB` 上 join 主库 `channels/users`，方便未来日志库独立。
+  - 模型统计补齐 `avg_first_token`，模型分析页展示 Avg First Token。
 - 上游错误规则补齐后台入口：
   - `系统设置 -> 安全 -> Upstream Error Rules`
   - 支持新增、编辑、删除、reload 规则。
