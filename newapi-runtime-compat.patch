@@ -20843,10 +20843,23 @@ index 2f73207..1871c65 100644
  
  export function useUpdateOption() {
 diff --git a/web/default/src/features/system-settings/maintenance/config.ts b/web/default/src/features/system-settings/maintenance/config.ts
-index 0edc503..2342007 100644
+index 0edc503..f14ed47 100644
 --- a/web/default/src/features/system-settings/maintenance/config.ts
 +++ b/web/default/src/features/system-settings/maintenance/config.ts
-@@ -33,11 +33,19 @@ export type HeaderNavModulesConfig = {
+@@ -22,23 +22,42 @@ export type HeaderNavAccessConfig = {
+ }
+ 
+ export type HeaderNavModulesConfig = {
++  order?: string[]
+   home: boolean
+   console: boolean
+   pricing: HeaderNavAccessConfig
+   rankings: HeaderNavAccessConfig
+   docs: boolean
+   about: boolean
+-  [key: string]: boolean | HeaderNavAccessConfig
++  [key: string]: boolean | HeaderNavAccessConfig | string[] | undefined
+ }
  
  export type SidebarSectionConfig = {
    enabled: boolean
@@ -20864,10 +20877,21 @@ index 0edc503..2342007 100644
 +  'admin',
 +]
 +
++export const HEADER_NAV_ORDER_DEFAULT = [
++  'home',
++  'console',
++  'pricing',
++  'rankings',
++  'docs',
++  'about',
++]
++
  export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
++  order: [...HEADER_NAV_ORDER_DEFAULT],
    home: true,
    console: true,
-@@ -56,11 +64,13 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
+   pricing: {
+@@ -56,11 +75,13 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
  export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
    chat: {
      enabled: true,
@@ -20881,7 +20905,7 @@ index 0edc503..2342007 100644
      detail: true,
      token: true,
      log: true,
-@@ -69,11 +79,20 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
+@@ -69,11 +90,20 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
    },
    personal: {
      enabled: true,
@@ -20902,7 +20926,15 @@ index 0edc503..2342007 100644
      channel: true,
      models: true,
      redemption: true,
-@@ -127,12 +146,111 @@ const parseAccessModule = (
+@@ -96,6 +126,7 @@ const toBoolean = (value: unknown, fallback: boolean): boolean => {
+ 
+ const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
+   ...HEADER_NAV_DEFAULT,
++  order: [...HEADER_NAV_ORDER_DEFAULT],
+   pricing: { ...HEADER_NAV_DEFAULT.pricing },
+   rankings: { ...HEADER_NAV_DEFAULT.rankings },
+ })
+@@ -127,12 +158,137 @@ const parseAccessModule = (
  const cloneSidebarDefault = (): SidebarModulesAdminConfig =>
    Object.entries(SIDEBAR_MODULES_DEFAULT).reduce<SidebarModulesAdminConfig>(
      (acc, [section, config]) => {
@@ -21012,10 +21044,62 @@ index 0edc503..2342007 100644
 +  return parseSidebarSectionOrder(order.join(','), availableSections).join(',')
 +}
 +
++export function normalizeHeaderNavOrder(
++  value: unknown,
++  availableModules = HEADER_NAV_ORDER_DEFAULT
++): string[] {
++  const moduleSet = new Set(availableModules)
++  const seen = new Set<string>()
++  const configuredOrder = Array.isArray(value)
++    ? value.filter((item): item is string => typeof item === 'string')
++    : []
++
++  const ordered = configuredOrder.filter((moduleKey) => {
++    if (!moduleSet.has(moduleKey) || seen.has(moduleKey)) return false
++    seen.add(moduleKey)
++    return true
++  })
++
++  availableModules.forEach((moduleKey) => {
++    if (!seen.has(moduleKey)) {
++      ordered.push(moduleKey)
++      seen.add(moduleKey)
++    }
++  })
++
++  return ordered
++}
++
  export function parseHeaderNavModules(
    value: string | null | undefined
  ): HeaderNavModulesConfig {
-@@ -201,13 +319,21 @@ export function parseSidebarModulesAdmin(
+@@ -144,11 +300,13 @@ export function parseHeaderNavModules(
+     const parsed = JSON.parse(value) as Record<string, unknown>
+     const result: HeaderNavModulesConfig = {
+       ...base,
++      order: normalizeHeaderNavOrder(parsed.order),
+       pricing: { ...base.pricing },
+       rankings: { ...base.rankings },
+     }
+ 
+     Object.entries(parsed).forEach(([key, raw]) => {
++      if (key === 'order') return
+       if (key === 'pricing') {
+         result.pricing = parseAccessModule(raw, base.pricing)
+         return
+@@ -177,7 +335,10 @@ export function parseHeaderNavModules(
+ export function serializeHeaderNavModules(
+   config: HeaderNavModulesConfig
+ ): string {
+-  return JSON.stringify(config)
++  return JSON.stringify({
++    ...config,
++    order: normalizeHeaderNavOrder(config.order),
++  })
+ }
+ 
+ export function parseSidebarModulesAdmin(
+@@ -201,13 +362,21 @@ export function parseSidebarModulesAdmin(
            defaultSection.enabled ?? true
          ),
        }
@@ -21039,7 +21123,7 @@ index 0edc503..2342007 100644
            )
          }
        )
-@@ -229,7 +355,7 @@ export function parseSidebarModulesAdmin(
+@@ -229,7 +398,7 @@ export function parseSidebarModulesAdmin(
        })
      })
  
@@ -21048,7 +21132,7 @@ index 0edc503..2342007 100644
    } catch {
      return defaults
    }
-@@ -238,5 +364,5 @@ export function parseSidebarModulesAdmin(
+@@ -238,5 +407,5 @@ export function parseSidebarModulesAdmin(
  export function serializeSidebarModulesAdmin(
    config: SidebarModulesAdminConfig
  ): string {
@@ -21056,10 +21140,22 @@ index 0edc503..2342007 100644
 +  return JSON.stringify(normalizeSidebarModulesAdmin(config))
  }
 diff --git a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx b/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
-index 7a4bd04..bf6e55f 100644
+index 7a4bd04..302e687 100644
 --- a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
 +++ b/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
-@@ -26,9 +26,11 @@ import {
+@@ -16,19 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect, useMemo } from 'react'
++import { useEffect, useMemo, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
+ import { useTranslation } from 'react-i18next'
++import { ArrowDown, ArrowUp } from 'lucide-react'
+ import {
+   Form,
    FormControl,
    FormDescription,
    FormField,
@@ -21071,7 +21167,20 @@ index 7a4bd04..bf6e55f 100644
  import { Switch } from '@/components/ui/switch'
  import {
    SettingsControlChildren,
-@@ -54,17 +56,23 @@ const headerNavSchema = z.object({
+@@ -40,9 +43,12 @@ import {
+ import { SettingsPageFormActions } from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
++import { Button } from '@/components/ui/button'
+ import {
+   HEADER_NAV_DEFAULT,
++  HEADER_NAV_ORDER_DEFAULT,
+   type HeaderNavModulesConfig,
++  normalizeHeaderNavOrder,
+   serializeHeaderNavModules,
+ } from './config'
+ 
+@@ -54,17 +60,24 @@ const headerNavSchema = z.object({
    rankingsEnabled: z.boolean(),
    rankingsRequireAuth: z.boolean(),
    docs: z.boolean(),
@@ -21081,6 +21190,7 @@ index 7a4bd04..bf6e55f 100644
  
  type HeaderNavFormValues = z.infer<typeof headerNavSchema>
 +type HeaderNavBooleanKey = Exclude<keyof HeaderNavFormValues, 'docsLink'>
++type HeaderNavOrderKey = (typeof HEADER_NAV_ORDER_DEFAULT)[number]
  
  type HeaderNavigationSectionProps = {
    config: HeaderNavModulesConfig
@@ -21096,7 +21206,7 @@ index 7a4bd04..bf6e55f 100644
    home:
      config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
    console:
-@@ -89,6 +97,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
+@@ -89,6 +102,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
        : Boolean(config.rankings.requireAuth),
    docs:
      config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
@@ -21104,7 +21214,7 @@ index 7a4bd04..bf6e55f 100644
    about:
      config.about === undefined
        ? HEADER_NAV_DEFAULT.about
-@@ -98,10 +107,14 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
+@@ -98,10 +112,17 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
  export function HeaderNavigationSection({
    config,
    initialSerialized,
@@ -21117,10 +21227,28 @@ index 7a4bd04..bf6e55f 100644
 +    () => toFormValues(config, docsLink),
 +    [config, docsLink]
 +  )
++  const [headerOrder, setHeaderOrder] = useState<HeaderNavOrderKey[]>(
++    normalizeHeaderNavOrder(config.order)
++  )
  
    const form = useForm<HeaderNavFormValues>({
      resolver: zodResolver(headerNavSchema),
-@@ -132,22 +145,34 @@ export function HeaderNavigationSection({
+@@ -110,11 +131,13 @@ export function HeaderNavigationSection({
+ 
+   useEffect(() => {
+     form.reset(formDefaults)
+-  }, [formDefaults, form])
++    setHeaderOrder(normalizeHeaderNavOrder(config.order))
++  }, [config.order, formDefaults, form])
+ 
+   const onSubmit = async (values: HeaderNavFormValues) => {
+     const payload: HeaderNavModulesConfig = {
+       ...config,
++      order: normalizeHeaderNavOrder(headerOrder),
+       home: values.home,
+       console: values.console,
+       docs: values.docs,
+@@ -132,22 +155,49 @@ export function HeaderNavigationSection({
      }
  
      const serialized = serializeHeaderNavModules(payload)
@@ -21154,6 +21282,21 @@ index 7a4bd04..bf6e55f 100644
    const resetToDefault = () => {
 -    form.reset(toFormValues(HEADER_NAV_DEFAULT))
 +    form.reset(toFormValues(HEADER_NAV_DEFAULT, ''))
++    setHeaderOrder(normalizeHeaderNavOrder(HEADER_NAV_DEFAULT.order))
++  }
++
++  const moveHeaderModule = (moduleKey: HeaderNavOrderKey, direction: -1 | 1) => {
++    setHeaderOrder((current) => {
++      const next = normalizeHeaderNavOrder(current)
++      const currentIndex = next.indexOf(moduleKey)
++      const targetIndex = currentIndex + direction
++      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= next.length) {
++        return next
++      }
++      const [item] = next.splice(currentIndex, 1)
++      next.splice(targetIndex, 0, item)
++      return next
++    })
    }
  
    const simpleModules: Array<{
@@ -21162,7 +21305,7 @@ index 7a4bd04..bf6e55f 100644
      title: string
      description: string
    }> = [
-@@ -174,8 +199,8 @@ export function HeaderNavigationSection({
+@@ -174,8 +224,8 @@ export function HeaderNavigationSection({
    ]
  
    const accessModules: Array<{
@@ -21173,7 +21316,23 @@ index 7a4bd04..bf6e55f 100644
      requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
      title: string
      description: string
-@@ -242,6 +267,28 @@ export function HeaderNavigationSection({
+@@ -206,6 +256,15 @@ export function HeaderNavigationSection({
+     },
+   ]
+ 
++  const orderLabels: Record<HeaderNavOrderKey, string> = {
++    home: t('Home'),
++    console: t('Console'),
++    pricing: t('Model Square'),
++    rankings: t('Rankings'),
++    docs: t('Docs'),
++    about: t('About'),
++  }
++
+   return (
+     <SettingsSection title={t('Header navigation')}>
+       <Form {...form}>
+@@ -242,6 +301,74 @@ export function HeaderNavigationSection({
              ))}
            </div>
  
@@ -21198,6 +21357,52 @@ index 7a4bd04..bf6e55f 100644
 +              </FormItem>
 +            )}
 +          />
++
++          <div className='space-y-3 rounded-lg border p-4'>
++            <div>
++              <p className='text-sm font-medium'>{t('Navigation order')}</p>
++              <p className='text-muted-foreground mt-1 text-sm'>
++                {t('Controls the left-to-right order of enabled top navigation modules.')}
++              </p>
++            </div>
++            <div className='grid gap-2'>
++              {headerOrder.map((moduleKey, index) => (
++                <div
++                  key={moduleKey}
++                  className='flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2'
++                >
++                  <div className='min-w-0'>
++                    <p className='text-sm font-medium'>
++                      {index + 1}. {orderLabels[moduleKey] ?? moduleKey}
++                    </p>
++                    <p className='text-muted-foreground text-xs'>
++                      {moduleKey}
++                    </p>
++                  </div>
++                  <div className='flex shrink-0 gap-1'>
++                    <Button
++                      type='button'
++                      variant='ghost'
++                      size='icon'
++                      disabled={index === 0}
++                      onClick={() => moveHeaderModule(moduleKey, -1)}
++                    >
++                      <ArrowUp className='h-4 w-4' />
++                    </Button>
++                    <Button
++                      type='button'
++                      variant='ghost'
++                      size='icon'
++                      disabled={index === headerOrder.length - 1}
++                      onClick={() => moveHeaderModule(moduleKey, 1)}
++                    >
++                      <ArrowDown className='h-4 w-4' />
++                    </Button>
++                  </div>
++                </div>
++              ))}
++            </div>
++          </div>
 +
            <div className='grid gap-4 lg:grid-cols-2'>
              {accessModules.map((module) => (
@@ -23923,10 +24128,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..74649e6
+index 0000000..de7bfac
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,881 @@
+@@ -0,0 +1,906 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -23979,7 +24184,10 @@ index 0000000..74649e6
 +  CardTitle,
 +} from '@/components/ui/card'
 +import { getOfficialPriceSyncStatus } from '../api'
-+import { parseHeaderNavModules } from '../maintenance/config'
++import {
++  normalizeHeaderNavOrder,
++  parseHeaderNavModules,
++} from '../maintenance/config'
 +import type { OfficialPriceSyncStatus } from '../types'
 +
 +type OperationsCenterProps = {
@@ -24498,13 +24706,35 @@ index 0000000..74649e6
 +    parsed.rankings.requireAuth ? 'rankings' : '',
 +  ].filter(Boolean)
 +  const normalizedDocsLink = docsLink?.trim() || 'default docs link'
++  const order = normalizeHeaderNavOrder(parsed.order)
++    .map(formatHeaderModule)
++    .join(' / ')
 +
 +  return {
 +    value: `${enabledModules.length}/${modules.length} modules visible`,
 +    detail:
 +      gatedModules.length > 0
-+        ? `${gatedModules.join('/')} require login · ${normalizedDocsLink}`
-+        : `public modules · ${normalizedDocsLink}`,
++        ? `${order} · ${gatedModules.join('/')} require login · ${normalizedDocsLink}`
++        : `${order} · public modules · ${normalizedDocsLink}`,
++  }
++}
++
++function formatHeaderModule(value: string) {
++  switch (value) {
++    case 'home':
++      return 'Home'
++    case 'console':
++      return 'Console'
++    case 'pricing':
++      return 'Models'
++    case 'rankings':
++      return 'Rankings'
++    case 'docs':
++      return 'Docs'
++    case 'about':
++      return 'About'
++    default:
++      return value
 +  }
 +}
 +
@@ -25979,6 +26209,102 @@ index 256bd7d..1215ef2 100644
    }
  }
  
+diff --git a/web/default/src/hooks/use-top-nav-links.ts b/web/default/src/hooks/use-top-nav-links.ts
+index a799610..faa7f09 100644
+--- a/web/default/src/hooks/use-top-nav-links.ts
++++ b/web/default/src/hooks/use-top-nav-links.ts
+@@ -19,7 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
+ import { useMemo } from 'react'
+ import { useTranslation } from 'react-i18next'
+ import { useAuthStore } from '@/stores/auth-store'
+-import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
++import {
++  HEADER_NAV_ORDER_DEFAULT,
++  normalizeHeaderNavOrder,
++  parseHeaderNavModulesFromStatus,
++} from '@/lib/nav-modules'
+ import { useStatus } from '@/hooks/use-status'
+ 
+ export type TopNavLink = {
+@@ -30,6 +34,8 @@ export type TopNavLink = {
+   external?: boolean
+ }
+ 
++type TopNavModuleKey = (typeof HEADER_NAV_ORDER_DEFAULT)[number]
++
+ /**
+  * Generate top navigation links based on HeaderNavModules configuration from backend /api/status
+  * Backend format example (stringified JSON):
+@@ -59,45 +65,54 @@ export function useTopNavLinks(): TopNavLink[] {
+ 
+   const isAuthed = !!auth?.user
+ 
+-  const links: TopNavLink[] = []
++  const linkByModule = new Map<TopNavModuleKey, TopNavLink>()
+ 
+-  // Home
+   if (modules?.home !== false) {
+-    links.push({ title: t('Home'), href: '/' })
++    linkByModule.set('home', { title: t('Home'), href: '/' })
+   }
+ 
+-  // Console -> /dashboard (new console path)
+   if (modules?.console !== false) {
+-    links.push({ title: t('Console'), href: '/dashboard' })
++    linkByModule.set('console', { title: t('Console'), href: '/dashboard' })
+   }
+ 
+-  // Pricing
+   const pricing = modules?.pricing
+   if (pricing && typeof pricing === 'object' && pricing.enabled) {
+     const requiresAuth = pricing.requireAuth && !isAuthed
+-    links.push({ title: t('Model Square'), href: '/pricing', requiresAuth })
++    linkByModule.set('pricing', {
++      title: t('Model Square'),
++      href: '/pricing',
++      requiresAuth,
++    })
+   }
+ 
+-  // Rankings
+   const rankings = modules?.rankings
+   if (rankings && typeof rankings === 'object' && rankings.enabled) {
+     const requiresAuth = rankings.requireAuth && !isAuthed
+-    links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
++    linkByModule.set('rankings', {
++      title: t('Rankings'),
++      href: '/rankings',
++      requiresAuth,
++    })
+   }
+ 
+-  // Docs (supports external links)
+   if (modules?.docs !== false) {
+     if (docsLink) {
+-      links.push({ title: t('Docs'), href: docsLink, external: true })
++      linkByModule.set('docs', {
++        title: t('Docs'),
++        href: docsLink,
++        external: true,
++      })
+     } else {
+-      links.push({ title: t('Docs'), href: '/docs' })
++      linkByModule.set('docs', { title: t('Docs'), href: '/docs' })
+     }
+   }
+ 
+-  // About
+   if (modules?.about !== false) {
+-    links.push({ title: t('About'), href: '/about' })
++    linkByModule.set('about', { title: t('About'), href: '/about' })
+   }
+ 
+-  return links
++  return normalizeHeaderNavOrder(modules.order).flatMap((moduleKey) => {
++    const link = linkByModule.get(moduleKey)
++    return link ? [link] : []
++  })
+ }
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
 index 0000000..518b785
@@ -26243,6 +26569,88 @@ index 0000000..518b785
 +  const intervalMs = parsed * 1000
 +  return isDashboardRefreshIntervalMs(intervalMs) ? intervalMs : fallback
 +}
+diff --git a/web/default/src/lib/nav-modules.ts b/web/default/src/lib/nav-modules.ts
+index 2e8611d..8ec0535 100644
+--- a/web/default/src/lib/nav-modules.ts
++++ b/web/default/src/lib/nav-modules.ts
+@@ -23,16 +23,27 @@ export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
+ export type HeaderNavModule = 'rankings' | 'pricing'
+ 
+ export type HeaderNavModules = {
++  order?: string[]
+   home: boolean
+   console: boolean
+   pricing: ModuleAccess
+   rankings: ModuleAccess
+   docs: boolean
+   about: boolean
+-  [key: string]: boolean | ModuleAccess
++  [key: string]: boolean | ModuleAccess | string[] | undefined
+ }
+ 
++export const HEADER_NAV_ORDER_DEFAULT = [
++  'home',
++  'console',
++  'pricing',
++  'rankings',
++  'docs',
++  'about',
++]
++
+ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
++  order: [...HEADER_NAV_ORDER_DEFAULT],
+   home: true,
+   console: true,
+   pricing: { enabled: true, requireAuth: false },
+@@ -49,6 +60,7 @@ const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
+ function cloneHeaderNavDefaults(): HeaderNavModules {
+   return {
+     ...DEFAULT_HEADER_NAV_MODULES,
++    order: [...HEADER_NAV_ORDER_DEFAULT],
+     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
+     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
+   }
+@@ -104,12 +116,40 @@ function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
+   }
+ }
+ 
++export function normalizeHeaderNavOrder(
++  value: unknown,
++  availableModules = HEADER_NAV_ORDER_DEFAULT
++): string[] {
++  const moduleSet = new Set(availableModules)
++  const seen = new Set<string>()
++  const configuredOrder = Array.isArray(value)
++    ? value.filter((item): item is string => typeof item === 'string')
++    : []
++
++  const ordered = configuredOrder.filter((moduleKey) => {
++    if (!moduleSet.has(moduleKey) || seen.has(moduleKey)) return false
++    seen.add(moduleKey)
++    return true
++  })
++
++  availableModules.forEach((moduleKey) => {
++    if (!seen.has(moduleKey)) {
++      ordered.push(moduleKey)
++      seen.add(moduleKey)
++    }
++  })
++
++  return ordered
++}
++
+ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
+   const result = cloneHeaderNavDefaults()
+   const parsed = parseHeaderNavRecord(raw)
+   if (!parsed) return result
++  result.order = normalizeHeaderNavOrder(parsed.order)
+ 
+   Object.entries(parsed).forEach(([key, value]) => {
++    if (key === 'order') return
+     if (key === 'pricing') {
+       result.pricing = parseAccess(value, result.pricing)
+       return
 diff --git a/web/default/src/lib/theme-customization.ts b/web/default/src/lib/theme-customization.ts
 index b668033..9d4cd26 100644
 --- a/web/default/src/lib/theme-customization.ts
