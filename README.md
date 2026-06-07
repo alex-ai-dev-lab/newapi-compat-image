@@ -96,6 +96,7 @@
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，可配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
 | 监控与告警 | `系统设置 -> 运维/Operations -> Monitoring & Alerts`，可配置全局渠道测试、自动禁用/恢复、重试状态码、额度提醒，并支持 JSON 导入/导出 |
 | 性能设置 | `系统设置 -> 运维/Operations -> Performance`，可配置磁盘缓存、资源阈值、性能指标采集，并支持 JSON 导入/导出 |
+| SMTP/Worker | `系统设置 -> 运维/Operations -> SMTP Email` 与 `Worker Proxy` 支持 JSON 导入/导出；导出的 `SMTPToken`、`WorkerValidKey` 默认脱敏，导入脱敏占位符时保留当前密钥 |
 | 运营统计总览 | `Dashboard -> Overview` 的管理员 `Operations center` |
 | 模型/渠道/用户统计 | `Dashboard -> Model Call Analytics`、`Dashboard -> Channel Analytics`、`Dashboard -> User Analytics` |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |

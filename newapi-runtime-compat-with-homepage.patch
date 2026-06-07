@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..dc5cbf1
+index 0000000..a69d0bb
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,949 @@
+@@ -0,0 +1,1001 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11124,6 +11124,58 @@ index 0000000..dc5cbf1
 +          navigate({
 +            to: '/system-settings/operations/$section',
 +            params: { section: 'monitoring' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-smtp-email',
++        label: 'SMTP Email',
++        description:
++          'Configure and import/export SMTP host, sender, auth flags, and redacted credentials',
++        icon: Settings,
++        keywords: [
++          'smtp',
++          'email',
++          'mail',
++          'credential',
++          'secret',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/operations/$section',
++            params: { section: 'email' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-worker-proxy',
++        label: 'Worker Proxy',
++        description:
++          'Configure and import/export Worker URL, HTTP image policy, and redacted access key',
++        icon: Settings,
++        keywords: [
++          'worker',
++          'proxy',
++          'access key',
++          'credential',
++          'secret',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/operations/$section',
++            params: { section: 'worker' },
 +          })
 +          close()
 +        },
@@ -23765,6 +23817,226 @@ index 2f73207..1871c65 100644
  ]
  
  export function useUpdateOption() {
+diff --git a/web/default/src/features/system-settings/integrations/email-settings-section.tsx b/web/default/src/features/system-settings/integrations/email-settings-section.tsx
+index 7f85249..501da17 100644
+--- a/web/default/src/features/system-settings/integrations/email-settings-section.tsx
++++ b/web/default/src/features/system-settings/integrations/email-settings-section.tsx
+@@ -16,10 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -31,16 +43,22 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useResetForm } from '../hooks/use-reset-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
++const REDACTED_SECRET = '__SECRET_REDACTED__'
++
+ const createEmailSchema = (t: (key: string) => string) =>
+   z.object({
+     SMTPServer: z.string(),
+@@ -66,12 +84,18 @@ type EmailSettingsSectionProps = {
+   defaultValues: EmailFormValues
+ }
+ 
++type EmailImportExportPayload = {
++  SMTPEmail?: Partial<EmailFormValues>
++} & Partial<EmailFormValues>
++
+ export function EmailSettingsSection({
+   defaultValues,
+ }: EmailSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+   const emailSchema = createEmailSchema(t)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const form = useForm<EmailFormValues>({
+     resolver: zodResolver(emailSchema),
+@@ -142,10 +166,117 @@ export function EmailSettingsSection({
+     }
+   }
+ 
++  const normalizedValues = (): EmailFormValues => {
++    const values = emailSchema.parse(form.getValues())
++    return {
++      SMTPServer: values.SMTPServer.trim(),
++      SMTPPort: values.SMTPPort.trim(),
++      SMTPAccount: values.SMTPAccount.trim(),
++      SMTPFrom: values.SMTPFrom.trim(),
++      SMTPToken: values.SMTPToken.trim(),
++      SMTPSSLEnabled: values.SMTPSSLEnabled,
++      SMTPForceAuthLogin: values.SMTPForceAuthLogin,
++    }
++  }
++
++  const exportConfig = async () => {
++    const values = normalizedValues()
++    const safeValues = {
++      ...values,
++      SMTPToken: values.SMTPToken ? REDACTED_SECRET : '',
++    }
++    const payload = {
++      SMTPEmail: safeValues,
++      ...safeValues,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-smtp-email.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('SMTP Email JSON exported and copied'))
++    } catch {
++      toast.success(t('SMTP Email JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    const values = normalizedValues()
++    setImportText(
++      JSON.stringify(
++        {
++          SMTPEmail: {
++            ...values,
++            SMTPToken: values.SMTPToken ? REDACTED_SECRET : '',
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as EmailImportExportPayload
++      const source = raw.SMTPEmail ?? raw
++      const current = normalizedValues()
++      const parsed = emailSchema.parse({
++        ...current,
++        ...source,
++        SMTPToken:
++          source.SMTPToken === REDACTED_SECRET || source.SMTPToken === undefined
++            ? current.SMTPToken
++            : source.SMTPToken,
++      })
++
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof EmailFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('SMTP Email imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid SMTP JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('SMTP Email')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -308,6 +439,31 @@ export function EmailSettingsSection({
+           />
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import SMTP Email JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported SMTP JSON payload. Redacted credentials keep the current saved secret.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx b/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx
 index 5ec328a..a06a163 100644
 --- a/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx
@@ -23999,6 +24271,225 @@ index 5ec328a..a06a163 100644
 +            value={importText}
 +            onChange={(event) => setImportText(event.target.value)}
 +            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/integrations/worker-settings-section.tsx b/web/default/src/features/system-settings/integrations/worker-settings-section.tsx
+index c2ef093..42471cf 100644
+--- a/web/default/src/features/system-settings/integrations/worker-settings-section.tsx
++++ b/web/default/src/features/system-settings/integrations/worker-settings-section.tsx
+@@ -16,10 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -31,17 +43,23 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useResetForm } from '../hooks/use-reset-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ import { removeTrailingSlash } from './utils'
+ 
++const REDACTED_SECRET = '__SECRET_REDACTED__'
++
+ const createWorkerSchema = (t: (key: string) => string) =>
+   z.object({
+     WorkerUrl: z.string().refine((value) => {
+@@ -59,12 +77,18 @@ type WorkerSettingsSectionProps = {
+   defaultValues: WorkerFormValues
+ }
+ 
++type WorkerImportExportPayload = {
++  WorkerProxy?: Partial<WorkerFormValues>
++} & Partial<WorkerFormValues>
++
+ export function WorkerSettingsSection({
+   defaultValues,
+ }: WorkerSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+   const workerSchema = createWorkerSchema(t)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const form = useForm<WorkerFormValues>({
+     resolver: zodResolver(workerSchema),
+@@ -104,10 +128,115 @@ export function WorkerSettingsSection({
+     }
+   }
+ 
++  const normalizedValues = (): WorkerFormValues => {
++    const values = workerSchema.parse(form.getValues())
++    return {
++      WorkerUrl: removeTrailingSlash(values.WorkerUrl),
++      WorkerValidKey: values.WorkerValidKey.trim(),
++      WorkerAllowHttpImageRequestEnabled:
++        values.WorkerAllowHttpImageRequestEnabled,
++    }
++  }
++
++  const exportConfig = async () => {
++    const values = normalizedValues()
++    const safeValues = {
++      ...values,
++      WorkerValidKey: values.WorkerValidKey ? REDACTED_SECRET : '',
++    }
++    const payload = {
++      WorkerProxy: safeValues,
++      ...safeValues,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-worker-proxy.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Worker Proxy JSON exported and copied'))
++    } catch {
++      toast.success(t('Worker Proxy JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    const values = normalizedValues()
++    setImportText(
++      JSON.stringify(
++        {
++          WorkerProxy: {
++            ...values,
++            WorkerValidKey: values.WorkerValidKey ? REDACTED_SECRET : '',
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as WorkerImportExportPayload
++      const source = raw.WorkerProxy ?? raw
++      const current = normalizedValues()
++      const parsed = workerSchema.parse({
++        ...current,
++        ...source,
++        WorkerValidKey:
++          source.WorkerValidKey === REDACTED_SECRET ||
++          source.WorkerValidKey === undefined
++            ? current.WorkerValidKey
++            : source.WorkerValidKey,
++      })
++
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof WorkerFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Worker Proxy imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid Worker JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Worker Proxy')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -188,6 +317,31 @@ export function WorkerSettingsSection({
+           />
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import Worker Proxy JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported Worker Proxy JSON payload. Redacted credentials keep the current saved secret.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
 +          />
 +          <DialogFooter>
 +            <Button variant='outline' onClick={() => setImportOpen(false)}>
@@ -27966,10 +28457,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..4a4850f
+index 0000000..1cd0536
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1000 @@
+@@ -0,0 +1,1016 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -28434,6 +28925,22 @@ index 0000000..4a4850f
 +          kind: 'system-settings',
 +          area: 'operations',
 +          section: 'monitoring',
++        },
++      },
++      {
++        label: 'SMTP Email',
++        link: {
++          kind: 'system-settings',
++          area: 'operations',
++          section: 'email',
++        },
++      },
++      {
++        label: 'Worker Proxy',
++        link: {
++          kind: 'system-settings',
++          area: 'operations',
++          section: 'worker',
 +        },
 +      },
 +      {
