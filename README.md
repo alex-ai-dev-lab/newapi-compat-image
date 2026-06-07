@@ -84,7 +84,7 @@
 | 功能 | 入口 |
 |---|---|
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
-| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和当前默认值快照，或命令面板 `Operations Center` |
+| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和 Dashboard/Appearance/Sidebar 当前默认值快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |

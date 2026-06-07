@@ -24616,10 +24616,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..aa16621
+index 0000000..c9d63ce
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,661 @@
+@@ -0,0 +1,752 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -24659,6 +24659,7 @@ index 0000000..aa16621
 +} from 'lucide-react'
 +import { useSystemConfigStore } from '@/stores/system-config-store'
 +import { cn } from '@/lib/utils'
++import { useStatus } from '@/hooks/use-status'
 +import { Badge } from '@/components/ui/badge'
 +import { buttonVariants } from '@/components/ui/button'
 +import {
@@ -24993,6 +24994,7 @@ index 0000000..aa16621
 +  const themeCustomization = useSystemConfigStore(
 +    (state) => state.config.themeCustomization
 +  )
++  const { status } = useStatus()
 +
 +  return (
 +    <section className='space-y-4'>
@@ -25022,6 +25024,12 @@ index 0000000..aa16621
 +      <DefaultsSnapshot
 +        dashboardDefaults={dashboardDefaults}
 +        themeCustomization={themeCustomization}
++        sidebarSectionOrder={
++          status?.SidebarSectionOrder as string | null | undefined
++        }
++        sidebarModulesAdmin={
++          status?.SidebarModulesAdmin as string | null | undefined
++        }
 +      />
 +
 +      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
@@ -25052,9 +25060,15 @@ index 0000000..aa16621
 +  themeCustomization: ReturnType<
 +    typeof useSystemConfigStore.getState
 +  >['config']['themeCustomization']
++  sidebarSectionOrder?: string | null
++  sidebarModulesAdmin?: string | null
 +}) {
 +  const dashboard = props.dashboardDefaults
 +  const theme = props.themeCustomization
++  const sidebarSummary = getSidebarSummary(
++    props.sidebarSectionOrder,
++    props.sidebarModulesAdmin
++  )
 +  const items = [
 +    {
 +      label: 'Dashboard view',
@@ -25076,6 +25090,11 @@ index 0000000..aa16621
 +      value: `${theme.preset} · ${theme.font}`,
 +      detail: `${theme.radius} radius · ${theme.scale} density · ${theme.contentLayout} layout`,
 +    },
++    {
++      label: 'Sidebar',
++      value: sidebarSummary.value,
++      detail: sidebarSummary.detail,
++    },
 +  ]
 +
 +  return (
@@ -25087,7 +25106,7 @@ index 0000000..aa16621
 +          choices may still override them.
 +        </CardDescription>
 +      </CardHeader>
-+      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-4'>
++      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-5'>
 +        {items.map((item) => (
 +          <div key={item.label} className='bg-muted/20 rounded-md border p-3'>
 +            <p className='text-muted-foreground text-xs'>{item.label}</p>
@@ -25100,6 +25119,78 @@ index 0000000..aa16621
 +      </CardContent>
 +    </Card>
 +  )
++}
++
++function getSidebarSummary(
++  sectionOrder?: string | null,
++  modulesConfig?: string | null
++) {
++  const orderedSections = parseCSV(sectionOrder)
++  const orderValue =
++    orderedSections.length > 0
++      ? orderedSections.map(formatSidebarSection).join(' / ')
++      : 'Default order'
++
++  try {
++    const parsed = modulesConfig
++      ? (JSON.parse(modulesConfig) as Record<string, Record<string, unknown>>)
++      : {}
++    const sections = Object.entries(parsed).filter(
++      ([, section]) => section && typeof section === 'object'
++    )
++    if (sections.length === 0) {
++      return {
++        value: orderValue,
++        detail: 'default sections · default modules',
++      }
++    }
++
++    let enabledSections = 0
++    let totalModules = 0
++    let enabledModules = 0
++    sections.forEach(([, section]) => {
++      if (section.enabled !== false) enabledSections += 1
++      Object.entries(section).forEach(([moduleKey, moduleValue]) => {
++        if (moduleKey === 'enabled' || moduleKey === 'order') return
++        if (typeof moduleValue !== 'boolean') return
++        totalModules += 1
++        if (moduleValue) enabledModules += 1
++      })
++    })
++
++    return {
++      value: orderValue,
++      detail: `${enabledSections}/${sections.length} sections · ${enabledModules}/${totalModules} modules visible`,
++    }
++  } catch {
++    return {
++      value: orderValue,
++      detail: 'sidebar module JSON is not readable',
++    }
++  }
++}
++
++function parseCSV(value?: string | null) {
++  if (!value) return []
++  return value
++    .split(',')
++    .map((item) => item.trim())
++    .filter(Boolean)
++}
++
++function formatSidebarSection(value: string) {
++  switch (value) {
++    case 'chat':
++      return 'Chat'
++    case 'console':
++      return 'Console'
++    case 'personal':
++      return 'Personal'
++    case 'admin':
++      return 'Admin'
++    default:
++      return value
++  }
 +}
 +
 +function ConfigMap() {
