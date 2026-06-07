@@ -44,12 +44,12 @@
 | 5 | 数据库卡顿评估，考虑是否 SQLite 换高性能数据库 | 已做镜像级 SQLite 调优，未迁库 | `pkg/compat/sqlite/tune.go`、`model/main.go` | 当前补丁不强制迁 MySQL。Ken 当前小并发下优先 WAL + busy_timeout + 保守连接池；日志量显著上升后再迁 MySQL |
 | 6 | Claude thinking sanitizer：支持渠道保持 thinking/signature，不支持渠道清洗；带 thinking sticky 到支持渠道 | 已实现 | `service/claude_thinking_compat.go`、`controller/relay.go`、`service/channel_select.go`、渠道 `supports_claude_thinking` 三态 UI、`TestSanitizeClaudeThinking*`、`TestChannelSupportsClaudeThinking*` | 没有兼容渠道时才清洗后 fallback |
 | 7 | 渠道 75 Claude 400 问题 | 按 Ken 最新要求保持现状，暂不作为后续任务 | 相关通用补强同 #3 / #6 | 不再作为发布阻塞项；除非 Ken 重新要求，不继续跟进渠道 75 |
-| 8 | 渠道 77 / Codex UA 与请求体标识符问题 | UA 管理和 Client Identity 已覆盖；生产仍需复测 | `service/client_identity.go`、`relay/channel/api_request.go`、`client-identity-settings-card.tsx`、`TestApplyClientIdentity*` | 需要部署后用真实渠道 77 直连/经 NewAPI 对比验证 |
+| 8 | 渠道 77 / Codex UA 与请求体标识符问题 | UA 管理和 Client Identity 已覆盖；生产已有成功日志 | `service/client_identity.go`、`relay/channel/api_request.go`、`client-identity-settings-card.tsx`、`TestApplyClientIdentity*`；2026-06-07 生产日志显示 `gpt-5.5` 流式请求走 `use_channel=["77"]` 成功，且 `client identity applied: provider=codex mode=force_global` | 这证明本轮部署后渠道 77 已能跑通；后续仍建议观察长时间真实流量 |
 | 9 | 所有设备标识符固定，支持定期轮换；Codex/Claude/其他厂商可配置字段 | 已实现 | `model/client_identity.go`、`service/client_identity*.go`、`controller/client_identity.go`、`client-identity-settings-card.tsx` | 当前策略为强制替换，不保留客户端原值 |
 | 10 | 后台重设计：Vercel/Stripe/Datadog/Linear/Raycast 风格，Phase3 一次性全部 | 未完整实现；统计中心和可配置项继续增强 | `web/default/src/features/dashboard/index.tsx`、`web/default/src/features/dashboard/components/overview/operations-insights-panel.tsx`、`web/default/src/features/dashboard/overview-dashboard.tsx`、`web/default/src/features/dashboard/model-analytics-dashboard.tsx`、`web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx`、`web/default/src/features/dashboard/components/users/user-operations-panel.tsx`、`web/default/src/features/dashboard/trend-chart.tsx`、`web/default/src/features/dashboard/stats-api.ts`、`web/default/src/features/dashboard/use-dashboard-controls.ts`、`controller/stats.go`、`model/stats.go`、`router/api-router.go`、`web/default/src/features/system-settings/models/model-operations-overview.tsx`、`web/default/src/features/system-settings/models/section-registry.tsx`、`web/default/src/features/system-settings/content/dashboard-section.tsx`、`web/default/src/lib/dashboard-defaults.ts`、`web/default/src/components/layout/components/command-palette.tsx`、`web/default/src/context/search-provider.tsx`、`web/default/src/features/pricing/components/search-bar.tsx`、`web/default/src/features/system-settings/maintenance/header-navigation-section.tsx`、`web/default/src/features/system-settings/content/appearance-settings.tsx`、dashboard/theme/command-palette 相关前端文件 | 不能宣传为 Phase3 完成。已做主题、命令面板、统计页、局部导航整理、模型相关默认控制中心、模型控制中心 7 天健康摘要和注意队列原始日志入口、模型控制中心集中渠道测试调度和上游错误归一化入口、Overview/Operations center 时间范围深链消费、Dashboard 分区 tabs 纳入 Overview 且切换保留时间窗口、管理员 Operations center、Operations center 全局和 Top 对象原始日志入口、模型运维面板、选中模型多指标趋势图、渠道分析页、渠道用户消费表搜索/健康筛选/排序/分页、选中渠道多指标趋势图、用户运维面板主入口、选中用户多指标趋势图、模型/渠道/用户明细表搜索、健康筛选、表头排序和分页、选中行高亮并可键盘切换趋势对象、选中模型/渠道/用户一键跳到 Usage Logs 过滤原始日志且继承统计时间窗口、用户页管理员守卫、Overview 多指标趋势图、趋势图指标模式切换和页面级记忆、趋势图窗口汇总、常驻图例和空态、统计默认 5 秒刷新开关和可选刷新间隔、各统计页分别记住时间范围/自动刷新/刷新间隔、后台可配置 Dashboard 默认时间范围/自动刷新/刷新间隔、模型/渠道/渠道用户/用户表格分别记住搜索/筛选/排序/每页数量并支持 Reset view、命令面板补充关键改造入口并统一 Ctrl/Cmd+K、Docs 地址后台可配置、后台全局默认外观配置，但不是全后台重写 |
 | 16 | 每个模块尽量能后台配置，尤其配色、字体、内容宽度等外观项 | 部分实现 | `setting/system_setting/theme.go`、`controller/misc.go`、`controller/option.go`、`theme-customization-provider.tsx`、`appearance-settings.tsx`、`system-config-store.ts` | 后台全局默认值只在用户没有本地偏好 cookie 时生效；顶部主题切换仍作为个人偏好入口。尚未做到“每个模块的所有参数均后台可配置” |
 | 15 | 顶栏文档地址等站点参数不应只能改代码或放错模块 | 已补强 | `controller/misc.go`、`use-top-nav-links.ts`、`footer.tsx`、`header-navigation-section.tsx`、`use-update-option.ts` | `general_setting.docs_link` 保留原 option key；旧计费/额度入口仍可兼容，新增入口更符合站点导航语义 |
-| 11 | 首页美化变体保留 “One endpoint. Every model.” | 已实现于 homepage patch | `web/default/src/features/home/components/sections/iz-hero.tsx`、`newapi-runtime-compat-with-homepage.patch` | runtime-only patch 不包含首页改动 |
+| 11 | 首页美化变体保留 “One endpoint. Every model.” | 已实现并生产验证 | `web/default/src/features/home/components/sections/iz-hero.tsx`、`newapi-runtime-compat-with-homepage.patch`；2026-06-07 用本机 Chrome/Playwright CLI 截取 `https://router.108848.xyz:1443/` 首屏，确认显示 “One endpoint. Every model.” | runtime-only patch 不包含首页改动；截图验证文件在本机 `D:\Code\newapi\homepage-check.png`，不作为 release 资产提交 |
 | 12 | 镜像运行别再踩非 root 导致 `failed to open log file` | 已写入 README/skill | README 生产部署章节、`newapi-compat-handoff` skill | 生产 compose 必须保留 `user: "0:0"`，除非先修挂载目录权限 |
 | 13 | Release 资产命名必须和 README/部署命令一致 | 已修 | `.github/workflows/build-release.yml` | 首页 tar 统一为 `newapi-runtime-compat-homepage-docker-image-<tag>.tar.gz` |
 | 14 | 模型相关入口集中到模型模块 | 已增强 | `web/default/src/features/system-settings/models/section-registry.tsx`、command palette、渠道测试/playground 错误跳转 | 旧 `billing/model-pricing` 注册暂保留用于兼容老入口 |
@@ -94,9 +94,9 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
-以下项目只有部署后才能宣称修复完成：
+以下项目只有部署后才能宣称修复完成；2026-06-07 已补充部分生产证据：
 
-- 渠道 77 是否还返回 `codex_access_restricted`。
-- UA/Client Identity 修改后是否在真实上游请求中生效。
-- SQLite `database is busy` 是否在真实并发和日志写入下消失或显著降低。
-- 首页 variant 是否在生产仍显示 “One endpoint. Every model.”。
+- 渠道 77：已看到生产 `gpt-5.5` 流式请求走 `use_channel=["77"]` 成功，最近日志未再出现 `codex_access_restricted`。
+- UA/Client Identity：已看到生产日志 `client identity applied: provider=codex mode=force_global`，证明 NewAPI 内部强制标识符逻辑触发；UA 仍可继续通过上游抓包做更强验证。
+- SQLite：部署后最近 20 分钟日志未见 `sql busy`、`database is locked`、`database is closed`；SQLite pragma 为 `journal_mode=wal`、`busy_timeout=5000`。
+- 首页 variant：已用 Chrome/Playwright CLI 生产截图验证 “One endpoint. Every model.” 首屏存在。
