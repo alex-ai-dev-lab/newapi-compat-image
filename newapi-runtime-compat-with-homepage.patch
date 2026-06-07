@@ -22517,10 +22517,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..54c4254
+index 0000000..791f3f4
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,574 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -22599,6 +22599,16 @@ index 0000000..54c4254
 +  status: string
 +  cta: string
 +  link: ActionLink
++}
++
++type ConfigMapGroup = {
++  title: string
++  description: string
++  icon: LucideIcon
++  items: Array<{
++    label: string
++    link: ActionLink
++  }>
 +}
 +
 +const PRIMARY_ACTIONS: OperationsAction[] = [
@@ -22765,6 +22775,117 @@ index 0000000..54c4254
 +  },
 +]
 +
++const CONFIG_MAP_GROUPS: ConfigMapGroup[] = [
++  {
++    title: 'Runtime',
++    description:
++      'Request compatibility, identity, upstream routing, and tests.',
++    icon: ShieldCheck,
++    items: [
++      {
++        label: 'User-Agent profiles',
++        link: {
++          kind: 'system-settings',
++          area: 'models',
++          section: 'user-agents',
++        },
++      },
++      {
++        label: 'Client Identity',
++        link: {
++          kind: 'system-settings',
++          area: 'models',
++          section: 'client-identity',
++        },
++      },
++      { label: 'Channel tests', link: { kind: 'plain', to: '/channels' } },
++    ],
++  },
++  {
++    title: 'Analytics',
++    description: 'Operational statistics, logs, defaults, and trend views.',
++    icon: Activity,
++    items: [
++      {
++        label: 'Operations overview',
++        link: { kind: 'dashboard', section: 'overview' },
++      },
++      {
++        label: 'Dashboard defaults',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'dashboard',
++        },
++      },
++      { label: 'Usage Logs', link: { kind: 'usage-logs' } },
++    ],
++  },
++  {
++    title: 'Appearance',
++    description: 'Navigation, theme defaults, layout, and visible modules.',
++    icon: Palette,
++    items: [
++      {
++        label: 'Appearance defaults',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'appearance',
++        },
++      },
++      {
++        label: 'Header navigation',
++        link: {
++          kind: 'system-settings',
++          area: 'site',
++          section: 'header-navigation',
++        },
++      },
++      {
++        label: 'Sidebar modules',
++        link: {
++          kind: 'system-settings',
++          area: 'site',
++          section: 'sidebar-modules',
++        },
++      },
++    ],
++  },
++  {
++    title: 'Safety',
++    description:
++      'Client-safe errors, protection rules, monitoring, and pressure.',
++    icon: ShieldAlert,
++    items: [
++      {
++        label: 'Upstream error rules',
++        link: {
++          kind: 'system-settings',
++          area: 'security',
++          section: 'upstream-error-rules',
++        },
++      },
++      {
++        label: 'Monitoring & alerts',
++        link: {
++          kind: 'system-settings',
++          area: 'operations',
++          section: 'monitoring',
++        },
++      },
++      {
++        label: 'Performance',
++        link: {
++          kind: 'system-settings',
++          area: 'operations',
++          section: 'performance',
++        },
++      },
++    ],
++  },
++]
++
 +export function OperationsCenter(props: OperationsCenterProps) {
 +  return (
 +    <section className='space-y-4'>
@@ -22789,6 +22910,8 @@ index 0000000..54c4254
 +        </div>
 +      </div>
 +
++      <ConfigMap />
++
 +      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
 +        {PRIMARY_ACTIONS.map((action) => (
 +          <OperationsActionCard key={action.title} action={action} />
@@ -22807,6 +22930,65 @@ index 0000000..54c4254
 +        ))}
 +      </div>
 +    </section>
++  )
++}
++
++function ConfigMap() {
++  return (
++    <Card className='rounded-lg shadow-none'>
++      <CardHeader className='border-b pb-3'>
++        <CardTitle className='text-sm'>Configuration map</CardTitle>
++        <CardDescription>
++          The shortest paths to the controls added for compatibility, analytics,
++          appearance, and safety.
++        </CardDescription>
++      </CardHeader>
++      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-4'>
++        {CONFIG_MAP_GROUPS.map((group) => (
++          <ConfigMapGroupCard key={group.title} group={group} />
++        ))}
++      </CardContent>
++    </Card>
++  )
++}
++
++function ConfigMapGroupCard(props: { group: ConfigMapGroup }) {
++  const Icon = props.group.icon
++  return (
++    <div className='bg-muted/20 rounded-md border p-3'>
++      <div className='flex items-start gap-3'>
++        <span className='bg-background flex size-8 shrink-0 items-center justify-center rounded-md border'>
++          <Icon className='text-muted-foreground size-4' />
++        </span>
++        <div className='min-w-0'>
++          <p className='text-sm font-medium'>{props.group.title}</p>
++          <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
++            {props.group.description}
++          </p>
++        </div>
++      </div>
++      <div className='mt-3 flex flex-col gap-1.5'>
++        {props.group.items.map((item) => (
++          <ConfigMapLink key={item.label} label={item.label} link={item.link} />
++        ))}
++      </div>
++    </div>
++  )
++}
++
++function ConfigMapLink(props: { label: string; link: ActionLink }) {
++  return (
++    <OperationsActionLink
++      action={{
++        title: props.label,
++        description: '',
++        icon: Activity,
++        status: '',
++        cta: props.label,
++        link: props.link,
++      }}
++      compact
++    />
 +  )
 +}
 +
@@ -22847,10 +23029,14 @@ index 0000000..54c4254
 +  )
 +}
 +
-+function OperationsActionLink(props: { action: OperationsAction }) {
++function OperationsActionLink(props: {
++  action: OperationsAction
++  compact?: boolean
++}) {
 +  const className = cn(
 +    buttonVariants({ variant: 'outline', size: 'sm' }),
-+    'w-full'
++    'w-full',
++    props.compact && 'h-8 justify-start px-2 text-xs'
 +  )
 +  const { link } = props.action
 +

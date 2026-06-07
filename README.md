@@ -82,6 +82,7 @@
 |---|---|
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，或命令面板 `Operations Center` |
+| 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
