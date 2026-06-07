@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..81e5264
+index 0000000..dc5cbf1
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,943 @@
+@@ -0,0 +1,949 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11105,7 +11105,7 @@ index 0000000..81e5264
 +        id: 'settings-monitoring-alerts',
 +        label: 'Monitoring & Alerts',
 +        description:
-+          'Configure automatic channel disable, retry status codes, and reminders',
++          'Configure and import/export channel tests, retry rules, and reminders',
 +        icon: BarChart3,
 +        keywords: [
 +          'monitoring',
@@ -11115,6 +11115,9 @@ index 0000000..81e5264
 +          'status code',
 +          'quota',
 +          'reminder',
++          'json',
++          'import',
++          'export',
 +        ],
 +        section: 'Settings',
 +        action: () => {
@@ -11445,7 +11448,7 @@ index 0000000..81e5264
 +        id: 'settings-performance',
 +        label: 'Performance Settings',
 +        description:
-+          'Configure cache, resource monitors, and operations performance knobs',
++          'Configure and import/export cache, resource monitors, and performance knobs',
 +        icon: Settings,
 +        keywords: [
 +          'performance',
@@ -11455,6 +11458,9 @@ index 0000000..81e5264
 +          'disk',
 +          'metrics',
 +          'monitor',
++          'json',
++          'import',
++          'export',
 +        ],
 +        section: 'Settings',
 +        action: () => {
@@ -22569,6 +22575,201 @@ index 7ba50e7..012f4ae 100644
        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
          <AlertDialogContent>
            <AlertDialogHeader>
+diff --git a/web/default/src/features/system-settings/general/system-behavior-section.tsx b/web/default/src/features/system-settings/general/system-behavior-section.tsx
+index 8619569..e3cd4e3 100644
+--- a/web/default/src/features/system-settings/general/system-behavior-section.tsx
++++ b/web/default/src/features/system-settings/general/system-behavior-section.tsx
+@@ -16,10 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -31,12 +43,16 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useResetForm } from '../hooks/use-reset-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -49,19 +65,26 @@ const behaviorSchema = z.object({
+   SelfUseModeEnabled: z.boolean(),
+ })
+ 
+-type BehaviorFormValues = z.infer<typeof behaviorSchema>
++type BehaviorFormInput = z.input<typeof behaviorSchema>
++type BehaviorFormValues = z.output<typeof behaviorSchema>
+ 
+ type SystemBehaviorSectionProps = {
+   defaultValues: BehaviorFormValues
+ }
+ 
++type BehaviorImportExportPayload = {
++  SystemBehavior?: Partial<BehaviorFormValues>
++} & Partial<BehaviorFormValues>
++
+ export function SystemBehaviorSection({
+   defaultValues,
+ }: SystemBehaviorSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+-  const form = useForm({
++  const form = useForm<BehaviorFormInput, unknown, BehaviorFormValues>({
+     resolver: zodResolver(behaviorSchema),
+     defaultValues,
+   })
+@@ -78,10 +101,90 @@ export function SystemBehaviorSection({
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const values = behaviorSchema.parse(form.getValues())
++    const payload = {
++      SystemBehavior: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-system-behavior.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('System behavior JSON exported and copied'))
++    } catch {
++      toast.success(t('System behavior JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          SystemBehavior: behaviorSchema.parse(form.getValues()),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as BehaviorImportExportPayload
++      const source = raw.SystemBehavior ?? raw
++      const parsed = behaviorSchema.parse({
++        ...form.getValues(),
++        ...source,
++      })
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof BehaviorFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('System behavior imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid behavior JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('System Behavior')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -172,6 +275,29 @@ export function SystemBehaviorSection({
+           />
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import system behavior JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported system behavior JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/general/system-info-section.tsx b/web/default/src/features/system-settings/general/system-info-section.tsx
 index d1ecbc5..6e90d40 100644
 --- a/web/default/src/features/system-settings/general/system-info-section.tsx
@@ -22871,6 +23072,252 @@ index 2f73207..1871c65 100644
  ]
  
  export function useUpdateOption() {
+diff --git a/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx b/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx
+index 5ec328a..a06a163 100644
+--- a/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx
++++ b/web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx
+@@ -16,13 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useMemo, useRef } from 'react'
++import { useMemo, useRef, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -40,7 +50,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useResetForm } from '../hooks/use-reset-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -130,6 +143,10 @@ type NormalizedMonitoringValues = {
+   'monitor_setting.auto_test_channel_minutes': number
+ }
+ 
++type MonitoringImportExportPayload = {
++  Monitoring?: Partial<NormalizedMonitoringValues>
++} & Partial<NormalizedMonitoringValues>
++
+ const buildFormDefaults = (
+   defaults: MonitoringSettingsSectionProps['defaultValues']
+ ): MonitoringFormInput => ({
+@@ -199,6 +216,8 @@ export function MonitoringSettingsSection({
+ }: MonitoringSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const baselineRef = useRef<NormalizedMonitoringValues>(
+     normalizeDefaults(defaultValues)
+   )
+@@ -248,10 +267,154 @@ export function MonitoringSettingsSection({
+     baselineRef.current = normalized
+   }
+ 
++  const currentNormalizedValues = () =>
++    normalizeFormValues(monitoringSchema.parse(form.getValues()))
++
++  const exportConfig = async () => {
++    const values = currentNormalizedValues()
++    const payload = {
++      Monitoring: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-monitoring-alerts.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Monitoring JSON exported and copied'))
++    } catch {
++      toast.success(t('Monitoring JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          Monitoring: currentNormalizedValues(),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as MonitoringImportExportPayload
++      const source = raw.Monitoring ?? raw
++      const current = currentNormalizedValues()
++      const next = {
++        ...current,
++        ...source,
++      }
++      const parsed = monitoringSchema.parse({
++        ChannelDisableThreshold: String(
++          next.ChannelDisableThreshold ?? ''
++        ).trim(),
++        QuotaRemindThreshold: String(next.QuotaRemindThreshold ?? '').trim(),
++        AutomaticDisableChannelEnabled: next.AutomaticDisableChannelEnabled,
++        AutomaticEnableChannelEnabled: next.AutomaticEnableChannelEnabled,
++        AutomaticDisableKeywords: normalizeLineEndings(
++          String(next.AutomaticDisableKeywords ?? '')
++        ),
++        AutomaticDisableStatusCodes: String(
++          next.AutomaticDisableStatusCodes ?? ''
++        ),
++        AutomaticRetryStatusCodes: String(next.AutomaticRetryStatusCodes ?? ''),
++        monitor_setting: {
++          auto_test_channel_enabled:
++            next['monitor_setting.auto_test_channel_enabled'],
++          auto_test_channel_minutes: Number(
++            next['monitor_setting.auto_test_channel_minutes']
++          ),
++        },
++      })
++
++      form.setValue('ChannelDisableThreshold', parsed.ChannelDisableThreshold, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('QuotaRemindThreshold', parsed.QuotaRemindThreshold, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue(
++        'AutomaticDisableChannelEnabled',
++        parsed.AutomaticDisableChannelEnabled,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'AutomaticEnableChannelEnabled',
++        parsed.AutomaticEnableChannelEnabled,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'AutomaticDisableKeywords',
++        parsed.AutomaticDisableKeywords,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'AutomaticDisableStatusCodes',
++        parseHttpStatusCodeRules(parsed.AutomaticDisableStatusCodes).normalized,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'AutomaticRetryStatusCodes',
++        parseHttpStatusCodeRules(parsed.AutomaticRetryStatusCodes).normalized,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'monitor_setting.auto_test_channel_enabled',
++        parsed.monitor_setting.auto_test_channel_enabled,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'monitor_setting.auto_test_channel_minutes',
++        parsed.monitor_setting.auto_test_channel_minutes,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Monitoring settings imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid monitoring JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Monitoring & Alerts')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -483,6 +646,29 @@ export function MonitoringSettingsSection({
+           </div>
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import monitoring JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported monitoring JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/maintenance/config.ts b/web/default/src/features/system-settings/maintenance/config.ts
 index 0edc503..f14ed47 100644
 --- a/web/default/src/features/system-settings/maintenance/config.ts
@@ -23768,6 +24215,203 @@ index c988de8..441ec8a 100644
      </SettingsSection>
    )
  }
+diff --git a/web/default/src/features/system-settings/maintenance/performance-section.tsx b/web/default/src/features/system-settings/maintenance/performance-section.tsx
+index 36e386a..f8091de 100644
+--- a/web/default/src/features/system-settings/maintenance/performance-section.tsx
++++ b/web/default/src/features/system-settings/maintenance/performance-section.tsx
+@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import { api } from '@/lib/api'
+@@ -37,6 +38,14 @@ import {
+   AlertDialogTrigger,
+ } from '@/components/ui/alert-dialog'
+ import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -59,13 +68,17 @@ import {
+ } from '@/components/ui/select'
+ import { Separator } from '@/components/ui/separator'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import { StatusBadge } from '@/components/status-badge'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ import { safeNumberFieldProps } from '../utils/numeric-field'
+@@ -115,6 +128,10 @@ type FlatPerfDefaults = {
+   'perf_metrics_setting.retention_days': number
+ }
+ 
++type PerformanceImportExportPayload = {
++  Performance?: Partial<FlatPerfDefaults>
++} & Partial<FlatPerfDefaults>
++
+ const buildFormDefaults = (defaults: FlatPerfDefaults): PerfFormInput => ({
+   performance_setting: {
+     disk_cache_enabled: defaults['performance_setting.disk_cache_enabled'],
+@@ -229,6 +246,8 @@ export function PerformanceSection(props: Props) {
+   const [logCleanupMode, setLogCleanupMode] = useState('by_count')
+   const [logCleanupValue, setLogCleanupValue] = useState(10)
+   const [logCleanupLoading, setLogCleanupLoading] = useState(false)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const formDefaults = useMemo(
+     () => buildFormDefaults(props.defaultValues),
+@@ -300,6 +319,73 @@ export function PerformanceSection(props: Props) {
+     fetchStats()
+   }
+ 
++  const currentNormalizedValues = () =>
++    normalizeFormValues(perfSchema.parse(form.getValues()))
++
++  const exportConfig = async () => {
++    const values = currentNormalizedValues()
++    const payload = {
++      Performance: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-performance.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Performance JSON exported and copied'))
++    } catch {
++      toast.success(t('Performance JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          Performance: currentNormalizedValues(),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as PerformanceImportExportPayload
++      const source = raw.Performance ?? raw
++      const next = {
++        ...currentNormalizedValues(),
++        ...source,
++      } as FlatPerfDefaults
++      const parsed = perfSchema.parse(buildFormDefaults(next))
++
++      form.setValue('performance_setting', parsed.performance_setting, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('perf_metrics_setting', parsed.perf_metrics_setting, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Performance settings imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid performance JSON')
++      )
++    }
++  }
++
+   const clearDiskCache = async () => {
+     try {
+       const res = await api.delete('/api/performance/disk_cache')
+@@ -397,6 +483,26 @@ export function PerformanceSection(props: Props) {
+     <SettingsSection title={t('Performance Settings')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -716,6 +822,29 @@ export function PerformanceSection(props: Props) {
+           </div>
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import performance JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported performance JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+ 
+       <Separator />
+ 
 diff --git a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx b/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
 index 782fbd4..4c483a6 100644
 --- a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
@@ -26629,7 +27273,7 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..843a7e1
+index 0000000..4a4850f
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
 @@ -0,0 +1,1000 @@
@@ -26880,7 +27524,7 @@ index 0000000..843a7e1
 +  {
 +    title: 'Performance',
 +    description:
-+      'Review cache, monitor thresholds, and low-level operational knobs that affect backend pressure.',
++      'Review, tune, and migrate cache, monitor thresholds, and backend pressure controls.',
 +    icon: ShieldCheck,
 +    status: 'Runtime',
 +    cta: 'Tune runtime',
@@ -26923,7 +27567,7 @@ index 0000000..843a7e1
 +  {
 +    title: 'Monitoring',
 +    description:
-+      'Automatic disable/enable settings, retry status codes, quota reminders, and global channel tests.',
++      'Automatic disable/enable settings, retry status codes, quota reminders, global channel tests, and JSON migration.',
 +    icon: BellRing,
 +    status: 'Alerts',
 +    cta: 'Open monitoring',
