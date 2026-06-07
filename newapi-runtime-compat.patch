@@ -146,10 +146,10 @@ index 17c4398..fadaed4 100644
 +ENTRYPOINT ["/app/docker-entrypoint.sh"]
 +CMD ["/app/new-api"]
 diff --git a/common/constants.go b/common/constants.go
-index c7d5637..4f51ec5 100644
+index c7d5637..dae98b5 100644
 --- a/common/constants.go
 +++ b/common/constants.go
-@@ -68,6 +68,17 @@ var TaskEnabled = true
+@@ -68,6 +68,20 @@ var TaskEnabled = true
  var DataExportEnabled = true
  var DataExportInterval = 5         // unit: minute
  var DataExportDefaultTime = "hour" // unit: minute
@@ -159,6 +159,9 @@ index c7d5637..4f51ec5 100644
 +var DashboardDefaultPageSize = 25
 +var DashboardDefaultHealthFilter = "all"
 +var DashboardDefaultTrendMode = "overview"
++var DashboardDefaultChartTimeRangeDays = 1
++var DashboardDefaultConsumptionChart = "bar"
++var DashboardDefaultModelAnalyticsChart = "trend"
 +var DashboardSlowFirstTokenThresholdMs = 3000
 +var DashboardErrorRateWarningThreshold = 0.0
 +var DashboardErrorRateCriticalThreshold = 5.0
@@ -167,7 +170,7 @@ index c7d5637..4f51ec5 100644
  var DefaultCollapseSidebar = false // default value of collapse sidebar
  
  // Any options with "Secret", "Token" in its key won't be return by GetOptions
-@@ -168,7 +179,8 @@ var SyncFrequency int // unit is second
+@@ -168,7 +182,8 @@ var SyncFrequency int // unit is second
  var BatchUpdateEnabled = false
  var BatchUpdateInterval int
  
@@ -1118,7 +1121,7 @@ index 0000000..b8974dd
 +	assert.Nil(t, compatStreamRetryError(info))
 +}
 diff --git a/controller/misc.go b/controller/misc.go
-index eada490..6479faa 100644
+index eada490..c524fa7 100644
 --- a/controller/misc.go
 +++ b/controller/misc.go
 @@ -47,6 +47,7 @@ func GetStatus(c *gin.Context) {
@@ -1129,7 +1132,7 @@ index eada490..6479faa 100644
  
  	data := gin.H{
  		"version":                     common.Version,
-@@ -61,17 +62,24 @@ func GetStatus(c *gin.Context) {
+@@ -61,36 +62,57 @@ func GetStatus(c *gin.Context) {
  		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
  		"telegram_oauth":              common.TelegramOAuthEnabled,
  		"telegram_bot_name":           common.TelegramBotName,
@@ -1163,26 +1166,59 @@ index eada490..6479faa 100644
 +		"docs_link":          operation_setting.GetGeneralSetting().DocsLink,
 +		"quota_per_unit":     common.QuotaPerUnit,
  		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
- 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
- 		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
-@@ -82,6 +90,17 @@ func GetStatus(c *gin.Context) {
- 		"enable_task":                   common.TaskEnabled,
- 		"enable_data_export":            common.DataExportEnabled,
- 		"data_export_default_time":      common.DataExportDefaultTime,
-+		"dashboard_default_time_range":  common.DashboardDefaultTimeRange,
-+		"dashboard_auto_refresh":        common.DashboardAutoRefreshEnabled,
-+		"dashboard_refresh_interval":    common.DashboardRefreshIntervalSeconds,
-+		"dashboard_default_page_size":   common.DashboardDefaultPageSize,
-+		"dashboard_default_health":      common.DashboardDefaultHealthFilter,
-+		"dashboard_default_trend_mode":  common.DashboardDefaultTrendMode,
-+		"dashboard_slow_first_token_ms": common.DashboardSlowFirstTokenThresholdMs,
-+		"dashboard_error_warning":       common.DashboardErrorRateWarningThreshold,
-+		"dashboard_error_critical":      common.DashboardErrorRateCriticalThreshold,
-+		"dashboard_success_good":        common.DashboardSuccessRateGoodThreshold,
-+		"dashboard_success_degraded":    common.DashboardSuccessRateDegradedThreshold,
- 		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
- 		"mj_notify_enabled":             setting.MjNotifyEnabled,
- 		"chats":                         setting.Chats,
+-		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
+-		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
+-		"custom_currency_symbol":        operation_setting.GetGeneralSetting().CustomCurrencySymbol,
+-		"custom_currency_exchange_rate": operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
+-		"enable_batch_update":           common.BatchUpdateEnabled,
+-		"enable_drawing":                common.DrawingEnabled,
+-		"enable_task":                   common.TaskEnabled,
+-		"enable_data_export":            common.DataExportEnabled,
+-		"data_export_default_time":      common.DataExportDefaultTime,
+-		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
+-		"mj_notify_enabled":             setting.MjNotifyEnabled,
+-		"chats":                         setting.Chats,
+-		"demo_site_enabled":             operation_setting.DemoSiteEnabled,
+-		"self_use_mode_enabled":         operation_setting.SelfUseModeEnabled,
+-		"register_enabled":              common.RegisterEnabled,
+-		"password_login_enabled":        common.PasswordLoginEnabled,
+-		"password_register_enabled":     common.PasswordRegisterEnabled,
+-		"default_use_auto_group":        setting.DefaultUseAutoGroup,
++		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
++		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
++		"custom_currency_symbol":              operation_setting.GetGeneralSetting().CustomCurrencySymbol,
++		"custom_currency_exchange_rate":       operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
++		"enable_batch_update":                 common.BatchUpdateEnabled,
++		"enable_drawing":                      common.DrawingEnabled,
++		"enable_task":                         common.TaskEnabled,
++		"enable_data_export":                  common.DataExportEnabled,
++		"data_export_default_time":            common.DataExportDefaultTime,
++		"dashboard_default_time_range":        common.DashboardDefaultTimeRange,
++		"dashboard_auto_refresh":              common.DashboardAutoRefreshEnabled,
++		"dashboard_refresh_interval":          common.DashboardRefreshIntervalSeconds,
++		"dashboard_default_page_size":         common.DashboardDefaultPageSize,
++		"dashboard_default_health":            common.DashboardDefaultHealthFilter,
++		"dashboard_default_trend_mode":        common.DashboardDefaultTrendMode,
++		"dashboard_default_chart_days":        common.DashboardDefaultChartTimeRangeDays,
++		"dashboard_default_consumption_chart": common.DashboardDefaultConsumptionChart,
++		"dashboard_default_model_chart":       common.DashboardDefaultModelAnalyticsChart,
++		"dashboard_slow_first_token_ms":       common.DashboardSlowFirstTokenThresholdMs,
++		"dashboard_error_warning":             common.DashboardErrorRateWarningThreshold,
++		"dashboard_error_critical":            common.DashboardErrorRateCriticalThreshold,
++		"dashboard_success_good":              common.DashboardSuccessRateGoodThreshold,
++		"dashboard_success_degraded":          common.DashboardSuccessRateDegradedThreshold,
++		"default_collapse_sidebar":            common.DefaultCollapseSidebar,
++		"mj_notify_enabled":                   setting.MjNotifyEnabled,
++		"chats":                               setting.Chats,
++		"demo_site_enabled":                   operation_setting.DemoSiteEnabled,
++		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled,
++		"register_enabled":                    common.RegisterEnabled,
++		"password_login_enabled":              common.PasswordLoginEnabled,
++		"password_register_enabled":           common.PasswordRegisterEnabled,
++		"default_use_auto_group":              setting.DefaultUseAutoGroup,
+ 
+ 		"usd_exchange_rate": operation_setting.USDExchangeRate,
+ 		"price":             operation_setting.Price,
 diff --git a/controller/official_price_sync.go b/controller/official_price_sync.go
 new file mode 100644
 index 0000000..b52b3d3
@@ -1559,7 +1595,7 @@ index 0000000..67f1d2f
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/option.go b/controller/option.go
-index b5fdfdc..8ea2509 100644
+index b5fdfdc..8b97aaa 100644
 --- a/controller/option.go
 +++ b/controller/option.go
 @@ -42,6 +42,20 @@ func isPositiveOptionValue(value string) bool {
@@ -1583,7 +1619,7 @@ index b5fdfdc..8ea2509 100644
  func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
  	if strings.TrimSpace(raw) == "" {
  		return
-@@ -223,6 +237,102 @@ func UpdateOption(c *gin.Context) {
+@@ -223,6 +237,126 @@ func UpdateOption(c *gin.Context) {
  			})
  			return
  		}
@@ -1664,6 +1700,30 @@ index b5fdfdc..8ea2509 100644
 +			c.JSON(http.StatusOK, gin.H{
 +				"success": false,
 +				"message": "无效的统计默认趋势模式",
++			})
++			return
++		}
++	case "DashboardDefaultChartTimeRangeDays":
++		if !isOneOfOptionValue(option.Value.(string), "1", "7", "14", "29") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的统计图表默认时间窗口",
++			})
++			return
++		}
++	case "DashboardDefaultConsumptionChart":
++		if !isOneOfOptionValue(option.Value.(string), "bar", "area") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的消费分布图默认类型",
++			})
++			return
++		}
++	case "DashboardDefaultModelAnalyticsChart":
++		if !isOneOfOptionValue(option.Value.(string), "trend", "proportion", "top") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的模型分析图默认类型",
 +			})
 +			return
 +		}
@@ -3553,10 +3613,10 @@ index 9083ee5..45f32e2 100644
  	// 动态计算migration数量，确保errChan缓冲区足够大
  	errChan := make(chan error, len(migrations))
 diff --git a/model/option.go b/model/option.go
-index ed1af72..6d81d84 100644
+index ed1af72..ba7db37 100644
 --- a/model/option.go
 +++ b/model/option.go
-@@ -155,6 +155,17 @@ func InitOptionMap() {
+@@ -155,6 +155,20 @@ func InitOptionMap() {
  	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
  	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
  	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -3566,6 +3626,9 @@ index ed1af72..6d81d84 100644
 +	common.OptionMap["DashboardDefaultPageSize"] = strconv.Itoa(common.DashboardDefaultPageSize)
 +	common.OptionMap["DashboardDefaultHealthFilter"] = common.DashboardDefaultHealthFilter
 +	common.OptionMap["DashboardDefaultTrendMode"] = common.DashboardDefaultTrendMode
++	common.OptionMap["DashboardDefaultChartTimeRangeDays"] = strconv.Itoa(common.DashboardDefaultChartTimeRangeDays)
++	common.OptionMap["DashboardDefaultConsumptionChart"] = common.DashboardDefaultConsumptionChart
++	common.OptionMap["DashboardDefaultModelAnalyticsChart"] = common.DashboardDefaultModelAnalyticsChart
 +	common.OptionMap["DashboardSlowFirstTokenThresholdMs"] = strconv.Itoa(common.DashboardSlowFirstTokenThresholdMs)
 +	common.OptionMap["DashboardErrorRateWarningThreshold"] = strconv.FormatFloat(common.DashboardErrorRateWarningThreshold, 'f', -1, 64)
 +	common.OptionMap["DashboardErrorRateCriticalThreshold"] = strconv.FormatFloat(common.DashboardErrorRateCriticalThreshold, 'f', -1, 64)
@@ -3574,7 +3637,7 @@ index ed1af72..6d81d84 100644
  	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
  	common.OptionMap["MjNotifyEnabled"] = strconv.FormatBool(setting.MjNotifyEnabled)
  	common.OptionMap["MjAccountFilterEnabled"] = strconv.FormatBool(setting.MjAccountFilterEnabled)
-@@ -324,6 +335,8 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -324,6 +338,8 @@ func updateOptionMap(key string, value string) (err error) {
  			common.TaskEnabled = boolValue
  		case "DataExportEnabled":
  			common.DataExportEnabled = boolValue
@@ -3583,7 +3646,7 @@ index ed1af72..6d81d84 100644
  		case "DefaultCollapseSidebar":
  			common.DefaultCollapseSidebar = boolValue
  		case "MjNotifyEnabled":
-@@ -376,6 +389,26 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -376,6 +392,32 @@ func updateOptionMap(key string, value string) (err error) {
  		common.SMTPToken = value
  	case "ServerAddress":
  		system_setting.ServerAddress = value
@@ -3597,6 +3660,12 @@ index ed1af72..6d81d84 100644
 +		common.DashboardDefaultHealthFilter = value
 +	case "DashboardDefaultTrendMode":
 +		common.DashboardDefaultTrendMode = value
++	case "DashboardDefaultChartTimeRangeDays":
++		common.DashboardDefaultChartTimeRangeDays, _ = strconv.Atoi(value)
++	case "DashboardDefaultConsumptionChart":
++		common.DashboardDefaultConsumptionChart = value
++	case "DashboardDefaultModelAnalyticsChart":
++		common.DashboardDefaultModelAnalyticsChart = value
 +	case "DashboardSlowFirstTokenThresholdMs":
 +		common.DashboardSlowFirstTokenThresholdMs, _ = strconv.Atoi(value)
 +	case "DashboardErrorRateWarningThreshold":
@@ -15884,11 +15953,56 @@ index 0000000..eb190f1
 +    </Card>
 +  )
 +}
+diff --git a/web/default/src/features/dashboard/constants.ts b/web/default/src/features/dashboard/constants.ts
+index 34e6828..ca1ade0 100644
+--- a/web/default/src/features/dashboard/constants.ts
++++ b/web/default/src/features/dashboard/constants.ts
+@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { DEFAULT_DASHBOARD_DEFAULTS } from '@/lib/dashboard-defaults'
+ import type { DashboardChartPreferences, DashboardFilters } from './types'
+ 
+ export const TIME_GRANULARITY_STORAGE_KEY = 'data_export_default_time'
+@@ -25,10 +26,10 @@ export const DEFAULT_TIME_GRANULARITY = 'hour' as const
+ export const MAX_CHART_TREND_POINTS = 7
+ 
+ export const DEFAULT_DASHBOARD_CHART_PREFERENCES: DashboardChartPreferences = {
+-  consumptionDistributionChart: 'bar',
+-  modelAnalyticsChart: 'trend',
+-  defaultTimeRangeDays: 1,
+-  defaultTimeGranularity: DEFAULT_TIME_GRANULARITY,
++  consumptionDistributionChart: DEFAULT_DASHBOARD_DEFAULTS.consumptionChart,
++  modelAnalyticsChart: DEFAULT_DASHBOARD_DEFAULTS.modelAnalyticsChart,
++  defaultTimeRangeDays: DEFAULT_DASHBOARD_DEFAULTS.chartTimeRangeDays,
++  defaultTimeGranularity: DEFAULT_DASHBOARD_DEFAULTS.chartTimeGranularity,
+ }
+ 
+ export const TIME_RANGE_BY_GRANULARITY = {
 diff --git a/web/default/src/features/dashboard/index.tsx b/web/default/src/features/dashboard/index.tsx
-index 3c20ad7..7a68454 100644
+index 3c20ad7..0d36a2c 100644
 --- a/web/default/src/features/dashboard/index.tsx
 +++ b/web/default/src/features/dashboard/index.tsx
-@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton'
+@@ -16,19 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
++import {
++  useState,
++  useCallback,
++  useEffect,
++  useMemo,
++  lazy,
++  Suspense,
++} from 'react'
+ import { getRouteApi, useNavigate } from '@tanstack/react-router'
+ import { useTranslation } from 'react-i18next'
+ import { useAuthStore } from '@/stores/auth-store'
++import { useSystemConfigStore } from '@/stores/system-config-store'
+ import { ROLE } from '@/lib/roles'
+ import { Skeleton } from '@/components/ui/skeleton'
  import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
  import { SectionPageLayout } from '@/components/layout'
  import { FadeIn } from '@/components/page-transition'
@@ -15896,7 +16010,16 @@ index 3c20ad7..7a68454 100644
  import { ModelsChartPreferences } from './components/models/models-chart-preferences'
  import { ModelsFilter } from './components/models/models-filter-dialog'
  import { OverviewDashboard } from './components/overview/overview-dashboard'
-@@ -59,6 +60,12 @@ const LazyModelCharts = lazy(() =>
+-import { DEFAULT_TIME_GRANULARITY } from './constants'
++import {
++  DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
++  DEFAULT_TIME_GRANULARITY,
++  TIME_GRANULARITY_STORAGE_KEY,
++} from './constants'
+ import {
+   buildDefaultDashboardFilters,
+   getSavedChartPreferences,
+@@ -59,6 +72,12 @@ const LazyModelCharts = lazy(() =>
    }))
  )
  
@@ -15909,7 +16032,7 @@ index 3c20ad7..7a68454 100644
  const LazyConsumptionDistributionChart = lazy(() =>
    import('./components/models/consumption-distribution-chart').then((m) => ({
      default: m.ConsumptionDistributionChart,
-@@ -77,6 +84,12 @@ const LazyUserCharts = lazy(() =>
+@@ -77,6 +96,12 @@ const LazyUserCharts = lazy(() =>
    }))
  )
  
@@ -15922,7 +16045,7 @@ index 3c20ad7..7a68454 100644
  function LogStatCardsFallback() {
    return (
      <div className='overflow-hidden rounded-lg border'>
-@@ -137,6 +150,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
+@@ -137,6 +162,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
    models: {
      titleKey: 'Model Call Analytics',
    },
@@ -15932,25 +16055,72 @@ index 3c20ad7..7a68454 100644
    users: {
      titleKey: 'User Analytics',
    },
-@@ -146,6 +162,7 @@ export function Dashboard() {
+@@ -146,18 +174,53 @@ export function Dashboard() {
    const { t } = useTranslation()
    const navigate = useNavigate()
    const params = route.useParams()
 +  const search = route.useSearch()
    const userRole = useAuthStore((state) => state.auth.user?.role)
++  const dashboardDefaults = useSystemConfigStore(
++    (state) => state.config.dashboardDefaults
++  )
++  const systemConfigLoading = useSystemConfigStore((state) => state.loading)
    const activeSection = (params.section ??
      DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
-@@ -188,7 +205,8 @@ export function Dashboard() {
++  const defaultChartPreferences = useMemo<DashboardChartPreferences>(
++    () => ({
++      consumptionDistributionChart: dashboardDefaults.consumptionChart,
++      modelAnalyticsChart: dashboardDefaults.modelAnalyticsChart,
++      defaultTimeRangeDays: dashboardDefaults.chartTimeRangeDays,
++      defaultTimeGranularity: dashboardDefaults.chartTimeGranularity,
++    }),
++    [
++      dashboardDefaults.chartTimeGranularity,
++      dashboardDefaults.chartTimeRangeDays,
++      dashboardDefaults.consumptionChart,
++      dashboardDefaults.modelAnalyticsChart,
++    ]
++  )
+ 
+   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
+   const [dataLoading, setDataLoading] = useState(false)
+   const [chartPreferences, setChartPreferences] =
+-    useState<DashboardChartPreferences>(() => getSavedChartPreferences())
++    useState<DashboardChartPreferences>(() =>
++      getSavedChartPreferences(defaultChartPreferences)
++    )
+   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
+-    buildDefaultDashboardFilters(getSavedChartPreferences())
++    buildDefaultDashboardFilters(
++      getSavedChartPreferences(defaultChartPreferences)
++    )
+   )
+ 
++  useEffect(() => {
++    if (typeof window === 'undefined' || systemConfigLoading) return
++    const hasSavedChartPreferences =
++      window.localStorage.getItem(DASHBOARD_CHART_PREFERENCES_STORAGE_KEY) !=
++        null ||
++      window.localStorage.getItem(TIME_GRANULARITY_STORAGE_KEY) != null
++    if (!hasSavedChartPreferences) {
++      setChartPreferences(defaultChartPreferences)
++      setModelFilters(buildDefaultDashboardFilters(defaultChartPreferences))
++    }
++  }, [defaultChartPreferences, systemConfigLoading])
++
+   const handleFilterChange = useCallback((filters: DashboardFilters) => {
+     setModelFilters(filters)
+   }, [])
+@@ -188,7 +251,7 @@ export function Dashboard() {
    const visibleSections = useMemo(
      () =>
        DASHBOARD_SECTION_IDS.filter(
 -        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
-+        (section) =>
-+          (!['channels', 'users'].includes(section) || isAdmin)
++        (section) => !['channels', 'users'].includes(section) || isAdmin
        ),
      [isAdmin]
    )
-@@ -197,9 +215,12 @@ export function Dashboard() {
+@@ -197,9 +260,12 @@ export function Dashboard() {
        void navigate({
          to: '/dashboard/$section',
          params: { section: section as DashboardSectionId },
@@ -15964,7 +16134,7 @@ index 3c20ad7..7a68454 100644
    )
    const showSectionTabs =
      activeSection !== 'overview' && visibleSections.length > 1
-@@ -248,6 +269,13 @@ export function Dashboard() {
+@@ -248,6 +314,13 @@ export function Dashboard() {
            {activeSection === 'overview' && <OverviewDashboard />}
            {activeSection === 'models' && (
              <>
@@ -15978,7 +16148,7 @@ index 3c20ad7..7a68454 100644
                <FadeIn>
                  <Suspense fallback={<LogStatCardsFallback />}>
                    <LazyLogStatCards
-@@ -291,13 +319,25 @@ export function Dashboard() {
+@@ -291,13 +364,25 @@ export function Dashboard() {
                </FadeIn>
              </>
            )}
@@ -16083,6 +16253,68 @@ index 0000000..088640a
 +    </Card>
 +  )
 +}
+diff --git a/web/default/src/features/dashboard/lib/filters.ts b/web/default/src/features/dashboard/lib/filters.ts
+index 8277754..8086eae 100644
+--- a/web/default/src/features/dashboard/lib/filters.ts
++++ b/web/default/src/features/dashboard/lib/filters.ts
+@@ -20,7 +20,6 @@ import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+ import {
+   DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
+   DEFAULT_DASHBOARD_CHART_PREFERENCES,
+-  DEFAULT_TIME_GRANULARITY,
+   EMPTY_DASHBOARD_FILTERS,
+   TIME_GRANULARITY_STORAGE_KEY,
+   TIME_RANGE_PRESETS,
+@@ -37,10 +36,10 @@ function isTimeGranularity(value: unknown): value is TimeGranularity {
+   return value === 'hour' || value === 'day' || value === 'week'
+ }
+ 
+-function getLegacySavedGranularity(): TimeGranularity {
+-  if (typeof window === 'undefined') return DEFAULT_TIME_GRANULARITY
++function getLegacySavedGranularity(fallback: TimeGranularity): TimeGranularity {
++  if (typeof window === 'undefined') return fallback
+   const saved = localStorage.getItem(TIME_GRANULARITY_STORAGE_KEY)
+-  return isTimeGranularity(saved) ? saved : DEFAULT_TIME_GRANULARITY
++  return isTimeGranularity(saved) ? saved : fallback
+ }
+ 
+ function isConsumptionDistributionChartType(
+@@ -91,12 +90,16 @@ export function saveGranularity(granularity: TimeGranularity): void {
+   localStorage.setItem(TIME_GRANULARITY_STORAGE_KEY, granularity)
+ }
+ 
+-export function getSavedChartPreferences(): DashboardChartPreferences {
+-  if (typeof window === 'undefined') return DEFAULT_DASHBOARD_CHART_PREFERENCES
++export function getSavedChartPreferences(
++  fallback: DashboardChartPreferences = DEFAULT_DASHBOARD_CHART_PREFERENCES
++): DashboardChartPreferences {
++  if (typeof window === 'undefined') return fallback
+ 
+   const fallbackPreferences = {
+-    ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+-    defaultTimeGranularity: getLegacySavedGranularity(),
++    ...fallback,
++    defaultTimeGranularity: getLegacySavedGranularity(
++      fallback.defaultTimeGranularity
++    ),
+   }
+ 
+   try {
+@@ -135,8 +138,12 @@ export function saveChartPreferences(
+   )
+ }
+ 
+-export function getDefaultDays(granularity?: TimeGranularity): number {
+-  if (!granularity) return getSavedChartPreferences().defaultTimeRangeDays
++export function getDefaultDays(
++  granularity?: TimeGranularity,
++  fallback?: DashboardChartPreferences
++): number {
++  if (!granularity)
++    return getSavedChartPreferences(fallback).defaultTimeRangeDays
+   return TIME_RANGE_BY_GRANULARITY[getSavedGranularity(granularity)]
+ }
+ 
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
 index 0000000..8c50541
@@ -19467,19 +19699,25 @@ index 0000000..1f21fcf
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/content/dashboard-section.tsx b/web/default/src/features/system-settings/content/dashboard-section.tsx
-index e21f6eb..f49284d 100644
+index e21f6eb..28e5bf2 100644
 --- a/web/default/src/features/system-settings/content/dashboard-section.tsx
 +++ b/web/default/src/features/system-settings/content/dashboard-section.tsx
-@@ -21,6 +21,16 @@ import * as z from 'zod'
+@@ -21,6 +21,22 @@ import * as z from 'zod'
  import { useForm } from 'react-hook-form'
  import { zodResolver } from '@hookform/resolvers/zod'
  import { useTranslation } from 'react-i18next'
 +import {
 +  DASHBOARD_HEALTH_FILTER_VALUES,
++  DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES,
++  DASHBOARD_CONSUMPTION_CHART_VALUES,
++  DASHBOARD_MODEL_ANALYTICS_CHART_VALUES,
 +  DASHBOARD_PAGE_SIZE_VALUES,
 +  DASHBOARD_TIME_RANGE_VALUES,
 +  DASHBOARD_TREND_MODE_VALUES,
++  type DashboardChartTimeRangeDays,
++  type DashboardConsumptionChart,
 +  type DashboardHealthFilter,
++  type DashboardModelAnalyticsChart,
 +  type DashboardPageSize,
 +  type DashboardTimeRange,
 +  type DashboardTrendMode,
@@ -19487,7 +19725,7 @@ index e21f6eb..f49284d 100644
  import {
    Form,
    FormControl,
-@@ -50,11 +60,55 @@ import { SettingsSection } from '../components/settings-section'
+@@ -50,11 +66,67 @@ import { SettingsSection } from '../components/settings-section'
  import { useUpdateOption } from '../hooks/use-update-option'
  import { safeNumberFieldProps } from '../utils/numeric-field'
  
@@ -19517,6 +19755,18 @@ index e21f6eb..f49284d 100644
 +    ]),
 +    DashboardDefaultHealthFilter: z.enum(DASHBOARD_HEALTH_FILTER_VALUES),
 +    DashboardDefaultTrendMode: z.enum(DASHBOARD_TREND_MODE_VALUES),
++    DashboardDefaultChartTimeRangeDays: z.union([
++      z.literal(1),
++      z.literal(7),
++      z.literal(14),
++      z.literal(29),
++    ]),
++    DashboardDefaultConsumptionChart: z.enum(
++      DASHBOARD_CONSUMPTION_CHART_VALUES
++    ),
++    DashboardDefaultModelAnalyticsChart: z.enum(
++      DASHBOARD_MODEL_ANALYTICS_CHART_VALUES
++    ),
 +    DashboardSlowFirstTokenThresholdMs: z.number().min(100).max(120000),
 +    DashboardErrorRateWarningThreshold: z.number().min(0).max(100),
 +    DashboardErrorRateCriticalThreshold: z.number().min(0).max(100),
@@ -19548,7 +19798,7 @@ index e21f6eb..f49284d 100644
  
  type DataDashboardFormValues = z.infer<typeof dataDashboardSchema>
  
-@@ -68,6 +122,53 @@ const granularityOptions = [
+@@ -68,6 +140,78 @@ const granularityOptions = [
    { label: 'Week', value: 'week' },
  ]
  
@@ -19599,10 +19849,35 @@ index e21f6eb..f49284d 100644
 +  { label: 'Spend', value: 'spend' },
 +]
 +
++const dashboardChartTimeRangeOptions: Array<{
++  label: string
++  value: DashboardChartTimeRangeDays
++}> = DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES.map((value) => ({
++  label: value === 1 ? '1 day' : `${value} days`,
++  value,
++}))
++
++const dashboardConsumptionChartOptions: Array<{
++  label: string
++  value: DashboardConsumptionChart
++}> = [
++  { label: 'Bar chart', value: 'bar' },
++  { label: 'Area chart', value: 'area' },
++]
++
++const dashboardModelAnalyticsChartOptions: Array<{
++  label: string
++  value: DashboardModelAnalyticsChart
++}> = [
++  { label: 'Call trend', value: 'trend' },
++  { label: 'Call count distribution', value: 'proportion' },
++  { label: 'Call count ranking', value: 'top' },
++]
++
  export function DashboardSection({ defaultValues }: DashboardSectionProps) {
    const { t } = useTranslation()
    const updateOption = useUpdateOption()
-@@ -187,6 +288,359 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+@@ -187,6 +331,479 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                )}
              />
            </div>
@@ -19838,6 +20113,126 @@ index e21f6eb..f49284d 100644
 +          <div className='grid gap-6 sm:grid-cols-3'>
 +            <FormField
 +              control={form.control}
++              name='DashboardDefaultChartTimeRangeDays'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default chart time window')}</FormLabel>
++                  <Select
++                    items={dashboardChartTimeRangeOptions.map((option) => ({
++                      value: String(option.value),
++                      label: t(option.label),
++                    }))}
++                    onValueChange={(value) => field.onChange(Number(value))}
++                    value={String(field.value)}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select chart window')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardChartTimeRangeOptions.map((option) => (
++                          <SelectItem
++                            key={option.value}
++                            value={String(option.value)}
++                          >
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t('Used by legacy dashboard charts with no saved view')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardDefaultConsumptionChart'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default consumption chart')}</FormLabel>
++                  <Select
++                    items={dashboardConsumptionChartOptions.map((option) => ({
++                      value: option.value,
++                      label: t(option.label),
++                    }))}
++                    onValueChange={field.onChange}
++                    value={field.value}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select chart type')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardConsumptionChartOptions.map((option) => (
++                          <SelectItem key={option.value} value={option.value}>
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t('Initial model consumption distribution chart type')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardDefaultModelAnalyticsChart'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Default model analytics chart')}</FormLabel>
++                  <Select
++                    items={dashboardModelAnalyticsChartOptions.map(
++                      (option) => ({
++                        value: option.value,
++                        label: t(option.label),
++                      })
++                    )}
++                    onValueChange={field.onChange}
++                    value={field.value}
++                  >
++                    <FormControl>
++                      <SelectTrigger>
++                        <SelectValue placeholder={t('Select chart type')} />
++                      </SelectTrigger>
++                    </FormControl>
++                    <SelectContent alignItemWithTrigger={false}>
++                      <SelectGroup>
++                        {dashboardModelAnalyticsChartOptions.map((option) => (
++                          <SelectItem key={option.value} value={option.value}>
++                            {t(option.label)}
++                          </SelectItem>
++                        ))}
++                      </SelectGroup>
++                    </SelectContent>
++                  </Select>
++                  <FormDescription>
++                    {t(
++                      'Initial model calls chart when no local preference exists'
++                    )}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++          </div>
++
++          <div className='grid gap-6 sm:grid-cols-3'>
++            <FormField
++              control={form.control}
 +              name='DashboardSlowFirstTokenThresholdMs'
 +              render={({ field }) => (
 +                <FormItem>
@@ -19963,7 +20358,7 @@ index e21f6eb..f49284d 100644
        </Form>
      </SettingsSection>
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
-index 147a11d..026fdcd 100644
+index 147a11d..16960f9 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
 +++ b/web/default/src/features/system-settings/content/index.tsx
 @@ -25,6 +25,11 @@ import {
@@ -19978,7 +20373,7 @@ index 147a11d..026fdcd 100644
    'console_setting.api_info': '[]',
    'console_setting.announcements': '[]',
    'console_setting.faq': '[]',
-@@ -36,6 +41,17 @@ const defaultContentSettings: ContentSettings = {
+@@ -36,6 +41,20 @@ const defaultContentSettings: ContentSettings = {
    DataExportEnabled: false,
    DataExportDefaultTime: 'hour',
    DataExportInterval: 5,
@@ -19988,6 +20383,9 @@ index 147a11d..026fdcd 100644
 +  DashboardDefaultPageSize: 25,
 +  DashboardDefaultHealthFilter: 'all',
 +  DashboardDefaultTrendMode: 'overview',
++  DashboardDefaultChartTimeRangeDays: 1,
++  DashboardDefaultConsumptionChart: 'bar',
++  DashboardDefaultModelAnalyticsChart: 'trend',
 +  DashboardSlowFirstTokenThresholdMs: 3000,
 +  DashboardErrorRateWarningThreshold: 0,
 +  DashboardErrorRateCriticalThreshold: 5,
@@ -19997,19 +20395,25 @@ index 147a11d..026fdcd 100644
    DrawingEnabled: false,
    MjNotifyEnabled: false,
 diff --git a/web/default/src/features/system-settings/content/section-registry.tsx b/web/default/src/features/system-settings/content/section-registry.tsx
-index 1de3165..d03f062 100644
+index 1de3165..6dbd09f 100644
 --- a/web/default/src/features/system-settings/content/section-registry.tsx
 +++ b/web/default/src/features/system-settings/content/section-registry.tsx
-@@ -16,10 +16,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+@@ -16,10 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
  
  For commercial licensing, please contact support@quantumnous.com
  */
 +import {
 +  DASHBOARD_TIME_RANGE_VALUES,
++  DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES,
++  DASHBOARD_CONSUMPTION_CHART_VALUES,
 +  DASHBOARD_HEALTH_FILTER_VALUES,
++  DASHBOARD_MODEL_ANALYTICS_CHART_VALUES,
 +  DASHBOARD_TREND_MODE_VALUES,
 +  DASHBOARD_PAGE_SIZE_VALUES,
++  type DashboardChartTimeRangeDays,
++  type DashboardConsumptionChart,
 +  type DashboardHealthFilter,
++  type DashboardModelAnalyticsChart,
 +  type DashboardTrendMode,
 +  type DashboardPageSize,
 +  type DashboardTimeRange,
@@ -20035,7 +20439,7 @@ index 1de3165..d03f062 100644
  import { ChatSettingsSection } from './chat-settings-section'
  import { DashboardSection } from './dashboard-section'
  import { DrawingSettingsSection } from './drawing-settings-section'
-@@ -37,6 +61,54 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
+@@ -37,6 +67,84 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
    return 'hour'
  }
  
@@ -20069,6 +20473,36 @@ index 1de3165..d03f062 100644
 +    : 'overview'
 +}
 +
++function validateDashboardChartTimeRangeDays(
++  value: number
++): DashboardChartTimeRangeDays {
++  return DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES.includes(
++    value as DashboardChartTimeRangeDays
++  )
++    ? (value as DashboardChartTimeRangeDays)
++    : 1
++}
++
++function validateDashboardConsumptionChart(
++  value: string
++): DashboardConsumptionChart {
++  return DASHBOARD_CONSUMPTION_CHART_VALUES.includes(
++    value as DashboardConsumptionChart
++  )
++    ? (value as DashboardConsumptionChart)
++    : 'bar'
++}
++
++function validateDashboardModelAnalyticsChart(
++  value: string
++): DashboardModelAnalyticsChart {
++  return DASHBOARD_MODEL_ANALYTICS_CHART_VALUES.includes(
++    value as DashboardModelAnalyticsChart
++  )
++    ? (value as DashboardModelAnalyticsChart)
++    : 'trend'
++}
++
 +function validatePercentThreshold(value: number, fallback: number): number {
 +  return Number.isFinite(value) && value >= 0 && value <= 100 ? value : fallback
 +}
@@ -20090,7 +20524,7 @@ index 1de3165..d03f062 100644
  const CONTENT_SECTIONS = [
    {
      id: 'dashboard',
-@@ -49,6 +121,79 @@ const CONTENT_SECTIONS = [
+@@ -49,6 +157,90 @@ const CONTENT_SECTIONS = [
            DataExportDefaultTime: validateDataExportDefaultTime(
              settings.DataExportDefaultTime
            ),
@@ -20111,6 +20545,17 @@ index 1de3165..d03f062 100644
 +          DashboardDefaultTrendMode: validateDashboardTrendMode(
 +            settings.DashboardDefaultTrendMode
 +          ),
++          DashboardDefaultChartTimeRangeDays:
++            validateDashboardChartTimeRangeDays(
++              settings.DashboardDefaultChartTimeRangeDays
++            ),
++          DashboardDefaultConsumptionChart: validateDashboardConsumptionChart(
++            settings.DashboardDefaultConsumptionChart
++          ),
++          DashboardDefaultModelAnalyticsChart:
++            validateDashboardModelAnalyticsChart(
++              settings.DashboardDefaultModelAnalyticsChart
++            ),
 +          DashboardSlowFirstTokenThresholdMs: validateSlowFirstTokenThreshold(
 +            settings.DashboardSlowFirstTokenThresholdMs
 +          ),
@@ -20171,7 +20616,7 @@ index 1de3165..d03f062 100644
        />
      ),
 diff --git a/web/default/src/features/system-settings/hooks/use-update-option.ts b/web/default/src/features/system-settings/hooks/use-update-option.ts
-index 2f73207..0f06407 100644
+index 2f73207..788d8cf 100644
 --- a/web/default/src/features/system-settings/hooks/use-update-option.ts
 +++ b/web/default/src/features/system-settings/hooks/use-update-option.ts
 @@ -25,6 +25,11 @@ import type { UpdateOptionRequest } from '../types'
@@ -20186,7 +20631,7 @@ index 2f73207..0f06407 100644
    'HeaderNavModules',
    'SidebarModulesAdmin',
    'Notice',
-@@ -33,6 +38,7 @@ const STATUS_RELATED_KEYS = [
+@@ -33,9 +38,25 @@ const STATUS_RELATED_KEYS = [
    'USDExchangeRate',
    'DisplayInCurrencyEnabled',
    'DisplayTokenStatEnabled',
@@ -20194,6 +20639,24 @@ index 2f73207..0f06407 100644
    'general_setting.quota_display_type',
    'general_setting.custom_currency_symbol',
    'general_setting.custom_currency_exchange_rate',
++  'DataExportDefaultTime',
++  'DashboardDefaultTimeRange',
++  'DashboardAutoRefreshEnabled',
++  'DashboardRefreshIntervalSeconds',
++  'DashboardDefaultPageSize',
++  'DashboardDefaultHealthFilter',
++  'DashboardDefaultTrendMode',
++  'DashboardDefaultChartTimeRangeDays',
++  'DashboardDefaultConsumptionChart',
++  'DashboardDefaultModelAnalyticsChart',
++  'DashboardSlowFirstTokenThresholdMs',
++  'DashboardErrorRateWarningThreshold',
++  'DashboardErrorRateCriticalThreshold',
++  'DashboardSuccessRateGoodThreshold',
++  'DashboardSuccessRateDegradedThreshold',
+ ]
+ 
+ export function useUpdateOption() {
 diff --git a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx b/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
 index 7a4bd04..bf6e55f 100644
 --- a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
@@ -23920,7 +24383,7 @@ index 6cea57a..e553edb 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..da829c2 100644
+index 2122268..bf973ba 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,7 @@ export type SiteSettings = {
@@ -23943,7 +24406,7 @@ index 2122268..da829c2 100644
    'console_setting.api_info': string
    'console_setting.announcements': string
    'console_setting.faq': string
-@@ -127,6 +133,17 @@ export type ContentSettings = {
+@@ -127,6 +133,20 @@ export type ContentSettings = {
    DataExportEnabled: boolean
    DataExportDefaultTime: string
    DataExportInterval: number
@@ -23953,6 +24416,9 @@ index 2122268..da829c2 100644
 +  DashboardDefaultPageSize: number
 +  DashboardDefaultHealthFilter: string
 +  DashboardDefaultTrendMode: string
++  DashboardDefaultChartTimeRangeDays: number
++  DashboardDefaultConsumptionChart: string
++  DashboardDefaultModelAnalyticsChart: string
 +  DashboardSlowFirstTokenThresholdMs: number
 +  DashboardErrorRateWarningThreshold: number
 +  DashboardErrorRateCriticalThreshold: number
@@ -23961,7 +24427,7 @@ index 2122268..da829c2 100644
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +392,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +395,29 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -24042,15 +24508,19 @@ index e1b99d0..06d59f9 100644
              icon: Settings,
            },
 diff --git a/web/default/src/hooks/use-system-config.ts b/web/default/src/hooks/use-system-config.ts
-index 256bd7d..267eb42 100644
+index 256bd7d..c72ab3a 100644
 --- a/web/default/src/hooks/use-system-config.ts
 +++ b/web/default/src/hooks/use-system-config.ts
-@@ -25,7 +25,31 @@ import {
+@@ -25,7 +25,35 @@ import {
    DEFAULT_CURRENCY_CONFIG,
  } from '@/stores/system-config-store'
  import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 +import {
 +  DEFAULT_DASHBOARD_DEFAULTS,
++  isDashboardChartTimeGranularity,
++  isDashboardChartTimeRangeDays,
++  isDashboardConsumptionChart,
++  isDashboardModelAnalyticsChart,
 +  isDashboardTimeRange,
 +  isDashboardHealthFilter,
 +  isDashboardPageSize,
@@ -24077,7 +24547,7 @@ index 256bd7d..267eb42 100644
  
  interface UseSystemConfigOptions {
    /** Automatically fetch config from backend (use only in root component) */
-@@ -46,6 +70,24 @@ interface StatusApiResponse {
+@@ -46,6 +74,28 @@ interface StatusApiResponse {
      usd_exchange_rate?: number
      custom_currency_symbol?: string
      custom_currency_exchange_rate?: number
@@ -24087,6 +24557,10 @@ index 256bd7d..267eb42 100644
 +    dashboard_default_page_size?: number
 +    dashboard_default_health?: string
 +    dashboard_default_trend_mode?: string
++    dashboard_default_chart_days?: number
++    dashboard_default_consumption_chart?: string
++    dashboard_default_model_chart?: string
++    data_export_default_time?: string
 +    dashboard_slow_first_token_ms?: number
 +    dashboard_error_warning?: number
 +    dashboard_error_critical?: number
@@ -24102,7 +24576,7 @@ index 256bd7d..267eb42 100644
    }
  }
  
-@@ -58,6 +100,16 @@ function toNumber(value: unknown, fallback: number): number {
+@@ -58,6 +108,16 @@ function toNumber(value: unknown, fallback: number): number {
    return fallback
  }
  
@@ -24119,7 +24593,7 @@ index 256bd7d..267eb42 100644
  /**
   * Map `/api/status` response data to our persisted system config structure
   */
-@@ -91,6 +143,77 @@ export function mapStatusDataToConfig(
+@@ -91,6 +151,97 @@ export function mapStatusDataToConfig(
      ),
    }
  
@@ -24172,6 +24646,26 @@ index 256bd7d..267eb42 100644
 +    trendMode: isDashboardTrendMode(data.dashboard_default_trend_mode)
 +      ? data.dashboard_default_trend_mode
 +      : DEFAULT_DASHBOARD_DEFAULTS.trendMode,
++    chartTimeRangeDays: isDashboardChartTimeRangeDays(
++      data.dashboard_default_chart_days
++    )
++      ? data.dashboard_default_chart_days
++      : DEFAULT_DASHBOARD_DEFAULTS.chartTimeRangeDays,
++    chartTimeGranularity: isDashboardChartTimeGranularity(
++      data.data_export_default_time
++    )
++      ? data.data_export_default_time
++      : DEFAULT_DASHBOARD_DEFAULTS.chartTimeGranularity,
++    consumptionChart: isDashboardConsumptionChart(
++      data.dashboard_default_consumption_chart
++    )
++      ? data.dashboard_default_consumption_chart
++      : DEFAULT_DASHBOARD_DEFAULTS.consumptionChart,
++    modelAnalyticsChart: isDashboardModelAnalyticsChart(
++      data.dashboard_default_model_chart
++    )
++      ? data.dashboard_default_model_chart
++      : DEFAULT_DASHBOARD_DEFAULTS.modelAnalyticsChart,
 +    slowFirstTokenThresholdMs: normalizeSlowFirstTokenThresholdMs(
 +      data.dashboard_slow_first_token_ms,
 +      DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs
@@ -24197,7 +24691,7 @@ index 256bd7d..267eb42 100644
    return {
      systemName: data.system_name || DEFAULT_SYSTEM_NAME,
      logo: data.logo || DEFAULT_LOGO,
-@@ -98,6 +221,8 @@ export function mapStatusDataToConfig(
+@@ -98,6 +249,8 @@ export function mapStatusDataToConfig(
      demoSiteEnabled: data.demo_site_enabled,
      displayTokenStatEnabled: data.display_token_stat_enabled,
      currency,
@@ -24208,10 +24702,10 @@ index 256bd7d..267eb42 100644
  
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
-index 0000000..68c491a
+index 0000000..abd5e39
 --- /dev/null
 +++ b/web/default/src/lib/dashboard-defaults.ts
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,225 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -24241,6 +24735,10 @@ index 0000000..68c491a
 +  | 'latency'
 +  | 'spend'
 +export type DashboardPageSize = 10 | 25 | 50 | 100
++export type DashboardChartTimeGranularity = 'hour' | 'day' | 'week'
++export type DashboardChartTimeRangeDays = 1 | 7 | 14 | 29
++export type DashboardConsumptionChart = 'bar' | 'area'
++export type DashboardModelAnalyticsChart = 'trend' | 'proportion' | 'top'
 +
 +export interface DashboardDefaults {
 +  timeRange: DashboardTimeRange
@@ -24249,6 +24747,10 @@ index 0000000..68c491a
 +  pageSize: DashboardPageSize
 +  healthFilter: DashboardHealthFilter
 +  trendMode: DashboardTrendMode
++  chartTimeRangeDays: DashboardChartTimeRangeDays
++  chartTimeGranularity: DashboardChartTimeGranularity
++  consumptionChart: DashboardConsumptionChart
++  modelAnalyticsChart: DashboardModelAnalyticsChart
 +  slowFirstTokenThresholdMs: number
 +  errorRateWarningThreshold: number
 +  errorRateCriticalThreshold: number
@@ -24278,6 +24780,14 @@ index 0000000..68c491a
 +  'latency',
 +  'spend',
 +]
++export const DASHBOARD_CHART_TIME_GRANULARITY_VALUES: readonly DashboardChartTimeGranularity[] =
++  ['hour', 'day', 'week']
++export const DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES: readonly DashboardChartTimeRangeDays[] =
++  [1, 7, 14, 29]
++export const DASHBOARD_CONSUMPTION_CHART_VALUES: readonly DashboardConsumptionChart[] =
++  ['bar', 'area']
++export const DASHBOARD_MODEL_ANALYTICS_CHART_VALUES: readonly DashboardModelAnalyticsChart[] =
++  ['trend', 'proportion', 'top']
 +
 +export const DEFAULT_DASHBOARD_DEFAULTS: DashboardDefaults = {
 +  timeRange: '7d',
@@ -24286,6 +24796,10 @@ index 0000000..68c491a
 +  pageSize: 25,
 +  healthFilter: 'all',
 +  trendMode: 'overview',
++  chartTimeRangeDays: 1,
++  chartTimeGranularity: 'hour',
++  consumptionChart: 'bar',
++  modelAnalyticsChart: 'trend',
 +  slowFirstTokenThresholdMs: 3000,
 +  errorRateWarningThreshold: 0,
 +  errorRateCriticalThreshold: 5,
@@ -24357,6 +24871,50 @@ index 0000000..68c491a
 +  return (
 +    typeof value === 'string' &&
 +    DASHBOARD_TREND_MODE_VALUES.includes(value as DashboardTrendMode)
++  )
++}
++
++export function isDashboardChartTimeGranularity(
++  value: unknown
++): value is DashboardChartTimeGranularity {
++  return (
++    typeof value === 'string' &&
++    DASHBOARD_CHART_TIME_GRANULARITY_VALUES.includes(
++      value as DashboardChartTimeGranularity
++    )
++  )
++}
++
++export function isDashboardChartTimeRangeDays(
++  value: unknown
++): value is DashboardChartTimeRangeDays {
++  return (
++    typeof value === 'number' &&
++    DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES.includes(
++      value as DashboardChartTimeRangeDays
++    )
++  )
++}
++
++export function isDashboardConsumptionChart(
++  value: unknown
++): value is DashboardConsumptionChart {
++  return (
++    typeof value === 'string' &&
++    DASHBOARD_CONSUMPTION_CHART_VALUES.includes(
++      value as DashboardConsumptionChart
++    )
++  )
++}
++
++export function isDashboardModelAnalyticsChart(
++  value: unknown
++): value is DashboardModelAnalyticsChart {
++  return (
++    typeof value === 'string' &&
++    DASHBOARD_MODEL_ANALYTICS_CHART_VALUES.includes(
++      value as DashboardModelAnalyticsChart
++    )
 +  )
 +}
 +
