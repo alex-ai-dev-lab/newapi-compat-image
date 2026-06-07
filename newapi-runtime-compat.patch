@@ -19473,10 +19473,10 @@ index 86f4179..2ee461d 100644
 +}
 diff --git a/web/default/src/features/system-settings/content/appearance-settings.tsx b/web/default/src/features/system-settings/content/appearance-settings.tsx
 new file mode 100644
-index 0000000..1f21fcf
+index 0000000..208037c
 --- /dev/null
 +++ b/web/default/src/features/system-settings/content/appearance-settings.tsx
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,442 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -19495,10 +19495,34 @@ index 0000000..1f21fcf
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
++import { useState } from 'react'
++import * as z from 'zod'
 +import type { Control, Resolver } from 'react-hook-form'
 +import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
 +import { useTranslation } from 'react-i18next'
-+import * as z from 'zod'
++import { toast } from 'sonner'
++import {
++  CONTENT_LAYOUT_VALUES,
++  DEFAULT_THEME_CUSTOMIZATION,
++  THEME_FONTS,
++  THEME_PRESETS,
++  THEME_RADII,
++  THEME_SCALES,
++  type ContentLayout,
++  type ThemeFont,
++  type ThemePreset,
++  type ThemeRadius,
++  type ThemeScale,
++} from '@/lib/theme-customization'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
 +import {
 +  Form,
 +  FormControl,
@@ -19516,19 +19540,7 @@ index 0000000..1f21fcf
 +  SelectTrigger,
 +  SelectValue,
 +} from '@/components/ui/select'
-+import {
-+  CONTENT_LAYOUT_VALUES,
-+  DEFAULT_THEME_CUSTOMIZATION,
-+  THEME_FONTS,
-+  THEME_PRESETS,
-+  THEME_RADII,
-+  THEME_SCALES,
-+  type ContentLayout,
-+  type ThemeFont,
-+  type ThemePreset,
-+  type ThemeRadius,
-+  type ThemeScale,
-+} from '@/lib/theme-customization'
++import { Textarea } from '@/components/ui/textarea'
 +import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 +import { FormNavigationGuard } from '../components/form-navigation-guard'
 +import {
@@ -19584,6 +19596,27 @@ index 0000000..1f21fcf
 +  | 'theme.customization_scale'
 +  | 'theme.content_layout'
 +
++type AppearanceThemeKey = keyof AppearanceFormValues['theme']
++
++type AppearancePayload = Partial<Record<AppearanceFieldName, string>> & {
++  theme?: Partial<Record<AppearanceThemeKey, string>>
++}
++
++type AppearanceImportExportPayload = AppearancePayload & {
++  Appearance?: AppearancePayload
++}
++
++const appearanceFieldMap: Array<{
++  name: AppearanceFieldName
++  themeKey: AppearanceThemeKey
++}> = [
++  { name: 'theme.customization_preset', themeKey: 'customization_preset' },
++  { name: 'theme.customization_font', themeKey: 'customization_font' },
++  { name: 'theme.customization_radius', themeKey: 'customization_radius' },
++  { name: 'theme.customization_scale', themeKey: 'customization_scale' },
++  { name: 'theme.content_layout', themeKey: 'content_layout' },
++]
++
 +const contentLayoutOptions: Array<{
 +  value: ContentLayout
 +  label: string
@@ -19604,6 +19637,8 @@ index 0000000..1f21fcf
 +export function AppearanceSettings({ defaultValues }: AppearanceSettingsProps) {
 +  const { t } = useTranslation()
 +  const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
 +  const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
 +    useSettingsForm<AppearanceFormValues>({
 +      resolver: zodResolver(appearanceSchema) as Resolver<
@@ -19621,6 +19656,75 @@ index 0000000..1f21fcf
 +        }
 +      },
 +    })
++
++  const buildExportPayload = () => {
++    const values = form.getValues()
++    return appearanceFieldMap.reduce<Record<AppearanceFieldName, string>>(
++      (acc, field) => {
++        acc[field.name] = values.theme[field.themeKey]
++        return acc
++      },
++      {} as Record<AppearanceFieldName, string>
++    )
++  }
++
++  const exportConfig = async () => {
++    const text = JSON.stringify(buildExportPayload(), null, 2)
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-appearance.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success(t('Appearance exported'))
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as AppearanceImportExportPayload
++      const payload = raw.Appearance ?? raw
++      const nextTheme: Record<AppearanceThemeKey, string> = {
++        ...form.getValues().theme,
++      }
++
++      appearanceFieldMap.forEach((field) => {
++        const value =
++          payload[field.name] ??
++          payload.theme?.[field.themeKey] ??
++          raw.theme?.[field.themeKey]
++
++        if (value !== undefined) {
++          nextTheme[field.themeKey] = value
++        }
++      })
++
++      const parsedValues = appearanceSchema.parse({ theme: nextTheme })
++
++      appearanceFieldMap.forEach((field) => {
++        form.setValue(field.name, parsedValues.theme[field.themeKey], {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      setImportOpen(false)
++      toast.success(t('Appearance imported'))
++    } catch {
++      toast.error(t('Invalid appearance JSON'))
++    }
++  }
 +
 +  const resetToFactoryDefaults = () => {
 +    form.reset({
@@ -19648,6 +19752,16 @@ index 0000000..1f21fcf
 +            saveLabel='Save appearance'
 +          />
 +          <FormDirtyIndicator isDirty={isDirty} />
++          <div className='flex flex-wrap justify-end gap-2'>
++            <Button type='button' variant='outline' onClick={exportConfig}>
++              <Download className='mr-2 h-4 w-4' />
++              {t('Export JSON')}
++            </Button>
++            <Button type='button' variant='outline' onClick={openImportDialog}>
++              <Upload className='mr-2 h-4 w-4' />
++              {t('Import JSON')}
++            </Button>
++          </div>
 +          <SettingsFormGrid>
 +            <SelectField
 +              control={form.control}
@@ -19721,6 +19835,31 @@ index 0000000..1f21fcf
 +          </div>
 +        </SettingsForm>
 +      </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent>
++          <DialogHeader>
++            <DialogTitle>{t('Import appearance')}</DialogTitle>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            placeholder={t('Paste appearance JSON')}
++            className='min-h-[220px] font-mono text-sm'
++          />
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setImportOpen(false)}
++            >
++              {t('Cancel')}
++            </Button>
++            <Button type='button' onClick={importConfig}>
++              {t('Import')}
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
 +    </SettingsSection>
 +  )
 +}
