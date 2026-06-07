@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..2f6dac4
+index 0000000..9c7109c
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,690 @@
+@@ -0,0 +1,733 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10946,6 +10946,12 @@ index 0000000..2f6dac4
 +          'user-agent',
 +          'client identity',
 +          'dashboard defaults',
++          'appearance',
++          'header',
++          'sidebar',
++          'import',
++          'export',
++          'json',
 +          'sqlite',
 +          'error rules',
 +        ],
@@ -11173,7 +11179,7 @@ index 0000000..2f6dac4
 +      {
 +        id: 'settings-dashboard-defaults',
 +        label: 'Dashboard Defaults',
-+        description: 'Configure default stats time range and refresh behavior',
++        description: 'Configure and import/export dashboard defaults as JSON',
 +        icon: LayoutDashboard,
 +        keywords: [
 +          'dashboard',
@@ -11182,6 +11188,9 @@ index 0000000..2f6dac4
 +          'time range',
 +          'auto refresh',
 +          'statistics',
++          'json',
++          'import',
++          'export',
 +        ],
 +        section: 'Settings',
 +        action: () => {
@@ -11196,9 +11205,22 @@ index 0000000..2f6dac4
 +      {
 +        id: 'settings-appearance',
 +        label: 'Appearance',
-+        description: 'Customize theme and colors',
++        description: 'Customize and import/export global appearance defaults',
 +        icon: Palette,
-+        keywords: ['theme', 'dark', 'light', 'appearance', 'color'],
++        keywords: [
++          'theme',
++          'dark',
++          'light',
++          'appearance',
++          'color',
++          'font',
++          'radius',
++          'density',
++          'layout',
++          'json',
++          'import',
++          'export',
++        ],
 +        section: 'Settings',
 +        action: () => {
 +          navigate({
@@ -11237,9 +11259,19 @@ index 0000000..2f6dac4
 +      {
 +        id: 'settings-header-navigation',
 +        label: 'Header Navigation',
-+        description: 'Configure top navigation and documentation link',
++        description:
++          'Configure and import/export top navigation and documentation link',
 +        icon: BookOpen,
-+        keywords: ['header', 'navigation', 'docs', 'documentation', 'link'],
++        keywords: [
++          'header',
++          'navigation',
++          'docs',
++          'documentation',
++          'link',
++          'json',
++          'import',
++          'export',
++        ],
 +        section: 'Settings',
 +        action: () => {
 +          navigate({
@@ -11253,9 +11285,20 @@ index 0000000..2f6dac4
 +      {
 +        id: 'settings-sidebar-modules',
 +        label: 'Sidebar Modules',
-+        description: 'Configure admin sidebar modules and visibility',
++        description:
++          'Configure and import/export sidebar modules, visibility, and order',
 +        icon: LayoutDashboard,
-+        keywords: ['sidebar', 'modules', 'navigation', 'admin menu', 'layout'],
++        keywords: [
++          'sidebar',
++          'modules',
++          'navigation',
++          'admin menu',
++          'layout',
++          'order',
++          'json',
++          'import',
++          'export',
++        ],
 +        section: 'Settings',
 +        action: () => {
 +          navigate({
@@ -25399,10 +25442,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..de7bfac
+index 0000000..c442b72
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,906 @@
+@@ -0,0 +1,922 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -25421,8 +25464,8 @@ index 0000000..de7bfac
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
-+import { Link } from '@tanstack/react-router'
 +import { useQuery } from '@tanstack/react-query'
++import { Link } from '@tanstack/react-router'
 +import {
 +  Activity,
 +  BadgeDollarSign,
@@ -25441,8 +25484,8 @@ index 0000000..de7bfac
 +  Timer,
 +  type LucideIcon,
 +} from 'lucide-react'
-+import { api } from '@/lib/api'
 +import { useSystemConfigStore } from '@/stores/system-config-store'
++import { api } from '@/lib/api'
 +import { cn } from '@/lib/utils'
 +import { useStatus } from '@/hooks/use-status'
 +import { Badge } from '@/components/ui/badge'
@@ -25584,7 +25627,7 @@ index 0000000..de7bfac
 +  {
 +    title: 'Dashboard defaults',
 +    description:
-+      'Set the default statistics time range, auto-refresh behavior, and refresh interval for users without local preferences.',
++      'Set default dashboard views and migrate dashboard defaults with JSON import/export.',
 +    icon: Gauge,
 +    status: 'Global default',
 +    cta: 'Configure',
@@ -25593,7 +25636,7 @@ index 0000000..de7bfac
 +  {
 +    title: 'Appearance',
 +    description:
-+      'Tune the global default theme preset, font, radius, density, and content width for the admin interface.',
++      'Tune and migrate global default theme, font, radius, density, and content width.',
 +    icon: Palette,
 +    status: 'Visual system',
 +    cta: 'Open appearance',
@@ -25602,7 +25645,7 @@ index 0000000..de7bfac
 +  {
 +    title: 'Header navigation',
 +    description:
-+      'Edit top navigation modules and the documentation URL shown in the header and default footer.',
++      'Edit and import/export top navigation modules and the documentation URL.',
 +    icon: ListChecks,
 +    status: 'Navigation',
 +    cta: 'Edit nav',
@@ -25610,6 +25653,19 @@ index 0000000..de7bfac
 +      kind: 'system-settings',
 +      area: 'site',
 +      section: 'header-navigation',
++    },
++  },
++  {
++    title: 'Sidebar modules',
++    description:
++      'Control sidebar visibility and ordering, then import/export the layout as JSON.',
++    icon: LayoutDashboard,
++    status: 'Navigation',
++    cta: 'Edit sidebar',
++    link: {
++      kind: 'system-settings',
++      area: 'site',
++      section: 'sidebar-modules',
 +    },
 +  },
 +  {
@@ -25961,7 +26017,10 @@ index 0000000..de7bfac
 +  )
 +}
 +
-+function getHeaderNavSummary(navConfig?: string | null, docsLink?: string | null) {
++function getHeaderNavSummary(
++  navConfig?: string | null,
++  docsLink?: string | null
++) {
 +  const parsed = parseHeaderNavModules(navConfig)
 +  const modules = [
 +    ['home', parsed.home],
