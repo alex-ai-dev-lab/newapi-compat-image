@@ -21140,10 +21140,10 @@ index 0edc503..f14ed47 100644
 +  return JSON.stringify(normalizeSidebarModulesAdmin(config))
  }
 diff --git a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx b/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
-index 7a4bd04..302e687 100644
+index 7a4bd04..861445e 100644
 --- a/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
 +++ b/web/default/src/features/system-settings/maintenance/header-navigation-section.tsx
-@@ -16,19 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+@@ -16,19 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
  
  For commercial licensing, please contact support@quantumnous.com
  */
@@ -21153,7 +21153,16 @@ index 7a4bd04..302e687 100644
  import { useForm } from 'react-hook-form'
  import { zodResolver } from '@hookform/resolvers/zod'
  import { useTranslation } from 'react-i18next'
-+import { ArrowDown, ArrowUp } from 'lucide-react'
++import { ArrowDown, ArrowUp, Download, Upload } from 'lucide-react'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
  import {
    Form,
    FormControl,
@@ -21167,20 +21176,21 @@ index 7a4bd04..302e687 100644
  import { Switch } from '@/components/ui/switch'
  import {
    SettingsControlChildren,
-@@ -40,9 +43,12 @@ import {
- import { SettingsPageFormActions } from '../components/settings-page-context'
- import { SettingsSection } from '../components/settings-section'
+@@ -42,9 +54,13 @@ import { SettingsSection } from '../components/settings-section'
  import { useUpdateOption } from '../hooks/use-update-option'
-+import { Button } from '@/components/ui/button'
  import {
    HEADER_NAV_DEFAULT,
 +  HEADER_NAV_ORDER_DEFAULT,
    type HeaderNavModulesConfig,
 +  normalizeHeaderNavOrder,
++  parseHeaderNavModules,
    serializeHeaderNavModules,
  } from './config'
++import { Textarea } from '@/components/ui/textarea'
  
-@@ -54,17 +60,24 @@ const headerNavSchema = z.object({
+ const headerNavSchema = z.object({
+   home: z.boolean(),
+@@ -54,17 +70,30 @@ const headerNavSchema = z.object({
    rankingsEnabled: z.boolean(),
    rankingsRequireAuth: z.boolean(),
    docs: z.boolean(),
@@ -21196,6 +21206,12 @@ index 7a4bd04..302e687 100644
    config: HeaderNavModulesConfig
    initialSerialized: string
 +  docsLink: string
++}
++
++type HeaderNavImportExportPayload = {
++  HeaderNavModules?: HeaderNavModulesConfig | string
++  docs_link?: string
++  'general_setting.docs_link'?: string
  }
  
 -const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
@@ -21206,7 +21222,7 @@ index 7a4bd04..302e687 100644
    home:
      config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
    console:
-@@ -89,6 +102,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
+@@ -89,6 +118,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
        : Boolean(config.rankings.requireAuth),
    docs:
      config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
@@ -21214,7 +21230,7 @@ index 7a4bd04..302e687 100644
    about:
      config.about === undefined
        ? HEADER_NAV_DEFAULT.about
-@@ -98,10 +112,17 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
+@@ -98,10 +128,19 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
  export function HeaderNavigationSection({
    config,
    initialSerialized,
@@ -21230,10 +21246,12 @@ index 7a4bd04..302e687 100644
 +  const [headerOrder, setHeaderOrder] = useState<HeaderNavOrderKey[]>(
 +    normalizeHeaderNavOrder(config.order)
 +  )
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
  
    const form = useForm<HeaderNavFormValues>({
      resolver: zodResolver(headerNavSchema),
-@@ -110,11 +131,13 @@ export function HeaderNavigationSection({
+@@ -110,11 +149,13 @@ export function HeaderNavigationSection({
  
    useEffect(() => {
      form.reset(formDefaults)
@@ -21241,16 +21259,23 @@ index 7a4bd04..302e687 100644
 +    setHeaderOrder(normalizeHeaderNavOrder(config.order))
 +  }, [config.order, formDefaults, form])
  
-   const onSubmit = async (values: HeaderNavFormValues) => {
-     const payload: HeaderNavModulesConfig = {
+-  const onSubmit = async (values: HeaderNavFormValues) => {
+-    const payload: HeaderNavModulesConfig = {
++  const buildPayload = (values: HeaderNavFormValues): HeaderNavModulesConfig => {
++    return {
        ...config,
 +      order: normalizeHeaderNavOrder(headerOrder),
        home: values.home,
        console: values.console,
        docs: values.docs,
-@@ -132,22 +155,49 @@ export function HeaderNavigationSection({
+@@ -130,24 +171,115 @@ export function HeaderNavigationSection({
+         requireAuth: values.rankingsRequireAuth,
+       },
      }
++  }
  
++  const onSubmit = async (values: HeaderNavFormValues) => {
++    const payload = buildPayload(values)
      const serialized = serializeHeaderNavModules(payload)
 -    if (serialized === initialSerialized) {
 +    const nextDocsLink = values.docsLink.trim()
@@ -21285,6 +21310,67 @@ index 7a4bd04..302e687 100644
 +    setHeaderOrder(normalizeHeaderNavOrder(HEADER_NAV_DEFAULT.order))
 +  }
 +
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = buildPayload(values)
++    const text = JSON.stringify(
++      {
++        HeaderNavModules: JSON.parse(serializeHeaderNavModules(payload)),
++        docs_link: values.docsLink.trim(),
++      },
++      null,
++      2
++    )
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-header-navigation.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success(t('Header navigation exported'))
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as HeaderNavImportExportPayload
++      const rawModules =
++        raw.HeaderNavModules ??
++        Object.fromEntries(
++          Object.entries(raw).filter(
++            ([key]) => key !== 'docs_link' && key !== 'general_setting.docs_link'
++          )
++        )
++      const importedConfig =
++        typeof rawModules === 'string'
++          ? parseHeaderNavModules(rawModules)
++          : parseHeaderNavModules(JSON.stringify(rawModules))
++      const importedDocsLink =
++        raw.docs_link ??
++        raw['general_setting.docs_link'] ??
++        form.getValues().docsLink
++
++      form.reset(toFormValues(importedConfig, importedDocsLink))
++      setHeaderOrder(normalizeHeaderNavOrder(importedConfig.order))
++      setImportOpen(false)
++      toast.success(t('Header navigation imported'))
++    } catch {
++      toast.error(t('Invalid header navigation JSON'))
++    }
++  }
++
 +  const moveHeaderModule = (moduleKey: HeaderNavOrderKey, direction: -1 | 1) => {
 +    setHeaderOrder((current) => {
 +      const next = normalizeHeaderNavOrder(current)
@@ -21305,7 +21391,7 @@ index 7a4bd04..302e687 100644
      title: string
      description: string
    }> = [
-@@ -174,8 +224,8 @@ export function HeaderNavigationSection({
+@@ -174,8 +306,8 @@ export function HeaderNavigationSection({
    ]
  
    const accessModules: Array<{
@@ -21316,7 +21402,7 @@ index 7a4bd04..302e687 100644
      requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
      title: string
      description: string
-@@ -206,6 +256,15 @@ export function HeaderNavigationSection({
+@@ -206,6 +338,15 @@ export function HeaderNavigationSection({
      },
    ]
  
@@ -21332,7 +21418,32 @@ index 7a4bd04..302e687 100644
    return (
      <SettingsSection title={t('Header navigation')}>
        <Form {...form}>
-@@ -242,6 +301,74 @@ export function HeaderNavigationSection({
+@@ -217,6 +358,24 @@ export function HeaderNavigationSection({
+             resetLabel='Reset to default'
+             saveLabel='Save navigation'
+           />
++          <div className='flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between'>
++            <div>
++              <p className='text-sm font-medium'>{t('Import / export')}</p>
++              <p className='text-muted-foreground mt-1 text-sm'>
++                {t('Backup or restore top navigation modules, order, and Docs URL as JSON.')}
++              </p>
++            </div>
++            <div className='flex shrink-0 gap-2'>
++              <Button type='button' variant='outline' onClick={exportConfig}>
++                <Download className='mr-2 h-4 w-4' />
++                {t('Export JSON')}
++              </Button>
++              <Button type='button' variant='outline' onClick={openImportDialog}>
++                <Upload className='mr-2 h-4 w-4' />
++                {t('Import JSON')}
++              </Button>
++            </div>
++          </div>
+           <div className='grid gap-4 md:grid-cols-2'>
+             {simpleModules.map((module) => (
+               <FormField
+@@ -242,6 +401,74 @@ export function HeaderNavigationSection({
              ))}
            </div>
  
@@ -21407,6 +21518,40 @@ index 7a4bd04..302e687 100644
            <div className='grid gap-4 lg:grid-cols-2'>
              {accessModules.map((module) => (
                <SettingsControlGroup key={module.enabledKey}>
+@@ -294,6 +521,33 @@ export function HeaderNavigationSection({
+           </div>
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import header navigation')}</DialogTitle>
++          </DialogHeader>
++          <Textarea
++            rows={12}
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            placeholder='{ "HeaderNavModules": {}, "docs_link": "https://docs.example.com" }'
++            className='font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setImportOpen(false)}
++            >
++              {t('Cancel')}
++            </Button>
++            <Button type='button' onClick={importConfig}>
++              {t('Import')}
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx b/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
 index 782fbd4..4c483a6 100644
 --- a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
