@@ -34,6 +34,8 @@
 
 本站点公告模块增量：`系统设置 -> 站点设置 -> System Notice` 已补充 JSON 导入/导出，导出会保存 `Notice`；导入支持 `SystemNotice.notice` 包装格式和原 option key，导入后只更新当前页面状态，仍需管理员点 `Save notice` 才写入后台；Operations Center 的配置地图和命令面板也新增 System Notice 入口，可通过 `system notice`、`announcement`、`json`、`import`、`export` 等关键词找到。这是站点配置迁移能力的局部补强，不代表全部站点/后台模块都已完成。
 
+本轮运维配置增量：`系统设置 -> 运维/Operations -> System Behavior` 已补充重试次数、默认侧边栏、演示站点和自用模式的 JSON 导入/导出；`系统设置 -> 运维/Operations -> Monitoring & Alerts` 已补充全局渠道测试、自动禁用/恢复、失败关键词、禁用/重试状态码和额度提醒的 JSON 导入/导出；`系统设置 -> 运维/Operations -> Performance` 已补充磁盘缓存、资源阈值和性能指标采集配置的 JSON 导入/导出。导入仍只更新当前页面状态，必须点保存才写入后台；性能页的清理缓存、GC、日志清理等运行操作没有被导入/导出覆盖。这是运维配置迁移能力的局部补强，不代表 Operations 分区全部完成，SMTP/Worker 这类带密钥页面仍需单独处理。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
@@ -48,6 +50,9 @@
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
 | 渠道定时测试配置 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持开关 | `渠道 -> 编辑渠道 -> Claude thinking support` |
+| 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
+| 监控与告警 | `系统设置 -> 运维/Operations -> Monitoring & Alerts`，配置全局渠道测试、自动禁用/恢复、失败关键词、禁用/重试状态码、额度提醒，并支持 JSON 导入/导出 |
+| 性能设置 | `系统设置 -> 运维/Operations -> Performance`，配置磁盘缓存、资源阈值和性能指标采集，并支持 JSON 导入/导出 |
 | 统计看板 | `Dashboard -> Overview` 的管理员 `Operations center`；`Dashboard -> Model Call Analytics` 的管理员模型运维面板和原消费图表；`Dashboard -> Channel Analytics` 的渠道分析和渠道用户消费表；`Dashboard -> User Analytics` 的用户运维面板和消费图表 |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 控制台公告 | `系统设置 -> 内容/外观 -> Announcements`，配置公告列表和启用状态，并支持 JSON 导入/导出 |
