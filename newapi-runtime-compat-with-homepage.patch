@@ -10476,10 +10476,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..943e38a
+index 0000000..2f6dac4
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,601 @@
+@@ -0,0 +1,690 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10888,6 +10888,31 @@ index 0000000..943e38a
 +        requiresRole: 10,
 +      },
 +      {
++        id: 'settings-monitoring-alerts',
++        label: 'Monitoring & Alerts',
++        description:
++          'Configure automatic channel disable, retry status codes, and reminders',
++        icon: BarChart3,
++        keywords: [
++          'monitoring',
++          'alerts',
++          'disable',
++          'retry',
++          'status code',
++          'quota',
++          'reminder',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/operations/$section',
++            params: { section: 'monitoring' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
 +        id: 'settings-claude-thinking',
 +        label: 'Claude Thinking Support',
 +        description: 'Open channels to configure Claude thinking compatibility',
@@ -10940,6 +10965,29 @@ index 0000000..943e38a
 +      },
 +      // Settings - Appearance
 +      {
++        id: 'settings-dashboard-defaults',
++        label: 'Dashboard Defaults',
++        description: 'Configure default stats time range and refresh behavior',
++        icon: LayoutDashboard,
++        keywords: [
++          'dashboard',
++          'defaults',
++          'refresh',
++          'time range',
++          'auto refresh',
++          'statistics',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'dashboard' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
 +        id: 'settings-appearance',
 +        label: 'Appearance',
 +        description: 'Customize theme and colors',
@@ -10956,6 +11004,31 @@ index 0000000..943e38a
 +        requiresRole: 100,
 +      },
 +      {
++        id: 'settings-performance',
++        label: 'Performance Settings',
++        description:
++          'Configure cache, resource monitors, and operations performance knobs',
++        icon: Settings,
++        keywords: [
++          'performance',
++          'cache',
++          'cpu',
++          'memory',
++          'disk',
++          'metrics',
++          'monitor',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/operations/$section',
++            params: { section: 'performance' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
 +        id: 'settings-header-navigation',
 +        label: 'Header Navigation',
 +        description: 'Configure top navigation and documentation link',
@@ -10966,6 +11039,22 @@ index 0000000..943e38a
 +          navigate({
 +            to: '/system-settings/site/$section',
 +            params: { section: 'header-navigation' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-sidebar-modules',
++        label: 'Sidebar Modules',
++        description: 'Configure admin sidebar modules and visibility',
++        icon: LayoutDashboard,
++        keywords: ['sidebar', 'modules', 'navigation', 'admin menu', 'layout'],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/site/$section',
++            params: { section: 'sidebar-modules' },
 +          })
 +          close()
 +        },
