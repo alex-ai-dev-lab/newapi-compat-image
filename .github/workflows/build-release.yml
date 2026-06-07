@@ -7,8 +7,6 @@ on:
         description: "Optional upstream NewAPI tag, for example v1.0.0-rc.10"
         required: false
         type: string
-  schedule:
-    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
@@ -155,7 +153,12 @@ jobs:
         run: |
           docker pull "$IMAGE_TAG"
           mkdir -p artifacts
-          docker save "$IMAGE_TAG" | gzip -9 > "artifacts/newapi-$VARIANT-compat-docker-image-$UPSTREAM_TAG.tar.gz"
+          if [ "$VARIANT" = "homepage" ]; then
+            ASSET_NAME="newapi-runtime-compat-homepage-docker-image-$UPSTREAM_TAG.tar.gz"
+          else
+            ASSET_NAME="newapi-runtime-compat-docker-image-$UPSTREAM_TAG.tar.gz"
+          fi
+          docker save "$IMAGE_TAG" | gzip -9 > "artifacts/$ASSET_NAME"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -199,7 +202,13 @@ jobs:
 
           这个 Release 同时包含两个镜像：
           - 普通功能补丁镜像：newapi-runtime-compat-docker-image-$UPSTREAM_TAG.tar.gz
-          - 功能补丁 + 首页美化镜像：newapi-homepage-compat-docker-image-$UPSTREAM_TAG.tar.gz
+          - 功能补丁 + 首页美化镜像：newapi-runtime-compat-homepage-docker-image-$UPSTREAM_TAG.tar.gz
+
+          注意：
+          - 当前补丁是混合架构，不是全量 pkg/compat hook 化。
+          - 后台是局部增强，不是完整 Phase3 重写。
+          - 官方价格同步以 models.dev 官方 provider 元数据为源，并过滤转售/聚合商别名。
+          - 生产环境仍建议保留 docker compose user: "0:0"，否则挂载日志目录权限可能导致 failed to open log file。
           EOF
 
           # Generate artifact checksums

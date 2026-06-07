@@ -18,6 +18,8 @@
 - `newapi-runtime-compat.patch`
 - `newapi-runtime-compat-with-homepage.patch`
 - `SHA256SUMS.txt`
+- `ARTIFACTS.SHA256SUMS`
+- `RELEASE_NOTES.md`
 
 ## 当前实际功能
 
@@ -82,6 +84,8 @@
 - 官方价格同步不是“所有模型官网逐一抓取”。当前实现以 `models.dev` 的官方 provider 元数据为源，并做 provider 白名单与 slash alias 过滤；若 `models.dev` 本身缺失某个官方模型，需要后续补映射或手工维护。
 - 生产 compose 目前需要 `user: "0:0"`，因为服务器挂载的 `logs` / `data` 目录权限按 root 跑最稳。移除 root override 前必须先验证挂载目录权限。
 
+逐项需求验收和不可宣传口径见 `docs/ken-requirements-audit.md`。Step 3 架构状态见 `docs/step3-completion-summary.md` 与 `docs/step3-overlay-refactor-design.md`。
+
 ## 构建
 
 手动触发 GitHub Actions：
@@ -143,8 +147,8 @@ npm run build
 
 ```powershell
 git -C D:\Code\newapi\_rc10_core_work add -N .
-git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json' ':!web/default/src/features/home/**' ':!web/default/src/styles/index.css'
-git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-homepage.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json'
+git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json' ':!web/default/dist/**' ':!web/default/node_modules/**' ':!newapi.exe' ':!web/default/src/features/home/**' ':!web/default/src/styles/index.css'
+git -C D:\Code\newapi\_rc10_core_work diff --binary --output=D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-homepage.patch 0e2cbdb6ff545c33103b9ce1fb633cbcb365f955 -- . ':!web/default/package-lock.json' ':!web/default/dist/**' ':!web/default/node_modules/**' ':!newapi.exe'
 ```
 
 4. 用干净 `v1.0.0-rc.10` 树执行 `git apply --check` 验证 patch。
