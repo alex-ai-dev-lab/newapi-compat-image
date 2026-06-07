@@ -146,10 +146,10 @@ index 17c4398..fadaed4 100644
 +ENTRYPOINT ["/app/docker-entrypoint.sh"]
 +CMD ["/app/new-api"]
 diff --git a/common/constants.go b/common/constants.go
-index c7d5637..8f2298d 100644
+index c7d5637..dab613e 100644
 --- a/common/constants.go
 +++ b/common/constants.go
-@@ -68,6 +68,21 @@ var TaskEnabled = true
+@@ -68,6 +68,22 @@ var TaskEnabled = true
  var DataExportEnabled = true
  var DataExportInterval = 5         // unit: minute
  var DataExportDefaultTime = "hour" // unit: minute
@@ -163,6 +163,7 @@ index c7d5637..8f2298d 100644
 +var DashboardDefaultConsumptionChart = "bar"
 +var DashboardDefaultModelAnalyticsChart = "trend"
 +var DashboardVisibleSections = "overview,models,channels,users"
++var SidebarSectionOrder = "chat,console,personal,admin"
 +var DashboardSlowFirstTokenThresholdMs = 3000
 +var DashboardErrorRateWarningThreshold = 0.0
 +var DashboardErrorRateCriticalThreshold = 5.0
@@ -171,7 +172,7 @@ index c7d5637..8f2298d 100644
  var DefaultCollapseSidebar = false // default value of collapse sidebar
  
  // Any options with "Secret", "Token" in its key won't be return by GetOptions
-@@ -168,7 +183,8 @@ var SyncFrequency int // unit is second
+@@ -168,7 +184,8 @@ var SyncFrequency int // unit is second
  var BatchUpdateEnabled = false
  var BatchUpdateInterval int
  
@@ -1122,7 +1123,7 @@ index 0000000..b8974dd
 +	assert.Nil(t, compatStreamRetryError(info))
 +}
 diff --git a/controller/misc.go b/controller/misc.go
-index eada490..0ffe4e6 100644
+index eada490..9def383 100644
 --- a/controller/misc.go
 +++ b/controller/misc.go
 @@ -47,6 +47,7 @@ func GetStatus(c *gin.Context) {
@@ -1221,6 +1222,14 @@ index eada490..0ffe4e6 100644
  
  		"usd_exchange_rate": operation_setting.USDExchangeRate,
  		"price":             operation_setting.Price,
+@@ -105,6 +128,7 @@ func GetStatus(c *gin.Context) {
+ 		// 模块管理配置
+ 		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
+ 		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
++		"SidebarSectionOrder": common.SidebarSectionOrder,
+ 
+ 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
+ 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
 diff --git a/controller/official_price_sync.go b/controller/official_price_sync.go
 new file mode 100644
 index 0000000..b52b3d3
@@ -1597,7 +1606,7 @@ index 0000000..67f1d2f
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/option.go b/controller/option.go
-index b5fdfdc..8cb8387 100644
+index b5fdfdc..f74ba13 100644
 --- a/controller/option.go
 +++ b/controller/option.go
 @@ -42,6 +42,39 @@ func isPositiveOptionValue(value string) bool {
@@ -1640,7 +1649,7 @@ index b5fdfdc..8cb8387 100644
  func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
  	if strings.TrimSpace(raw) == "" {
  		return
-@@ -223,6 +256,134 @@ func UpdateOption(c *gin.Context) {
+@@ -223,6 +256,142 @@ func UpdateOption(c *gin.Context) {
  			})
  			return
  		}
@@ -1753,6 +1762,14 @@ index b5fdfdc..8cb8387 100644
 +			c.JSON(http.StatusOK, gin.H{
 +				"success": false,
 +				"message": "无效的 Dashboard 可见分区",
++			})
++			return
++		}
++	case "SidebarSectionOrder":
++		if !isCSVSubsetOptionValue(option.Value.(string), "chat", "console", "personal", "admin") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的侧边栏分组顺序",
 +			})
 +			return
 +		}
@@ -3642,10 +3659,10 @@ index 9083ee5..45f32e2 100644
  	// 动态计算migration数量，确保errChan缓冲区足够大
  	errChan := make(chan error, len(migrations))
 diff --git a/model/option.go b/model/option.go
-index ed1af72..9842c42 100644
+index ed1af72..e6666c0 100644
 --- a/model/option.go
 +++ b/model/option.go
-@@ -155,6 +155,21 @@ func InitOptionMap() {
+@@ -155,6 +155,22 @@ func InitOptionMap() {
  	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
  	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
  	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -3659,6 +3676,7 @@ index ed1af72..9842c42 100644
 +	common.OptionMap["DashboardDefaultConsumptionChart"] = common.DashboardDefaultConsumptionChart
 +	common.OptionMap["DashboardDefaultModelAnalyticsChart"] = common.DashboardDefaultModelAnalyticsChart
 +	common.OptionMap["DashboardVisibleSections"] = common.DashboardVisibleSections
++	common.OptionMap["SidebarSectionOrder"] = common.SidebarSectionOrder
 +	common.OptionMap["DashboardSlowFirstTokenThresholdMs"] = strconv.Itoa(common.DashboardSlowFirstTokenThresholdMs)
 +	common.OptionMap["DashboardErrorRateWarningThreshold"] = strconv.FormatFloat(common.DashboardErrorRateWarningThreshold, 'f', -1, 64)
 +	common.OptionMap["DashboardErrorRateCriticalThreshold"] = strconv.FormatFloat(common.DashboardErrorRateCriticalThreshold, 'f', -1, 64)
@@ -3667,7 +3685,7 @@ index ed1af72..9842c42 100644
  	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
  	common.OptionMap["MjNotifyEnabled"] = strconv.FormatBool(setting.MjNotifyEnabled)
  	common.OptionMap["MjAccountFilterEnabled"] = strconv.FormatBool(setting.MjAccountFilterEnabled)
-@@ -324,6 +339,8 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -324,6 +340,8 @@ func updateOptionMap(key string, value string) (err error) {
  			common.TaskEnabled = boolValue
  		case "DataExportEnabled":
  			common.DataExportEnabled = boolValue
@@ -3676,7 +3694,7 @@ index ed1af72..9842c42 100644
  		case "DefaultCollapseSidebar":
  			common.DefaultCollapseSidebar = boolValue
  		case "MjNotifyEnabled":
-@@ -376,6 +393,34 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -376,6 +394,36 @@ func updateOptionMap(key string, value string) (err error) {
  		common.SMTPToken = value
  	case "ServerAddress":
  		system_setting.ServerAddress = value
@@ -3698,6 +3716,8 @@ index ed1af72..9842c42 100644
 +		common.DashboardDefaultModelAnalyticsChart = value
 +	case "DashboardVisibleSections":
 +		common.DashboardVisibleSections = value
++	case "SidebarSectionOrder":
++		common.SidebarSectionOrder = value
 +	case "DashboardSlowFirstTokenThresholdMs":
 +		common.DashboardSlowFirstTokenThresholdMs, _ = strconv.Atoi(value)
 +	case "DashboardErrorRateWarningThreshold":
@@ -20778,10 +20798,10 @@ index 1de3165..6facdb8 100644
        />
      ),
 diff --git a/web/default/src/features/system-settings/hooks/use-update-option.ts b/web/default/src/features/system-settings/hooks/use-update-option.ts
-index 2f73207..e371ffb 100644
+index 2f73207..1871c65 100644
 --- a/web/default/src/features/system-settings/hooks/use-update-option.ts
 +++ b/web/default/src/features/system-settings/hooks/use-update-option.ts
-@@ -25,6 +25,11 @@ import type { UpdateOptionRequest } from '../types'
+@@ -25,17 +25,40 @@ import type { UpdateOptionRequest } from '../types'
  // Configuration keys that require status refresh
  const STATUS_RELATED_KEYS = [
    'theme.frontend',
@@ -20792,8 +20812,10 @@ index 2f73207..e371ffb 100644
 +  'theme.content_layout',
    'HeaderNavModules',
    'SidebarModulesAdmin',
++  'SidebarSectionOrder',
    'Notice',
-@@ -33,9 +38,26 @@ const STATUS_RELATED_KEYS = [
+   'LogConsumeEnabled',
+   'QuotaPerUnit',
    'USDExchangeRate',
    'DisplayInCurrencyEnabled',
    'DisplayTokenStatEnabled',
@@ -20821,10 +20843,10 @@ index 2f73207..e371ffb 100644
  
  export function useUpdateOption() {
 diff --git a/web/default/src/features/system-settings/maintenance/config.ts b/web/default/src/features/system-settings/maintenance/config.ts
-index 0edc503..e1010b8 100644
+index 0edc503..2342007 100644
 --- a/web/default/src/features/system-settings/maintenance/config.ts
 +++ b/web/default/src/features/system-settings/maintenance/config.ts
-@@ -33,7 +33,8 @@ export type HeaderNavModulesConfig = {
+@@ -33,11 +33,19 @@ export type HeaderNavModulesConfig = {
  
  export type SidebarSectionConfig = {
    enabled: boolean
@@ -20834,7 +20856,18 @@ index 0edc503..e1010b8 100644
  }
  
  export type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
-@@ -56,11 +57,13 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
+ 
++export const SIDEBAR_SECTION_ORDER_DEFAULT = [
++  'chat',
++  'console',
++  'personal',
++  'admin',
++]
++
+ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
+   home: true,
+   console: true,
+@@ -56,11 +64,13 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
  export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
    chat: {
      enabled: true,
@@ -20848,7 +20881,7 @@ index 0edc503..e1010b8 100644
      detail: true,
      token: true,
      log: true,
-@@ -69,11 +72,20 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
+@@ -69,11 +79,20 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
    },
    personal: {
      enabled: true,
@@ -20869,7 +20902,7 @@ index 0edc503..e1010b8 100644
      channel: true,
      models: true,
      redemption: true,
-@@ -127,12 +139,75 @@ const parseAccessModule = (
+@@ -127,12 +146,111 @@ const parseAccessModule = (
  const cloneSidebarDefault = (): SidebarModulesAdminConfig =>
    Object.entries(SIDEBAR_MODULES_DEFAULT).reduce<SidebarModulesAdminConfig>(
      (acc, [section, config]) => {
@@ -20943,10 +20976,46 @@ index 0edc503..e1010b8 100644
 +  )
 +}
 +
++export function parseSidebarSectionOrder(
++  value: string | null | undefined,
++  availableSections = SIDEBAR_SECTION_ORDER_DEFAULT
++): string[] {
++  const sectionSet = new Set(availableSections)
++  const seen = new Set<string>()
++  const configuredOrder = value
++    ? value
++        .split(',')
++        .map((item) => item.trim())
++        .filter(Boolean)
++    : []
++
++  const ordered = configuredOrder.filter((sectionKey) => {
++    if (!sectionSet.has(sectionKey) || seen.has(sectionKey)) return false
++    seen.add(sectionKey)
++    return true
++  })
++
++  availableSections.forEach((sectionKey) => {
++    if (!seen.has(sectionKey)) {
++      ordered.push(sectionKey)
++      seen.add(sectionKey)
++    }
++  })
++
++  return ordered
++}
++
++export function serializeSidebarSectionOrder(
++  order: string[],
++  availableSections = SIDEBAR_SECTION_ORDER_DEFAULT
++): string {
++  return parseSidebarSectionOrder(order.join(','), availableSections).join(',')
++}
++
  export function parseHeaderNavModules(
    value: string | null | undefined
  ): HeaderNavModulesConfig {
-@@ -201,13 +276,21 @@ export function parseSidebarModulesAdmin(
+@@ -201,13 +319,21 @@ export function parseSidebarModulesAdmin(
            defaultSection.enabled ?? true
          ),
        }
@@ -20970,7 +21039,7 @@ index 0edc503..e1010b8 100644
            )
          }
        )
-@@ -229,7 +312,7 @@ export function parseSidebarModulesAdmin(
+@@ -229,7 +355,7 @@ export function parseSidebarModulesAdmin(
        })
      })
  
@@ -20979,7 +21048,7 @@ index 0edc503..e1010b8 100644
    } catch {
      return defaults
    }
-@@ -238,5 +321,5 @@ export function parseSidebarModulesAdmin(
+@@ -238,5 +364,5 @@ export function parseSidebarModulesAdmin(
  export function serializeSidebarModulesAdmin(
    config: SidebarModulesAdminConfig
  ): string {
@@ -21134,14 +21203,16 @@ index 7a4bd04..bf6e55f 100644
              {accessModules.map((module) => (
                <SettingsControlGroup key={module.enabledKey}>
 diff --git a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx b/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
-index 782fbd4..98345e1 100644
+index 782fbd4..3512e89 100644
 --- a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
 +++ b/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
-@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
  For commercial licensing, please contact support@quantumnous.com
  */
- import { useEffect, useMemo } from 'react'
+-import { useEffect, useMemo } from 'react'
 -import { useForm } from 'react-hook-form'
++import { useEffect, useMemo, useState } from 'react'
 +import { useForm, useWatch } from 'react-hook-form'
 +import { ArrowDown, ArrowUp } from 'lucide-react'
  import { useTranslation } from 'react-i18next'
@@ -21149,15 +21220,42 @@ index 782fbd4..98345e1 100644
  import {
    Form,
    FormControl,
-@@ -40,6 +42,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -39,13 +41,19 @@ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
  import {
    SIDEBAR_MODULES_DEFAULT,
++  SIDEBAR_SECTION_ORDER_DEFAULT,
    type SidebarModulesAdminConfig,
 +  getSidebarSectionOrder,
++  parseSidebarSectionOrder,
    serializeSidebarModulesAdmin,
++  serializeSidebarSectionOrder,
  } from './config'
  
-@@ -157,6 +160,9 @@ export function SidebarModulesSection({
+ type SidebarModulesSectionProps = {
+   config: SidebarModulesAdminConfig
+   initialSerialized: string
++  sectionOrder: string[]
++  initialSectionOrderSerialized: string
+ }
+ 
+ type SidebarFormValues = SidebarModulesAdminConfig
+@@ -56,6 +64,8 @@ const toTitleCase = (value: string) =>
+ export function SidebarModulesSection({
+   config,
+   initialSerialized,
++  sectionOrder,
++  initialSectionOrderSerialized,
+ }: SidebarModulesSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+@@ -153,32 +163,115 @@ export function SidebarModulesSection({
+     },
+   }
+   const formDefaults = useMemo(() => config, [config])
++  const [currentSectionOrder, setCurrentSectionOrder] =
++    useState<string[]>(sectionOrder)
+ 
    const form = useForm<SidebarFormValues>({
      defaultValues: formDefaults,
    })
@@ -21167,11 +21265,72 @@ index 782fbd4..98345e1 100644
  
    useEffect(() => {
      form.reset(formDefaults)
-@@ -178,7 +184,37 @@ export function SidebarModulesSection({
+   }, [formDefaults, form])
+ 
++  useEffect(() => {
++    setCurrentSectionOrder(sectionOrder)
++  }, [sectionOrder])
++
+   const onSubmit = async (values: SidebarFormValues) => {
+     const serialized = serializeSidebarModulesAdmin(values)
+-    if (serialized === initialSerialized) {
++    const sectionOrderSerialized = serializeSidebarSectionOrder(
++      currentSectionOrder,
++      Object.keys(values)
++    )
++
++    if (
++      serialized === initialSerialized &&
++      sectionOrderSerialized === initialSectionOrderSerialized
++    ) {
+       return
+     }
+ 
+-    await updateOption.mutateAsync({
+-      key: 'SidebarModulesAdmin',
+-      value: serialized,
+-    })
++    if (serialized !== initialSerialized) {
++      await updateOption.mutateAsync({
++        key: 'SidebarModulesAdmin',
++        value: serialized,
++      })
++    }
++
++    if (sectionOrderSerialized !== initialSectionOrderSerialized) {
++      await updateOption.mutateAsync({
++        key: 'SidebarSectionOrder',
++        value: sectionOrderSerialized,
++      })
++    }
+   }
+ 
+   const resetToDefault = () => {
      form.reset(SIDEBAR_MODULES_DEFAULT)
++    setCurrentSectionOrder(SIDEBAR_SECTION_ORDER_DEFAULT)
    }
  
 -  const sections = Object.entries(config)
++  const moveSection = (sectionKey: string, direction: 'up' | 'down') => {
++    const availableSections = Object.keys(form.getValues())
++    const order = parseSidebarSectionOrder(
++      currentSectionOrder.join(','),
++      availableSections
++    )
++    const currentIndex = order.indexOf(sectionKey)
++    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
++    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= order.length) {
++      return
++    }
++
++    const nextOrder = [...order]
++    ;[nextOrder[currentIndex], nextOrder[nextIndex]] = [
++      nextOrder[nextIndex],
++      nextOrder[currentIndex],
++    ]
++    setCurrentSectionOrder(nextOrder)
++  }
++
 +  const moveModule = (
 +    sectionKey: string,
 +    moduleKey: string,
@@ -21202,11 +21361,23 @@ index 782fbd4..98345e1 100644
 +    })
 +  }
 +
-+  const sections = Object.entries(watchedConfig ?? config)
++  const activeConfig = watchedConfig ?? config
++  const sections = parseSidebarSectionOrder(
++    currentSectionOrder.join(','),
++    Object.keys(activeConfig)
++  )
++    .map((sectionKey) => [sectionKey, activeConfig[sectionKey]] as const)
++    .filter(([, sectionConfig]) => Boolean(sectionConfig))
  
    return (
      <SettingsSection title={t('Sidebar modules')}>
-@@ -196,8 +232,8 @@ export function SidebarModulesSection({
+@@ -191,13 +284,13 @@ export function SidebarModulesSection({
+             resetLabel='Reset to default'
+             saveLabel='Save sidebar modules'
+           />
+-          {sections.map(([sectionKey, sectionConfig]) => {
++          {sections.map(([sectionKey, sectionConfig], sectionIndex) => {
+             const sectionInfo = sectionMeta[sectionKey] ?? {
                title: toTitleCase(sectionKey),
                description: t('Custom sidebar section'),
              }
@@ -21217,7 +21388,45 @@ index 782fbd4..98345e1 100644
              )
  
              return (
-@@ -225,7 +261,7 @@ export function SidebarModulesSection({
+@@ -215,17 +308,41 @@ export function SidebarModulesSection({
+                         </FormDescription>
+                       </SettingsSwitchContent>
+                       <FormControl>
+-                        <Switch
+-                          checked={Boolean(field.value)}
+-                          onCheckedChange={field.onChange}
+-                        />
++                        <div className='flex shrink-0 items-center gap-1'>
++                          <Button
++                            type='button'
++                            variant='ghost'
++                            size='icon-sm'
++                            aria-label={t('Move section up')}
++                            title={t('Move section up')}
++                            disabled={sectionIndex === 0}
++                            onClick={() => moveSection(sectionKey, 'up')}
++                          >
++                            <ArrowUp className='h-4 w-4' />
++                          </Button>
++                          <Button
++                            type='button'
++                            variant='ghost'
++                            size='icon-sm'
++                            aria-label={t('Move section down')}
++                            title={t('Move section down')}
++                            disabled={sectionIndex === sections.length - 1}
++                            onClick={() => moveSection(sectionKey, 'down')}
++                          >
++                            <ArrowDown className='h-4 w-4' />
++                          </Button>
++                          <Switch
++                            checked={Boolean(field.value)}
++                            onCheckedChange={field.onChange}
++                          />
++                        </div>
+                       </FormControl>
+                     </SettingsSwitchItem>
+                   )}
                  />
  
                  <SettingsControlChildren className='grid gap-3 md:grid-cols-2'>
@@ -21226,7 +21435,7 @@ index 782fbd4..98345e1 100644
                      const moduleInfo = moduleMeta[sectionKey]?.[moduleKey] ?? {
                        title: toTitleCase(moduleKey),
                        description: t('Custom module'),
-@@ -245,14 +281,42 @@ export function SidebarModulesSection({
+@@ -245,14 +362,42 @@ export function SidebarModulesSection({
                                </FormDescription>
                              </SettingsSwitchContent>
                              <FormControl>
@@ -24919,22 +25128,34 @@ index 0000000..d13eb55
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/site/index.tsx b/web/default/src/features/system-settings/site/index.tsx
-index d21f2c3..d5f39ca 100644
+index d21f2c3..1871ab6 100644
 --- a/web/default/src/features/system-settings/site/index.tsx
 +++ b/web/default/src/features/system-settings/site/index.tsx
-@@ -37,6 +37,7 @@ const defaultSiteSettings: SiteSettings = {
+@@ -37,6 +37,8 @@ const defaultSiteSettings: SiteSettings = {
    'legal.privacy_policy': '',
    HeaderNavModules: '',
    SidebarModulesAdmin: '',
++  SidebarSectionOrder: '',
 +  'general_setting.docs_link': '',
  }
  
  export function SiteSettings() {
 diff --git a/web/default/src/features/system-settings/site/section-registry.tsx b/web/default/src/features/system-settings/site/section-registry.tsx
-index 6cea57a..e553edb 100644
+index 6cea57a..c8cbfd8 100644
 --- a/web/default/src/features/system-settings/site/section-registry.tsx
 +++ b/web/default/src/features/system-settings/site/section-registry.tsx
-@@ -70,6 +70,7 @@ const SITE_SECTIONS = [
+@@ -20,8 +20,10 @@ import { SystemInfoSection } from '../general/system-info-section'
+ import {
+   parseHeaderNavModules,
+   parseSidebarModulesAdmin,
++  parseSidebarSectionOrder,
+   serializeHeaderNavModules,
+   serializeSidebarModulesAdmin,
++  serializeSidebarSectionOrder,
+ } from '../maintenance/config'
+ import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
+ import { NoticeSection } from '../maintenance/notice-section'
+@@ -70,6 +72,7 @@ const SITE_SECTIONS = [
          <HeaderNavigationSection
            config={headerNavConfig}
            initialSerialized={headerNavSerialized}
@@ -24942,19 +25163,41 @@ index 6cea57a..e553edb 100644
          />
        )
      },
+@@ -82,10 +85,20 @@ const SITE_SECTIONS = [
+         settings.SidebarModulesAdmin
+       )
+       const sidebarSerialized = serializeSidebarModulesAdmin(sidebarConfig)
++      const sectionOrder = parseSidebarSectionOrder(
++        settings.SidebarSectionOrder,
++        Object.keys(sidebarConfig)
++      )
++      const sectionOrderSerialized = serializeSidebarSectionOrder(
++        sectionOrder,
++        Object.keys(sidebarConfig)
++      )
+       return (
+         <SidebarModulesSection
+           config={sidebarConfig}
+           initialSerialized={sidebarSerialized}
++          sectionOrder={sectionOrder}
++          initialSectionOrderSerialized={sectionOrderSerialized}
+         />
+       )
+     },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..7b77d63 100644
+index 2122268..6e0b508 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
-@@ -69,6 +69,7 @@ export type SiteSettings = {
+@@ -69,6 +69,8 @@ export type SiteSettings = {
    'legal.privacy_policy': string
    HeaderNavModules: string
    SidebarModulesAdmin: string
++  SidebarSectionOrder: string
 +  'general_setting.docs_link': string
  }
  
  export type AuthSettings = {
-@@ -116,6 +117,11 @@ export type AuthSettings = {
+@@ -116,6 +118,11 @@ export type AuthSettings = {
  }
  
  export type ContentSettings = {
@@ -24966,7 +25209,7 @@ index 2122268..7b77d63 100644
    'console_setting.api_info': string
    'console_setting.announcements': string
    'console_setting.faq': string
-@@ -127,6 +133,21 @@ export type ContentSettings = {
+@@ -127,6 +134,21 @@ export type ContentSettings = {
    DataExportEnabled: boolean
    DataExportDefaultTime: string
    DataExportInterval: number
@@ -24988,7 +25231,7 @@ index 2122268..7b77d63 100644
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +396,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +397,29 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -25044,7 +25287,7 @@ index 4a6eb0e..374371c 100644
          </div>
          <SummaryField
 diff --git a/web/default/src/hooks/use-sidebar-config.ts b/web/default/src/hooks/use-sidebar-config.ts
-index 5bc7fba..a702464 100644
+index 5bc7fba..04c1c4d 100644
 --- a/web/default/src/hooks/use-sidebar-config.ts
 +++ b/web/default/src/hooks/use-sidebar-config.ts
 @@ -23,7 +23,8 @@ import type { NavGroup, NavItem } from '@/components/layout/types'
@@ -25092,15 +25335,46 @@ index 5bc7fba..a702464 100644
      channel: true,
      models: true,
      redemption: true,
-@@ -65,6 +77,96 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
+@@ -65,6 +77,150 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
    },
  }
  
++const DEFAULT_SIDEBAR_SECTION_ORDER = ['chat', 'console', 'personal', 'admin']
++
 +const GROUP_ID_TO_SECTION_MAP: Record<string, string> = {
 +  chat: 'chat',
 +  general: 'console',
 +  personal: 'personal',
 +  admin: 'admin',
++}
++
++const parseSidebarSectionOrder = (
++  value: string | null | undefined,
++  availableSections = DEFAULT_SIDEBAR_SECTION_ORDER
++): string[] => {
++  const sectionSet = new Set(availableSections)
++  const seen = new Set<string>()
++  const configuredOrder = value
++    ? value
++        .split(',')
++        .map((item) => item.trim())
++        .filter(Boolean)
++    : []
++
++  const ordered = configuredOrder.filter((sectionKey) => {
++    if (!sectionSet.has(sectionKey) || seen.has(sectionKey)) return false
++    seen.add(sectionKey)
++    return true
++  })
++
++  availableSections.forEach((sectionKey) => {
++    if (!seen.has(sectionKey)) {
++      ordered.push(sectionKey)
++      seen.add(sectionKey)
++    }
++  })
++
++  return ordered
 +}
 +
 +const getSidebarModuleKeys = (sectionConfig: SidebarSectionConfig): string[] =>
@@ -25186,10 +25460,33 @@ index 5bc7fba..a702464 100644
 +  })
 +}
 +
++const sortNavGroupsByConfiguredOrder = (
++  groups: NavGroup[],
++  sectionOrder: string[]
++): NavGroup[] => {
++  const orderIndex = new Map(
++    sectionOrder.map((sectionKey, index) => [sectionKey, index])
++  )
++
++  return [...groups].sort((left, right) => {
++    const leftSection = left.id ? GROUP_ID_TO_SECTION_MAP[left.id] : undefined
++    const rightSection = right.id
++      ? GROUP_ID_TO_SECTION_MAP[right.id]
++      : undefined
++    const leftIndex = leftSection ? orderIndex.get(leftSection) : undefined
++    const rightIndex = rightSection ? orderIndex.get(rightSection) : undefined
++
++    if (leftIndex === undefined && rightIndex === undefined) return 0
++    if (leftIndex === undefined) return 1
++    if (rightIndex === undefined) return -1
++    return leftIndex - rightIndex
++  })
++}
++
  const mergeWithDefaultSidebarModules = (
    config: SidebarModulesAdminConfig
  ): SidebarModulesAdminConfig => {
-@@ -114,6 +216,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
+@@ -114,6 +270,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
    '/redemption-codes': { section: 'admin', module: 'redemption' },
    '/subscriptions': { section: 'admin', module: 'subscription' },
    '/system-settings': { section: 'admin', module: 'setting' },
@@ -25197,7 +25494,7 @@ index 5bc7fba..a702464 100644
    '/system-settings/site': { section: 'admin', module: 'setting' },
  }
  
-@@ -233,11 +336,12 @@ function isNavItemVisible(
+@@ -233,11 +390,12 @@ function isNavItemVisible(
   * Filter navigation items
   */
  function filterNavItems(
@@ -25211,15 +25508,45 @@ index 5bc7fba..a702464 100644
      .map((item) => {
        // If collapsible item, also filter its sub-items
        if ('items' in item && item.items) {
-@@ -300,7 +404,7 @@ export function useSidebarConfig(navGroups: NavGroup[]): NavGroup[] {
-       navGroups
-         .map((group) => ({
-           ...group,
+@@ -283,6 +441,14 @@ export function useSidebarConfig(navGroups: NavGroup[]): NavGroup[] {
+     [status?.SidebarModulesAdmin]
+   )
+ 
++  const sectionOrder = useMemo(
++    () =>
++      parseSidebarSectionOrder(
++        status?.SidebarSectionOrder as string | null | undefined
++      ),
++    [status?.SidebarSectionOrder]
++  )
++
+   const userConfig = useMemo(() => {
+     // If the backend marks the user as unable to configure the sidebar
+     // (e.g. root accounts), skip the user overlay entirely — a stale
+@@ -297,13 +463,16 @@ export function useSidebarConfig(navGroups: NavGroup[]): NavGroup[] {
+ 
+   const filteredNavGroups = useMemo(
+     () =>
+-      navGroups
+-        .map((group) => ({
+-          ...group,
 -          items: filterNavItems(group.items, adminConfig, userConfig),
-+          items: filterNavItems(group, group.items, adminConfig, userConfig),
-         }))
-         .filter((group) => group.items.length > 0), // Only show navigation groups with visible items
-     [navGroups, adminConfig, userConfig]
+-        }))
+-        .filter((group) => group.items.length > 0), // Only show navigation groups with visible items
+-    [navGroups, adminConfig, userConfig]
++      sortNavGroupsByConfiguredOrder(
++        navGroups
++          .map((group) => ({
++            ...group,
++            items: filterNavItems(group, group.items, adminConfig, userConfig),
++          }))
++          .filter((group) => group.items.length > 0),
++        sectionOrder
++      ),
++    [navGroups, adminConfig, userConfig, sectionOrder]
+   )
+ 
+   return filteredNavGroups
 diff --git a/web/default/src/hooks/use-sidebar-data.ts b/web/default/src/hooks/use-sidebar-data.ts
 index e1b99d0..06d59f9 100644
 --- a/web/default/src/hooks/use-sidebar-data.ts
