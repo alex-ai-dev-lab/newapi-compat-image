@@ -416,7 +416,7 @@ index 0254080..f45af71 100644
 +}
 diff --git a/controller/channel_test_scheduler.go b/controller/channel_test_scheduler.go
 new file mode 100644
-index 0000000..8bb783c
+index 0000000..0350412
 --- /dev/null
 +++ b/controller/channel_test_scheduler.go
 @@ -0,0 +1,272 @@
@@ -503,7 +503,7 @@ index 0000000..8bb783c
 +	// Channel overrides
 +	cs := channel.GetSetting()
 +	if cs.AutoTestInterval > 0 {
-+		interval = time.Duration(cs.AutoTestInterval) * time.Second
++		interval = time.Duration(cs.AutoTestInterval) * time.Minute
 +	}
 +	if cs.AutoTestRetryCount > 0 {
 +		retryCount = cs.AutoTestRetryCount
@@ -691,6 +691,43 @@ index 0000000..8bb783c
 +			}
 +		}
 +	}()
++}
+diff --git a/controller/channel_test_scheduler_test.go b/controller/channel_test_scheduler_test.go
+new file mode 100644
+index 0000000..aec1f5a
+--- /dev/null
++++ b/controller/channel_test_scheduler_test.go
+@@ -0,0 +1,31 @@
++package controller
++
++import (
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/stretchr/testify/require"
++)
++
++func TestGetEffectiveTestConfigUsesChannelIntervalMinutes(t *testing.T) {
++	channel := &model.Channel{}
++	channel.SetSetting(dto.ChannelSettings{
++		AutoTestInterval:       10,
++		AutoTestRetryCount:     3,
++		AutoTestRetryThreshold: 2,
++		AutoTestTimeWindowStart: "23:00",
++		AutoTestTimeWindowEnd:   "07:00",
++		AutoTestTimezone:        "Asia/Taipei",
++	})
++
++	interval, retryCount, retryThreshold, start, end, timezone := getEffectiveTestConfig(channel)
++
++	require.Equal(t, 10*time.Minute, interval)
++	require.Equal(t, 3, retryCount)
++	require.Equal(t, 2, retryThreshold)
++	require.Equal(t, "23:00", start)
++	require.Equal(t, "07:00", end)
++	require.Equal(t, "Asia/Taipei", timezone)
 +}
 diff --git a/controller/client_identity.go b/controller/client_identity.go
 new file mode 100644
@@ -2480,7 +2517,7 @@ index 0000000..2f4bafe
 +	return fmt.Errorf("invalid model_category, must be one of: %s", strings.Join(model.ValidModelCategories, ", "))
 +}
 diff --git a/dto/channel_settings.go b/dto/channel_settings.go
-index b6a1ab9..03b2315 100644
+index b6a1ab9..0cd8d3f 100644
 --- a/dto/channel_settings.go
 +++ b/dto/channel_settings.go
 @@ -7,6 +7,24 @@ type ChannelSettings struct {
@@ -2496,7 +2533,7 @@ index b6a1ab9..03b2315 100644
 +	NormalizeUpstreamErrors *bool `json:"normalize_upstream_errors,omitempty"`
 +
 +	// Auto-test settings
-+	AutoTestInterval         int    `json:"auto_test_interval,omitempty"`           // seconds, 0 = use global
++	AutoTestInterval         int    `json:"auto_test_interval,omitempty"`           // minutes, 0 = use global
 +	AutoTestRetryCount       int    `json:"auto_test_retry_count,omitempty"`        // retry attempts per test
 +	AutoTestRetryThreshold   int    `json:"auto_test_retry_threshold,omitempty"`    // disable after N failures
 +	AutoTestTimeWindowStart  string `json:"auto_test_time_window_start,omitempty"`  // "HH:MM"
@@ -3889,10 +3926,10 @@ index 0000000..019d190
 +}
 diff --git a/pkg/compat/errornorm/api.go b/pkg/compat/errornorm/api.go
 new file mode 100644
-index 0000000..7cbe44d
+index 0000000..2a0281f
 --- /dev/null
 +++ b/pkg/compat/errornorm/api.go
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,138 @@
 +// Package errornorm — admin HTTP handlers for managing rules.
 +package errornorm
 +
@@ -3945,6 +3982,7 @@ index 0000000..7cbe44d
 +			return
 +		}
 +		r.ID = 0 // ignore client-supplied ID
++		normalizeRuleForSave(&r)
 +		if err := s.db.WithContext(c.Request.Context()).Create(&r).Error; err != nil {
 +			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 +			return
@@ -3984,6 +4022,7 @@ index 0000000..7cbe44d
 +			return
 +		}
 +		r.ID = id
++		normalizeRuleForSave(&r)
 +		if err := s.db.WithContext(c.Request.Context()).Save(&r).Error; err != nil {
 +			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 +			return
@@ -3991,6 +4030,17 @@ index 0000000..7cbe44d
 +		_ = s.Reload(context.Background())
 +		c.JSON(http.StatusOK, gin.H{"success": true, "data": r})
 +	}
++}
++
++func normalizeRuleForSave(r *Rule) {
++	if r == nil {
++		return
++	}
++	// The anti-poison feature must never pass upstream-controlled error text
++	// back to clients. Keep deprecated fields normalized so old API clients or
++	// old DB rows cannot re-enable passthrough behavior.
++	r.PassthroughBody = false
++	r.SkipMonitoring = false
 +}
 +
 +func deleteRule(s *Store) gin.HandlerFunc {
@@ -4020,10 +4070,10 @@ index 0000000..7cbe44d
 +}
 diff --git a/pkg/compat/errornorm/hook.go b/pkg/compat/errornorm/hook.go
 new file mode 100644
-index 0000000..1a0f90e
+index 0000000..eaed905
 --- /dev/null
 +++ b/pkg/compat/errornorm/hook.go
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,150 @@
 +// Package errornorm normalizes upstream errors before they reach the client.
 +// This module implements compat.RelayHook.OnClientResponseError.
 +package errornorm
@@ -4096,12 +4146,10 @@ index 0000000..1a0f90e
 +	if !r.PassthroughCode && r.ResponseCode != 0 {
 +		err.StatusCode = r.ResponseCode
 +	}
-+	if !r.PassthroughBody {
-+		if r.CustomMessage != "" {
-+			err.SetMessage(r.CustomMessage)
-+		} else {
-+			err.SetMessage(FixedMessage(upstreamStatus))
-+		}
++	if r.CustomMessage != "" {
++		err.SetMessage(r.CustomMessage)
++	} else {
++		err.SetMessage(FixedMessage(upstreamStatus))
 +	}
 +}
 +
@@ -4178,10 +4226,10 @@ index 0000000..1a0f90e
 +}
 diff --git a/pkg/compat/errornorm/hook_test.go b/pkg/compat/errornorm/hook_test.go
 new file mode 100644
-index 0000000..38e4549
+index 0000000..4718512
 --- /dev/null
 +++ b/pkg/compat/errornorm/hook_test.go
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,70 @@
 +package errornorm
 +
 +import (
@@ -4222,12 +4270,42 @@ index 0000000..38e4549
 +
 +	require.Equal(t, "local validation message", normalized.Error())
 +}
++
++func TestApplyRule_NeverPassesThroughUpstreamBody(t *testing.T) {
++	err := types.NewOpenAIError(
++		errors.New("upstream injected message"),
++		types.ErrorCodeBadResponseStatusCode,
++		http.StatusForbidden,
++	)
++	rule := &Rule{
++		PassthroughCode: true,
++		PassthroughBody: true,
++	}
++
++	applyRule(err, rule, http.StatusForbidden)
++
++	require.Equal(t, http.StatusForbidden, err.StatusCode)
++	require.Equal(t, "权限不足，请检查模型权限、分组权限或地区限制。", err.Error())
++	require.NotContains(t, err.ToOpenAIError().Message, "injected")
++}
++
++func TestNormalizeRuleForSaveDisablesDeprecatedPassthroughFields(t *testing.T) {
++	rule := &Rule{
++		PassthroughBody: true,
++		SkipMonitoring: true,
++	}
++
++	normalizeRuleForSave(rule)
++
++	require.False(t, rule.PassthroughBody)
++	require.False(t, rule.SkipMonitoring)
++}
 diff --git a/pkg/compat/errornorm/rule.go b/pkg/compat/errornorm/rule.go
 new file mode 100644
-index 0000000..790ebb2
+index 0000000..ea28e17
 --- /dev/null
 +++ b/pkg/compat/errornorm/rule.go
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,106 @@
 +package errornorm
 +
 +import (
@@ -4246,9 +4324,8 @@ index 0000000..790ebb2
 +// Transform semantics:
 +//   - PassthroughCode=true: keep upstream status code as-is
 +//   - PassthroughCode=false: use ResponseCode (default: upstream status)
-+//   - PassthroughBody=true: keep upstream error message (extracted from body)
-+//   - PassthroughBody=false: use CustomMessage (or default FixedMessage if empty)
-+//   - SkipMonitoring=true: do not record in ops error log
++//   - Response body is never passed through to the client. CustomMessage is
++//     admin-authored fixed text; empty means FixedMessage(status).
 +type Rule struct {
 +	ID              int64  `gorm:"primaryKey" json:"id"`
 +	Enabled         bool   `gorm:"default:true" json:"enabled"`
@@ -4258,9 +4335,9 @@ index 0000000..790ebb2
 +	Keywords        string `gorm:"type:text" json:"keywords"`                  // comma-separated, case-insensitive substring match
 +	PassthroughCode bool   `gorm:"default:false" json:"passthrough_code"`
 +	ResponseCode    int    `gorm:"default:0" json:"response_code"`             // 0 = use upstream status
-+	PassthroughBody bool   `gorm:"default:false" json:"passthrough_body"`
++	PassthroughBody bool   `gorm:"default:false" json:"passthrough_body"`     // deprecated; always forced false
 +	CustomMessage   string `gorm:"type:text" json:"custom_message"`            // empty = use FixedMessage(status)
-+	SkipMonitoring  bool   `gorm:"default:false" json:"skip_monitoring"`
++	SkipMonitoring  bool   `gorm:"default:false" json:"skip_monitoring"`      // deprecated; upstream originals stay in masked logs
 +	Priority        int    `gorm:"default:100" json:"priority"`                // lower runs first
 +	CreatedAt       int64  `gorm:"autoCreateTime" json:"created_at"`
 +	UpdatedAt       int64  `gorm:"autoUpdateTime" json:"updated_at"`
@@ -9547,7 +9624,7 @@ index d511128..8659e90 100644
      setTestResults({})
      setRowSelection({})
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 6b26cd1..3ff0fad 100644
+index 6b26cd1..f0026c6 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -112,6 +112,7 @@ import {
@@ -9752,7 +9829,7 @@ index 6b26cd1..3ff0fad 100644
 +                          name='auto_test_interval'
 +                          render={({ field }) => (
 +                            <FormItem>
-+                              <FormLabel>{t('Test interval seconds')}</FormLabel>
++                              <FormLabel>{t('Test interval minutes')}</FormLabel>
 +                              <FormControl>
 +                                <Input
 +                                  type='number'
@@ -14082,10 +14159,10 @@ index e63f883..e8a9880 100644
  export type SecuritySectionId = (typeof SECURITY_SECTIONS)[number]['id']
 diff --git a/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
 new file mode 100644
-index 0000000..2efc8a2
+index 0000000..d13eb55
 --- /dev/null
 +++ b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,475 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -14335,11 +14412,6 @@ index 0000000..2efc8a2
 +                    <div className='max-w-[260px] truncate font-medium'>
 +                      {rule.description}
 +                    </div>
-+                    {rule.skip_monitoring && (
-+                      <div className='text-muted-foreground mt-1 text-xs'>
-+                        {t('Skip monitoring log')}
-+                      </div>
-+                    )}
 +                  </TableCell>
 +                  <TableCell className='text-xs'>
 +                    <div>
@@ -14359,9 +14431,7 @@ index 0000000..2efc8a2
 +                        : `${t('Status')} ${rule.response_code || t('Upstream')}`}
 +                    </div>
 +                    <div className='max-w-[260px] truncate'>
-+                      {rule.passthrough_body
-+                        ? t('Keep body')
-+                        : rule.custom_message || t('Built-in fixed message')}
++                      {rule.custom_message || t('Built-in fixed message')}
 +                    </div>
 +                  </TableCell>
 +                  <TableCell>
@@ -14516,8 +14586,6 @@ index 0000000..2efc8a2
 +              {[
 +                ['enabled', t('Enabled')],
 +                ['passthrough_code', t('Keep upstream status code')],
-+                ['passthrough_body', t('Keep upstream error body')],
-+                ['skip_monitoring', t('Skip monitoring log')],
 +              ].map(([key, label]) => (
 +                <label
 +                  key={key}

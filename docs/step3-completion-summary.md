@@ -36,6 +36,10 @@
 - 上游错误规则补齐后台入口：
   - `系统设置 -> 安全 -> Upstream Error Rules`
   - 支持新增、编辑、删除、reload 规则。
+  - 规则不会透传上游错误正文；客户端只会看到管理员固定消息或内置固定消息，原始上游错误只进入脱敏日志。
+- 定时渠道测试单位修正：
+  - 每渠道 `auto_test_interval` 的语义是分钟，和全局 AutoTestChannelMinutes 及后台表单一致。
+  - 跨天窗口仍按 `23:00-07:00` 这种格式支持。
 - 官方价格同步自动任务默认关闭；保留手动 trigger API。需要自动同步时设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
 - 官方价格同步补成 official-only：
   - `GetSyncableChannels` 只返回 `models.dev` 预设，不再把生产渠道、OpenRouter 或 custom endpoint 暴露给后台同步入口。
