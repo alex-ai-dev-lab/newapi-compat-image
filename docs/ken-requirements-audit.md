@@ -22,15 +22,15 @@
 
 本轮侧边栏模块增量：`系统设置 -> 站点设置 -> Sidebar modules` 在原有全局显示/隐藏基础上补充分组内模块排序，管理员可以用上移/下移按钮调整 Chat、Console、Personal、Admin 各分组内部模块顺序；配置仍复用 `SidebarModulesAdmin` JSON option，旧配置没有 `order` 字段时会自动按默认顺序补齐，保存后才写入扩展后的 JSON；后续又新增 `SidebarSectionOrder` option，支持调整 Chat、Console、Personal、Admin 顶层分组顺序，并通过 `/api/status` 下发给运行时侧边栏；运行时侧边栏会按后台顺序渲染，同时保留管理员全局开关和用户侧边栏偏好叠加过滤；再后续补充了 Sidebar modules JSON 导入/导出，导出会保存 `SidebarModulesAdmin` 和 `SidebarSectionOrder`，导入只更新当前表单，仍需管理员点 Save 才写入后台。这是“模块可配置”的局部补强，不代表所有页面参数都已后台化。
 
-本轮站点信息增量：`系统设置 -> 站点设置 -> System Information` 已补充 JSON 导入/导出，覆盖系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策等站点基础 option；导入支持平铺 option key、`theme` / `legal` 分组和 `SystemInformation` 包装格式，导入后只更新当前表单，仍需管理员点 Save 才写入后台。这是站点基础配置迁移能力的补强，不代表所有站点页面已经重写。
+本轮站点信息增量：`系统设置 -> 站点设置 -> System Information` 已补充 JSON 导入/导出，覆盖系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策等站点基础 option；导入支持平铺 option key、`theme` / `legal` 分组和 `SystemInformation` 包装格式，导入后只更新当前表单，仍需管理员点 Save 才写入后台。后续又把 System Information 加入 Operations Center 的二级卡片、Configuration map 和命令面板直达入口，可通过 `system information`、`site info`、`json`、`import`、`export` 等关键词找到。这是站点基础配置迁移能力和入口可发现性的补强，不代表所有站点页面已经重写。
 
 ## 功能入口速查
 
 | 功能 | 后台入口 |
 |---|---|
-| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
+| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/System Information/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
