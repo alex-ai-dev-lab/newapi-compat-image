@@ -416,10 +416,10 @@ index 0254080..f45af71 100644
 +}
 diff --git a/controller/channel_test_scheduler.go b/controller/channel_test_scheduler.go
 new file mode 100644
-index 0000000..0350412
+index 0000000..a1b51b3
 --- /dev/null
 +++ b/controller/channel_test_scheduler.go
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,275 @@
 +package controller
 +
 +import (
@@ -542,7 +542,10 @@ index 0000000..0350412
 +		}
 +	}
 +	nowTime := fmt.Sprintf("%02d:%02d", now.Hour(), now.Minute())
++	return isClockInTestWindow(nowTime, timeWindowStart, timeWindowEnd)
++}
 +
++func isClockInTestWindow(nowTime, timeWindowStart, timeWindowEnd string) bool {
 +	if timeWindowStart <= timeWindowEnd {
 +		return nowTime >= timeWindowStart && nowTime <= timeWindowEnd
 +	}
@@ -694,10 +697,10 @@ index 0000000..0350412
 +}
 diff --git a/controller/channel_test_scheduler_test.go b/controller/channel_test_scheduler_test.go
 new file mode 100644
-index 0000000..aec1f5a
+index 0000000..4b772ea
 --- /dev/null
 +++ b/controller/channel_test_scheduler_test.go
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,44 @@
 +package controller
 +
 +import (
@@ -728,6 +731,19 @@ index 0000000..aec1f5a
 +	require.Equal(t, "23:00", start)
 +	require.Equal(t, "07:00", end)
 +	require.Equal(t, "Asia/Taipei", timezone)
++}
++
++func TestIsClockInTestWindowSupportsCrossDayWindow(t *testing.T) {
++	require.True(t, isClockInTestWindow("23:30", "23:00", "07:00"))
++	require.True(t, isClockInTestWindow("06:59", "23:00", "07:00"))
++	require.False(t, isClockInTestWindow("12:00", "23:00", "07:00"))
++}
++
++func TestIsClockInTestWindowSupportsSameDayWindow(t *testing.T) {
++	require.False(t, isClockInTestWindow("08:59", "09:00", "18:00"))
++	require.True(t, isClockInTestWindow("09:00", "09:00", "18:00"))
++	require.True(t, isClockInTestWindow("17:59", "09:00", "18:00"))
++	require.False(t, isClockInTestWindow("18:01", "09:00", "18:00"))
 +}
 diff --git a/controller/client_identity.go b/controller/client_identity.go
 new file mode 100644
@@ -7271,10 +7287,10 @@ index 0000000..0c21e4a
 +}
 diff --git a/service/claude_thinking_compat_test.go b/service/claude_thinking_compat_test.go
 new file mode 100644
-index 0000000..e464e33
+index 0000000..e02c839
 --- /dev/null
 +++ b/service/claude_thinking_compat_test.go
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,113 @@
 +package service
 +
 +import (
@@ -7357,6 +7373,20 @@ index 0000000..e464e33
 +	require.True(t, ok)
 +	require.Len(t, blocks, 1)
 +	require.Equal(t, "text", blocks[0]["type"])
++}
++
++func TestClaudeRequestHasThinkingDetectsRequestThinkingParameter(t *testing.T) {
++	req := &dto.ClaudeRequest{
++		Thinking: &dto.Thinking{Type: "enabled"},
++		Messages: []dto.ClaudeMessage{
++			{
++				Role:    "user",
++				Content: "hello",
++			},
++		},
++	}
++
++	require.True(t, ClaudeRequestHasThinking(req))
 +}
 +
 +func TestChannelSupportsClaudeThinkingInfersAndHonorsOverrides(t *testing.T) {
