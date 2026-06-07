@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..6e11bfd
+index 0000000..a6af414
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,1135 @@
+@@ -0,0 +1,1214 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11339,6 +11339,85 @@ index 0000000..6e11bfd
 +          navigate({
 +            to: '/system-settings/security/$section',
 +            params: { section: 'upstream-error-rules' },
++          })
++          close()
++        },
++        requiresRole: 10,
++      },
++      {
++        id: 'settings-rate-limiting',
++        label: 'Rate Limiting',
++        description: 'Configure and import/export model request limits',
++        icon: Timer,
++        keywords: [
++          'rate',
++          'limit',
++          'request limit',
++          'throttle',
++          'security',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/security/$section',
++            params: { section: 'rate-limit' },
++          })
++          close()
++        },
++        requiresRole: 10,
++      },
++      {
++        id: 'settings-sensitive-words',
++        label: 'Sensitive Words',
++        description: 'Configure and import/export blocked keyword checks',
++        icon: Shield,
++        keywords: [
++          'sensitive',
++          'words',
++          'keyword',
++          'filter',
++          'prompt',
++          'security',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/security/$section',
++            params: { section: 'sensitive-words' },
++          })
++          close()
++        },
++        requiresRole: 10,
++      },
++      {
++        id: 'settings-ssrf-protection',
++        label: 'SSRF Protection',
++        description:
++          'Configure and import/export fetch domain, IP, and port rules',
++        icon: Shield,
++        keywords: [
++          'ssrf',
++          'fetch',
++          'domain',
++          'ip',
++          'port',
++          'private ip',
++          'security',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/security/$section',
++            params: { section: 'ssrf' },
 +          })
 +          close()
 +        },
@@ -28977,10 +29056,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..400c244
+index 0000000..394ebf5
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1056 @@
+@@ -0,0 +1,1080 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -29437,6 +29516,30 @@ index 0000000..400c244
 +          kind: 'system-settings',
 +          area: 'security',
 +          section: 'upstream-error-rules',
++        },
++      },
++      {
++        label: 'Rate limiting',
++        link: {
++          kind: 'system-settings',
++          area: 'security',
++          section: 'rate-limit',
++        },
++      },
++      {
++        label: 'Sensitive words',
++        link: {
++          kind: 'system-settings',
++          area: 'security',
++          section: 'sensitive-words',
++        },
++      },
++      {
++        label: 'SSRF protection',
++        link: {
++          kind: 'system-settings',
++          area: 'security',
++          section: 'ssrf',
 +        },
 +      },
 +      {
@@ -30071,6 +30174,707 @@ index 56861c9..17233b3 100644
    basePath: '/system-settings/operations',
    urlStyle: 'path',
  })
+diff --git a/web/default/src/features/system-settings/request-limits/rate-limit-section.tsx b/web/default/src/features/system-settings/request-limits/rate-limit-section.tsx
+index 864aabf..688f228 100644
+--- a/web/default/src/features/system-settings/request-limits/rate-limit-section.tsx
++++ b/web/default/src/features/system-settings/request-limits/rate-limit-section.tsx
+@@ -20,9 +20,18 @@ import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
+-import { Code2, Palette } from 'lucide-react'
++import { Code2, Download, Palette, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
+ import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -40,7 +49,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ import { RateLimitVisualEditor } from './rate-limit-visual-editor'
+@@ -84,10 +96,34 @@ type RateLimitSectionProps = {
+   defaultValues: RateLimitFormValues
+ }
+ 
++type RateLimitImportExportPayload = Partial<RateLimitFormValues> & {
++  RequestLimits?: {
++    rateLimiting?: Partial<RateLimitFormValues>
++  }
++  rateLimiting?: Partial<RateLimitFormValues>
++}
++
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toNumber = (value: unknown) =>
++  typeof value === 'number' && Number.isFinite(value) ? value : undefined
++
++const toRateLimitGroup = (value: unknown) => {
++  if (value === undefined) return undefined
++  if (typeof value === 'string') return value
++  if (value && typeof value === 'object' && !Array.isArray(value)) {
++    return JSON.stringify(value, null, 2)
++  }
++  return undefined
++}
++
+ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+   const [useVisualEditor, setUseVisualEditor] = useState(true)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const rateLimitSchema = createRateLimitSchema(t)
+ 
+@@ -112,10 +148,120 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      RequestLimits: {
++        rateLimiting: values,
++      },
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-rate-limiting.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Rate limiting JSON exported and copied'))
++    } catch {
++      toast.success(t('Rate limiting JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          RequestLimits: {
++            rateLimiting: form.getValues(),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as RateLimitImportExportPayload
++      const source = raw.RequestLimits?.rateLimiting ?? raw.rateLimiting ?? raw
++      const next = { ...form.getValues() }
++
++      const enabled = toBoolean(source.ModelRequestRateLimitEnabled)
++      if (enabled !== undefined) {
++        next.ModelRequestRateLimitEnabled = enabled
++      }
++
++      const duration = toNumber(source.ModelRequestRateLimitDurationMinutes)
++      if (duration !== undefined) {
++        next.ModelRequestRateLimitDurationMinutes = duration
++      }
++
++      const count = toNumber(source.ModelRequestRateLimitCount)
++      if (count !== undefined) {
++        next.ModelRequestRateLimitCount = count
++      }
++
++      const successCount = toNumber(source.ModelRequestRateLimitSuccessCount)
++      if (successCount !== undefined) {
++        next.ModelRequestRateLimitSuccessCount = successCount
++      }
++
++      const group = toRateLimitGroup(source.ModelRequestRateLimitGroup)
++      if (group !== undefined) {
++        next.ModelRequestRateLimitGroup = group
++      }
++
++      const parsed = rateLimitSchema.parse(next)
++      ;(Object.keys(parsed) as Array<keyof RateLimitFormValues>).forEach(
++        (key) => {
++          form.setValue(key, parsed[key], {
++            shouldDirty: true,
++            shouldValidate: true,
++          })
++        }
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Rate limiting imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid rate limiting JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Rate Limiting')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -312,6 +458,29 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
+           />
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import rate limiting JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported rate limiting JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/request-limits/sensitive-words-section.tsx b/web/default/src/features/system-settings/request-limits/sensitive-words-section.tsx
+index cd969fe..004a44c 100644
+--- a/web/default/src/features/system-settings/request-limits/sensitive-words-section.tsx
++++ b/web/default/src/features/system-settings/request-limits/sensitive-words-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -37,7 +48,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -53,11 +67,26 @@ type SensitiveWordsSectionProps = {
+   defaultValues: SensitiveFormValues
+ }
+ 
++type SensitiveWordsImportExportPayload = Partial<SensitiveFormValues> & {
++  RequestLimits?: {
++    sensitiveWords?: Partial<SensitiveFormValues>
++  }
++  sensitiveWords?: Partial<SensitiveFormValues>
++}
++
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toStringValue = (value: unknown) =>
++  typeof value === 'string' ? value : undefined
++
+ export function SensitiveWordsSection({
+   defaultValues,
+ }: SensitiveWordsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const form = useForm<SensitiveFormValues>({
+     resolver: zodResolver(sensitiveSchema),
+     defaultValues,
+@@ -78,10 +107,109 @@ export function SensitiveWordsSection({
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      RequestLimits: {
++        sensitiveWords: values,
++      },
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-sensitive-words.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Sensitive words JSON exported and copied'))
++    } catch {
++      toast.success(t('Sensitive words JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          RequestLimits: {
++            sensitiveWords: form.getValues(),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as SensitiveWordsImportExportPayload
++      const source =
++        raw.RequestLimits?.sensitiveWords ?? raw.sensitiveWords ?? raw
++      const next = { ...form.getValues() }
++
++      const enabled = toBoolean(source.CheckSensitiveEnabled)
++      if (enabled !== undefined) next.CheckSensitiveEnabled = enabled
++
++      const promptEnabled = toBoolean(source.CheckSensitiveOnPromptEnabled)
++      if (promptEnabled !== undefined) {
++        next.CheckSensitiveOnPromptEnabled = promptEnabled
++      }
++
++      const words = toStringValue(source.SensitiveWords)
++      if (words !== undefined) next.SensitiveWords = words
++
++      const parsed = sensitiveSchema.parse(next)
++      ;(Object.keys(parsed) as Array<keyof SensitiveFormValues>).forEach(
++        (key) => {
++          form.setValue(key, parsed[key], {
++            shouldDirty: true,
++            shouldValidate: true,
++          })
++        }
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Sensitive words imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid sensitive words JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Sensitive Words')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -159,6 +287,29 @@ export function SensitiveWordsSection({
+           />
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import sensitive words JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported sensitive words JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/request-limits/ssrf-section.tsx b/web/default/src/features/system-settings/request-limits/ssrf-section.tsx
+index d730960..65f9815 100644
+--- a/web/default/src/features/system-settings/request-limits/ssrf-section.tsx
++++ b/web/default/src/features/system-settings/request-limits/ssrf-section.tsx
+@@ -16,12 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect, useMemo, useRef } from 'react'
++import { useEffect, useMemo, useRef, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -47,7 +57,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -91,6 +104,14 @@ type SSRFSectionProps = {
+   }
+ }
+ 
++type SSRFImportExportPayload = Partial<NormalizedSSRFValues> & {
++  RequestLimits?: {
++    ssrf?: Partial<NormalizedSSRFValues>
++  }
++  SSRFProtection?: Partial<NormalizedSSRFValues>
++  ssrf?: Partial<NormalizedSSRFValues>
++}
++
+ const splitLines = (value: string) =>
+   value
+     .split('\n')
+@@ -155,9 +176,39 @@ const isEqual = (a: unknown, b: unknown) => {
+   return a === b
+ }
+ 
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toLineText = (value: unknown) => {
++  if (Array.isArray(value)) {
++    return value.filter((entry) => typeof entry === 'string').join('\n')
++  }
++  if (typeof value === 'string') return value
++  return undefined
++}
++
++const toPortsText = (value: unknown) => {
++  if (Array.isArray(value)) {
++    return value
++      .map((entry) =>
++        typeof entry === 'number' && Number.isFinite(entry)
++          ? String(entry)
++          : typeof entry === 'string'
++            ? entry.trim()
++            : ''
++      )
++      .filter(Boolean)
++      .join(',')
++  }
++  if (typeof value === 'string') return value
++  return undefined
++}
++
+ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const baselineRef = useRef<NormalizedSSRFValues>(
+     normalizeDefaults(defaultValues)
+   )
+@@ -202,10 +253,146 @@ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
+   const domainFilterMode = form.watch('fetch_setting.domain_filter_mode')
+   const ipFilterMode = form.watch('fetch_setting.ip_filter_mode')
+ 
++  const exportConfig = async () => {
++    const normalized = normalizeFormValues(form.getValues())
++    const payload = {
++      RequestLimits: {
++        ssrf: normalized,
++      },
++      SSRFProtection: normalized,
++      ...normalized,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-ssrf-protection.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('SSRF protection JSON exported and copied'))
++    } catch {
++      toast.success(t('SSRF protection JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          RequestLimits: {
++            ssrf: normalizeFormValues(form.getValues()),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as SSRFImportExportPayload
++      const source =
++        raw.RequestLimits?.ssrf ?? raw.SSRFProtection ?? raw.ssrf ?? raw
++      const next = form.getValues()
++
++      const enableProtection = toBoolean(
++        source['fetch_setting.enable_ssrf_protection']
++      )
++      if (enableProtection !== undefined) {
++        next.fetch_setting.enable_ssrf_protection = enableProtection
++      }
++
++      const allowPrivateIp = toBoolean(source['fetch_setting.allow_private_ip'])
++      if (allowPrivateIp !== undefined) {
++        next.fetch_setting.allow_private_ip = allowPrivateIp
++      }
++
++      const domainMode = toBoolean(source['fetch_setting.domain_filter_mode'])
++      if (domainMode !== undefined) {
++        next.fetch_setting.domain_filter_mode = domainMode
++      }
++
++      const ipMode = toBoolean(source['fetch_setting.ip_filter_mode'])
++      if (ipMode !== undefined) {
++        next.fetch_setting.ip_filter_mode = ipMode
++      }
++
++      const domainList = toLineText(source['fetch_setting.domain_list'])
++      if (domainList !== undefined) {
++        next.fetch_setting.domain_list = domainList
++      }
++
++      const ipList = toLineText(source['fetch_setting.ip_list'])
++      if (ipList !== undefined) {
++        next.fetch_setting.ip_list = ipList
++      }
++
++      const allowedPorts = toPortsText(source['fetch_setting.allowed_ports'])
++      if (allowedPorts !== undefined) {
++        next.fetch_setting.allowed_ports = allowedPorts
++      }
++
++      const applyIpFilter = toBoolean(
++        source['fetch_setting.apply_ip_filter_for_domain']
++      )
++      if (applyIpFilter !== undefined) {
++        next.fetch_setting.apply_ip_filter_for_domain = applyIpFilter
++      }
++
++      const parsed = ssrfSchema.parse(next)
++      form.reset(parsed, { keepDefaultValues: true })
++      ;(
++        Object.keys(parsed.fetch_setting) as Array<
++          keyof SSRFFormValues['fetch_setting']
++        >
++      ).forEach((key) => {
++        form.setValue(`fetch_setting.${key}`, parsed.fetch_setting[key], {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('SSRF protection imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid SSRF protection JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('SSRF Protection')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -431,6 +618,29 @@ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
+           />
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import SSRF protection JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported SSRF protection JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/security/section-registry.tsx b/web/default/src/features/system-settings/security/section-registry.tsx
 index e63f883..e8a9880 100644
 --- a/web/default/src/features/system-settings/security/section-registry.tsx
