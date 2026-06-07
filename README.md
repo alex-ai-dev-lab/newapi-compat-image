@@ -68,12 +68,31 @@
   - 支持 `1d`、`7d`、`30d`、`1y`、`all`。
   - 管理员可看渠道、模型、用户维度统计。
   - 首字延迟覆盖总览、渠道、模型、用户维度；来源为日志 `other.frt`，查询对损坏 JSON 做了防护。
+  - 后台可配置默认时间范围、自动刷新开关和 5/15/30/60 秒刷新间隔；用户浏览器本地偏好仍优先。
 
 ### 数据库与运行参数
 
 - SQLite 仍是默认生产数据库。
 - patch 保留主库和独立日志 SQLite 的 WAL、`busy_timeout` 和保守连接池设置，适合 Ken 当前“小并发、多读少写”的场景。
 - 如果后续日志量、字段、写入并发明显上升，再迁移 MySQL 更合适；当前镜像没有强制迁库。
+
+## 后台入口速查
+
+| 功能 | 入口 |
+|---|---|
+| 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
+| UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
+| Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
+| 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
+| 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
+| 渠道测试调度 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
+| Claude thinking 支持 | `渠道 -> 编辑渠道 -> Claude thinking support` |
+| 运营统计总览 | `Dashboard -> Overview` 的管理员 `Operations center` |
+| 模型/渠道/用户统计 | `Dashboard -> Model Call Analytics`、`Dashboard -> Channel Analytics`、`Dashboard -> User Analytics` |
+| 统计默认时间/刷新 | `系统设置 -> 内容/外观 -> Data Dashboard` |
+| 原始调用日志 | 统计页的 `Logs` / `View logs` 动作会跳到 `Usage Logs -> common`，并自动带入模型、渠道或用户过滤条件 |
+| 顶部文档地址 | `系统设置 -> 站点设置 -> Header navigation -> Documentation URL` |
+| 全局默认外观 | `系统设置 -> 内容/外观` |
 
 ## 已知边界
 
