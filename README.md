@@ -86,7 +86,7 @@
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和 Dashboard/Appearance/Sidebar 当前默认值快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
@@ -98,7 +98,7 @@
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页的 `Logs` / `View logs` 动作会跳到 `Usage Logs -> common`，并自动带入模型、渠道或用户过滤条件 |
 | 顶部文档地址 | `系统设置 -> 站点设置 -> Header navigation -> Documentation URL` |
-| 侧边栏模块 | `系统设置 -> 站点设置 -> Sidebar modules`，可配置显示/隐藏、顶层分组排序和分组内模块排序 |
+| 侧边栏模块 | `系统设置 -> 站点设置 -> Sidebar modules`，可配置显示/隐藏、顶层分组排序和分组内模块排序，并可从 Operations Center 直达 |
 | 全局默认外观 | `系统设置 -> 内容/外观 -> Appearance`，可配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出 |
 
 ## 已知边界
