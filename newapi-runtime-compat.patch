@@ -23241,10 +23241,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..791f3f4
+index 0000000..3a13e22
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,574 @@
+@@ -0,0 +1,661 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -23282,6 +23282,7 @@ index 0000000..791f3f4
 +  Timer,
 +  type LucideIcon,
 +} from 'lucide-react'
++import { useSystemConfigStore } from '@/stores/system-config-store'
 +import { cn } from '@/lib/utils'
 +import { Badge } from '@/components/ui/badge'
 +import { buttonVariants } from '@/components/ui/button'
@@ -23611,6 +23612,13 @@ index 0000000..791f3f4
 +]
 +
 +export function OperationsCenter(props: OperationsCenterProps) {
++  const dashboardDefaults = useSystemConfigStore(
++    (state) => state.config.dashboardDefaults
++  )
++  const themeCustomization = useSystemConfigStore(
++    (state) => state.config.themeCustomization
++  )
++
 +  return (
 +    <section className='space-y-4'>
 +      <div className='bg-card rounded-lg border px-4 py-4'>
@@ -23636,6 +23644,11 @@ index 0000000..791f3f4
 +
 +      <ConfigMap />
 +
++      <DefaultsSnapshot
++        dashboardDefaults={dashboardDefaults}
++        themeCustomization={themeCustomization}
++      />
++
 +      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
 +        {PRIMARY_ACTIONS.map((action) => (
 +          <OperationsActionCard key={action.title} action={action} />
@@ -23654,6 +23667,63 @@ index 0000000..791f3f4
 +        ))}
 +      </div>
 +    </section>
++  )
++}
++
++function DefaultsSnapshot(props: {
++  dashboardDefaults: ReturnType<
++    typeof useSystemConfigStore.getState
++  >['config']['dashboardDefaults']
++  themeCustomization: ReturnType<
++    typeof useSystemConfigStore.getState
++  >['config']['themeCustomization']
++}) {
++  const dashboard = props.dashboardDefaults
++  const theme = props.themeCustomization
++  const items = [
++    {
++      label: 'Dashboard view',
++      value: `${formatTimeRange(dashboard.timeRange)} · ${dashboard.autoRefresh ? 'auto' : 'manual'} · ${dashboard.refreshInterval / 1000}s`,
++      detail: `${dashboard.pageSize} rows · ${dashboard.healthFilter} health · ${dashboard.trendMode} trend`,
++    },
++    {
++      label: 'Legacy charts',
++      value: `${dashboard.chartTimeRangeDays}d · ${dashboard.chartTimeGranularity}`,
++      detail: `${dashboard.consumptionChart} consumption · ${dashboard.modelAnalyticsChart} models`,
++    },
++    {
++      label: 'Health thresholds',
++      value: `${dashboard.slowFirstTokenThresholdMs}ms first token`,
++      detail: `errors ${dashboard.errorRateWarningThreshold}/${dashboard.errorRateCriticalThreshold}% · success ${dashboard.successRateDegradedThreshold}/${dashboard.successRateGoodThreshold}%`,
++    },
++    {
++      label: 'Appearance',
++      value: `${theme.preset} · ${theme.font}`,
++      detail: `${theme.radius} radius · ${theme.scale} density · ${theme.contentLayout} layout`,
++    },
++  ]
++
++  return (
++    <Card className='rounded-lg shadow-none'>
++      <CardHeader className='border-b pb-3'>
++        <CardTitle className='text-sm'>Defaults snapshot</CardTitle>
++        <CardDescription>
++          Current global defaults sent by `/api/status`; browser-local user
++          choices may still override them.
++        </CardDescription>
++      </CardHeader>
++      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-4'>
++        {items.map((item) => (
++          <div key={item.label} className='bg-muted/20 rounded-md border p-3'>
++            <p className='text-muted-foreground text-xs'>{item.label}</p>
++            <p className='mt-2 text-sm font-medium'>{item.value}</p>
++            <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
++              {item.detail}
++            </p>
++          </div>
++        ))}
++      </CardContent>
++    </Card>
 +  )
 +}
 +
@@ -23818,6 +23888,23 @@ index 0000000..791f3f4
 +  const minutes = Math.floor((elapsed % 3600) / 60)
 +  if (hours > 0) return `${hours}h ${minutes}m uptime`
 +  return `${Math.max(1, minutes)}m uptime`
++}
++
++function formatTimeRange(value: string) {
++  switch (value) {
++    case '1d':
++      return '1 day'
++    case '7d':
++      return '7 days'
++    case '30d':
++      return '30 days'
++    case '1y':
++      return '1 year'
++    case 'all':
++      return 'All time'
++    default:
++      return value
++  }
 +}
 diff --git a/web/default/src/features/system-settings/operations/section-registry.tsx b/web/default/src/features/system-settings/operations/section-registry.tsx
 index 56861c9..17233b3 100644
