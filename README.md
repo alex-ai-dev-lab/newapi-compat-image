@@ -86,7 +86,7 @@
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和 Dashboard/Appearance/System Information/Sidebar 当前默认值快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
@@ -98,6 +98,7 @@
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 控制台公告 | `系统设置 -> 内容/外观 -> Announcements`，可配置公告列表和启用状态，并支持 JSON 导入/导出 |
 | API 地址展示 | `系统设置 -> 内容/外观 -> API Addresses`，可配置控制台 API 地址卡片和启用状态，并支持 JSON 导入/导出 |
+| FAQ | `系统设置 -> 内容/外观 -> FAQ`，可配置常见问题列表和启用状态，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页的 `Logs` / `View logs` 动作会跳到 `Usage Logs -> common`，并自动带入模型、渠道或用户过滤条件 |
 | 站点基础信息 | `系统设置 -> 站点设置 -> System Information`，可配置系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策，并支持 JSON 导入/导出 |
 | 顶部文档地址 | `系统设置 -> 站点设置 -> Header navigation -> Documentation URL` |
