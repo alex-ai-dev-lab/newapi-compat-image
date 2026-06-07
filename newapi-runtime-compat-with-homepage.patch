@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..80b52ef
+index 0000000..e264b63
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,843 @@
+@@ -0,0 +1,918 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11304,6 +11304,81 @@ index 0000000..80b52ef
 +          navigate({
 +            to: '/system-settings/content/$section',
 +            params: { section: 'faq' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-uptime-kuma',
++        label: 'Uptime Kuma',
++        description: 'Configure and import/export status page groups',
++        icon: LineChart,
++        keywords: [
++          'uptime',
++          'kuma',
++          'status',
++          'monitoring',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'uptime-kuma' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-chat-presets',
++        label: 'Chat Presets',
++        description: 'Configure and import/export chat client presets',
++        icon: FileText,
++        keywords: [
++          'chat',
++          'preset',
++          'presets',
++          'client',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'chat' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-drawing',
++        label: 'Drawing',
++        description: 'Configure and import/export drawing feature switches',
++        icon: Palette,
++        keywords: [
++          'drawing',
++          'midjourney',
++          'mj',
++          'image',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'drawing' },
 +          })
 +          close()
 +        },
@@ -21186,6 +21261,199 @@ index 0000000..208037c
 +    />
 +  )
 +}
+diff --git a/web/default/src/features/system-settings/content/chat-settings-section.tsx b/web/default/src/features/system-settings/content/chat-settings-section.tsx
+index bc03065..28e54d6 100644
+--- a/web/default/src/features/system-settings/content/chat-settings-section.tsx
++++ b/web/default/src/features/system-settings/content/chat-settings-section.tsx
+@@ -20,7 +20,18 @@ import { useEffect, useRef, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -33,7 +44,10 @@ import {
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+ import { Textarea } from '@/components/ui/textarea'
+ import { SettingsForm } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ import { ChatSettingsVisualEditor } from './chat-settings-visual-editor'
+@@ -89,12 +103,22 @@ type ChatSettingsSectionProps = {
+   defaultValue: string
+ }
+ 
++type ChatImportExportPayload = {
++  ChatPresets?: {
++    chats?: unknown
++  }
++  chats?: unknown
++  Chats?: unknown
++}
++
+ export function ChatSettingsSection({
+   defaultValue,
+ }: ChatSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const chatSchema = createChatSchema(t)
+   const formatted = formatJsonForEditor(defaultValue, '[]')
+@@ -125,11 +149,104 @@ export function ChatSettingsSection({
+     })
+   }
+ 
++  const exportConfig = async () => {
++    const normalized = normalizeJsonString(form.getValues().Chats, '[]')
++    const chats = JSON.parse(normalized)
++    const payload = {
++      ChatPresets: {
++        chats,
++      },
++      Chats: chats,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-chat-presets.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Chat presets JSON exported and copied'))
++    } catch {
++      toast.success(t('Chat presets JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    const normalized = normalizeJsonString(form.getValues().Chats, '[]')
++    setImportText(
++      JSON.stringify(
++        {
++          ChatPresets: {
++            chats: JSON.parse(normalized),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as ChatImportExportPayload
++      const source = raw.ChatPresets ?? raw
++      const importedChats = source.chats ?? raw.Chats
++      if (importedChats === undefined) {
++        throw new Error('Missing chat presets')
++      }
++
++      const normalized = normalizeJsonString(
++        typeof importedChats === 'string'
++          ? importedChats
++          : JSON.stringify(importedChats),
++        '[]'
++      )
++      const parsed = chatSchema.parse({ Chats: normalized })
++      form.setValue('Chats', formatJsonForEditor(parsed.Chats, '[]'), {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      await form.trigger('Chats')
++      setEditMode('json')
++      setImportOpen(false)
++      toast.success(t('Chat presets imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid chat presets JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Chat Presets')}>
+       <Form {...form}>
+         {/* eslint-disable-next-line react-hooks/refs */}
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -191,6 +308,29 @@ export function ChatSettingsSection({
+           </Tabs>
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import chat presets JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported chat presets JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/content/dashboard-section.tsx b/web/default/src/features/system-settings/content/dashboard-section.tsx
 index e21f6eb..f40a026 100644
 --- a/web/default/src/features/system-settings/content/dashboard-section.tsx
@@ -22078,6 +22346,194 @@ index e21f6eb..f40a026 100644
      </SettingsSection>
    )
  }
+diff --git a/web/default/src/features/system-settings/content/drawing-settings-section.tsx b/web/default/src/features/system-settings/content/drawing-settings-section.tsx
+index eedf413..6681611 100644
+--- a/web/default/src/features/system-settings/content/drawing-settings-section.tsx
++++ b/web/default/src/features/system-settings/content/drawing-settings-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -30,12 +41,16 @@ import {
+   FormMessage,
+ } from '@/components/ui/form'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -54,11 +69,17 @@ type DrawingSettingsSectionProps = {
+   defaultValues: DrawingFormValues
+ }
+ 
++type DrawingImportExportPayload = {
++  Drawing?: Partial<DrawingFormValues>
++} & Partial<DrawingFormValues>
++
+ export function DrawingSettingsSection({
+   defaultValues,
+ }: DrawingSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const form = useForm<DrawingFormValues>({
+     resolver: zodResolver(drawingSchema),
+     defaultValues,
+@@ -78,6 +99,66 @@ export function DrawingSettingsSection({
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      Drawing: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-drawing.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Drawing JSON exported and copied'))
++    } catch {
++      toast.success(t('Drawing JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          Drawing: form.getValues(),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as DrawingImportExportPayload
++      const source = raw.Drawing ?? raw
++      const parsed = drawingSchema.parse({
++        ...form.getValues(),
++        ...source,
++      })
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof DrawingFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Drawing settings imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid drawing JSON')
++      )
++    }
++  }
++
+   const switches: Array<{
+     name: keyof DrawingFormValues
+     label: string
+@@ -131,6 +212,26 @@ export function DrawingSettingsSection({
+     <SettingsSection title={t('Drawing')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -162,6 +263,29 @@ export function DrawingSettingsSection({
+           </div>
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import drawing JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported drawing settings JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/content/faq-section.tsx b/web/default/src/features/system-settings/content/faq-section.tsx
 index 4ca07c4..51a73ca 100644
 --- a/web/default/src/features/system-settings/content/faq-section.tsx
@@ -22564,6 +23020,223 @@ index 1de3165..6facdb8 100644
          }}
        />
      ),
+diff --git a/web/default/src/features/system-settings/content/uptime-kuma-section.tsx b/web/default/src/features/system-settings/content/uptime-kuma-section.tsx
+index 7ba50e7..012f4ae 100644
+--- a/web/default/src/features/system-settings/content/uptime-kuma-section.tsx
++++ b/web/default/src/features/system-settings/content/uptime-kuma-section.tsx
+@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
+-import { Plus, Edit, Trash2, Save } from 'lucide-react'
++import { Plus, Edit, Trash2, Save, Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import {
+@@ -61,6 +61,7 @@ import {
+   TableHeader,
+   TableRow,
+ } from '@/components/ui/table'
++import { Textarea } from '@/components/ui/textarea'
+ import { SettingsSwitchField } from '../components/settings-form-layout'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -97,6 +98,18 @@ const createUptimeKumaSchema = (t: (key: string) => string) =>
+ 
+ type UptimeKumaFormValues = z.infer<ReturnType<typeof createUptimeKumaSchema>>
+ 
++type UptimeKumaImportExportPayload = {
++  UptimeKuma?: {
++    enabled?: boolean
++    groups?: unknown
++  }
++  enabled?: boolean
++  groups?: unknown
++  uptimeKuma?: unknown
++  'console_setting.uptime_kuma_enabled'?: boolean
++  'console_setting.uptime_kuma_groups'?: unknown
++}
++
+ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+@@ -106,6 +119,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+   const [hasChanges, setHasChanges] = useState(false)
+   const [selectedIds, setSelectedIds] = useState<number[]>([])
+   const [showDialog, setShowDialog] = useState(false)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+   const [editingGroup, setEditingGroup] = useState<UptimeKumaGroup | null>(null)
+   const [deleteTarget, setDeleteTarget] = useState<'single' | 'batch'>('single')
+@@ -139,6 +154,26 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+     setIsEnabled(enabled)
+   }, [enabled])
+ 
++  const normalizeGroups = (value: unknown): UptimeKumaGroup[] => {
++    const raw = typeof value === 'string' ? JSON.parse(value || '[]') : value
++    if (!Array.isArray(raw)) {
++      throw new Error('Uptime Kuma groups must be an array')
++    }
++
++    return raw.map((item, idx) => {
++      const parsed = uptimeKumaSchema.parse(item)
++      return {
++        id:
++          typeof item === 'object' &&
++          item !== null &&
++          typeof (item as { id?: unknown }).id === 'number'
++            ? (item as { id: number }).id
++            : idx + 1,
++        ...parsed,
++      }
++    })
++  }
++
+   const handleToggleEnabled = async (checked: boolean) => {
+     try {
+       await updateOption.mutateAsync({
+@@ -229,6 +264,12 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+         key: 'console_setting.uptime_kuma_groups',
+         value: JSON.stringify(groups),
+       })
++      if (isEnabled !== enabled) {
++        await updateOption.mutateAsync({
++          key: 'console_setting.uptime_kuma_enabled',
++          value: isEnabled,
++        })
++      }
+       setHasChanges(false)
+       toast.success(t('Uptime Kuma groups saved successfully'))
+     } catch {
+@@ -236,6 +277,81 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const payload = {
++      UptimeKuma: {
++        enabled: isEnabled,
++        groups,
++      },
++      'console_setting.uptime_kuma_enabled': isEnabled,
++      'console_setting.uptime_kuma_groups': groups,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-uptime-kuma.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Uptime Kuma JSON exported and copied'))
++    } catch {
++      toast.success(t('Uptime Kuma JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          UptimeKuma: {
++            enabled: isEnabled,
++            groups,
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as UptimeKumaImportExportPayload
++      const source = raw.UptimeKuma ?? raw
++      const importedGroups =
++        source.groups ??
++        raw.uptimeKuma ??
++        raw['console_setting.uptime_kuma_groups']
++      const importedEnabled =
++        typeof source.enabled === 'boolean'
++          ? source.enabled
++          : raw['console_setting.uptime_kuma_enabled']
++
++      if (importedGroups === undefined) {
++        throw new Error('Missing Uptime Kuma groups')
++      }
++
++      const nextGroups = normalizeGroups(importedGroups)
++      setGroups(nextGroups)
++      setSelectedIds([])
++      if (typeof importedEnabled === 'boolean') {
++        setIsEnabled(importedEnabled)
++      }
++      setHasChanges(true)
++      setImportOpen(false)
++      toast.success(t('Uptime Kuma imported. Click Save Settings to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid Uptime Kuma JSON')
++      )
++    }
++  }
++
+   const toggleSelectAll = (checked: boolean) => {
+     setSelectedIds(checked ? groups.map((item) => item.id) : [])
+   }
+@@ -274,6 +390,14 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+               <Save className='mr-2 h-4 w-4' />
+               {updateOption.isPending ? t('Saving...') : t('Save Settings')}
+             </Button>
++            <Button onClick={exportConfig} size='sm' variant='outline'>
++              <Download className='mr-2 h-4 w-4' />
++              {t('Export JSON')}
++            </Button>
++            <Button onClick={openImportDialog} size='sm' variant='outline'>
++              <Upload className='mr-2 h-4 w-4' />
++              {t('Import JSON')}
++            </Button>
+           </div>
+           <SettingsSwitchField
+             checked={isEnabled}
+@@ -451,6 +575,30 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
+         </DialogContent>
+       </Dialog>
+ 
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import Uptime Kuma JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported Uptime Kuma JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
++
+       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+         <AlertDialogContent>
+           <AlertDialogHeader>
 diff --git a/web/default/src/features/system-settings/general/system-info-section.tsx b/web/default/src/features/system-settings/general/system-info-section.tsx
 index d1ecbc5..6e90d40 100644
 --- a/web/default/src/features/system-settings/general/system-info-section.tsx
@@ -26437,10 +27110,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..1782442
+index 0000000..7bbd898
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,968 @@
+@@ -0,0 +1,992 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -26825,6 +27498,30 @@ index 0000000..1782442
 +          kind: 'system-settings',
 +          area: 'content',
 +          section: 'faq',
++        },
++      },
++      {
++        label: 'Uptime Kuma',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'uptime-kuma',
++        },
++      },
++      {
++        label: 'Chat presets',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'chat',
++        },
++      },
++      {
++        label: 'Drawing',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'drawing',
 +        },
 +      },
 +      {
