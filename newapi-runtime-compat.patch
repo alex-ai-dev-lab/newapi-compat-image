@@ -146,10 +146,10 @@ index 17c4398..fadaed4 100644
 +ENTRYPOINT ["/app/docker-entrypoint.sh"]
 +CMD ["/app/new-api"]
 diff --git a/common/constants.go b/common/constants.go
-index c7d5637..8b27884 100644
+index c7d5637..4f51ec5 100644
 --- a/common/constants.go
 +++ b/common/constants.go
-@@ -68,6 +68,12 @@ var TaskEnabled = true
+@@ -68,6 +68,17 @@ var TaskEnabled = true
  var DataExportEnabled = true
  var DataExportInterval = 5         // unit: minute
  var DataExportDefaultTime = "hour" // unit: minute
@@ -159,10 +159,15 @@ index c7d5637..8b27884 100644
 +var DashboardDefaultPageSize = 25
 +var DashboardDefaultHealthFilter = "all"
 +var DashboardDefaultTrendMode = "overview"
++var DashboardSlowFirstTokenThresholdMs = 3000
++var DashboardErrorRateWarningThreshold = 0.0
++var DashboardErrorRateCriticalThreshold = 5.0
++var DashboardSuccessRateGoodThreshold = 95.0
++var DashboardSuccessRateDegradedThreshold = 85.0
  var DefaultCollapseSidebar = false // default value of collapse sidebar
  
  // Any options with "Secret", "Token" in its key won't be return by GetOptions
-@@ -168,7 +174,8 @@ var SyncFrequency int // unit is second
+@@ -168,7 +179,8 @@ var SyncFrequency int // unit is second
  var BatchUpdateEnabled = false
  var BatchUpdateInterval int
  
@@ -1113,7 +1118,7 @@ index 0000000..b8974dd
 +	assert.Nil(t, compatStreamRetryError(info))
 +}
 diff --git a/controller/misc.go b/controller/misc.go
-index eada490..85e4005 100644
+index eada490..6479faa 100644
 --- a/controller/misc.go
 +++ b/controller/misc.go
 @@ -47,6 +47,7 @@ func GetStatus(c *gin.Context) {
@@ -1160,7 +1165,7 @@ index eada490..85e4005 100644
  		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
  		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
  		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
-@@ -82,6 +90,12 @@ func GetStatus(c *gin.Context) {
+@@ -82,6 +90,17 @@ func GetStatus(c *gin.Context) {
  		"enable_task":                   common.TaskEnabled,
  		"enable_data_export":            common.DataExportEnabled,
  		"data_export_default_time":      common.DataExportDefaultTime,
@@ -1170,6 +1175,11 @@ index eada490..85e4005 100644
 +		"dashboard_default_page_size":   common.DashboardDefaultPageSize,
 +		"dashboard_default_health":      common.DashboardDefaultHealthFilter,
 +		"dashboard_default_trend_mode":  common.DashboardDefaultTrendMode,
++		"dashboard_slow_first_token_ms": common.DashboardSlowFirstTokenThresholdMs,
++		"dashboard_error_warning":       common.DashboardErrorRateWarningThreshold,
++		"dashboard_error_critical":      common.DashboardErrorRateCriticalThreshold,
++		"dashboard_success_good":        common.DashboardSuccessRateGoodThreshold,
++		"dashboard_success_degraded":    common.DashboardSuccessRateDegradedThreshold,
  		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
  		"mj_notify_enabled":             setting.MjNotifyEnabled,
  		"chats":                         setting.Chats,
@@ -1549,10 +1559,10 @@ index 0000000..67f1d2f
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/option.go b/controller/option.go
-index b5fdfdc..adc8fff 100644
+index b5fdfdc..8ea2509 100644
 --- a/controller/option.go
 +++ b/controller/option.go
-@@ -42,6 +42,15 @@ func isPositiveOptionValue(value string) bool {
+@@ -42,6 +42,20 @@ func isPositiveOptionValue(value string) bool {
  	return err == nil && floatValue > 0
  }
  
@@ -1565,10 +1575,15 @@ index b5fdfdc..adc8fff 100644
 +	return false
 +}
 +
++func isFloatInRangeOptionValue(value string, minValue float64, maxValue float64) bool {
++	floatValue, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
++	return err == nil && floatValue >= minValue && floatValue <= maxValue
++}
++
  func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
  	if strings.TrimSpace(raw) == "" {
  		return
-@@ -223,6 +232,86 @@ func UpdateOption(c *gin.Context) {
+@@ -223,6 +237,102 @@ func UpdateOption(c *gin.Context) {
  			})
  			return
  		}
@@ -1649,6 +1664,22 @@ index b5fdfdc..adc8fff 100644
 +			c.JSON(http.StatusOK, gin.H{
 +				"success": false,
 +				"message": "无效的统计默认趋势模式",
++			})
++			return
++		}
++	case "DashboardSlowFirstTokenThresholdMs":
++		if !isFloatInRangeOptionValue(option.Value.(string), 100, 120000) {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的慢首字阈值",
++			})
++			return
++		}
++	case "DashboardErrorRateWarningThreshold", "DashboardErrorRateCriticalThreshold", "DashboardSuccessRateGoodThreshold", "DashboardSuccessRateDegradedThreshold":
++		if !isFloatInRangeOptionValue(option.Value.(string), 0, 100) {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的统计健康阈值",
 +			})
 +			return
 +		}
@@ -3522,10 +3553,10 @@ index 9083ee5..45f32e2 100644
  	// 动态计算migration数量，确保errChan缓冲区足够大
  	errChan := make(chan error, len(migrations))
 diff --git a/model/option.go b/model/option.go
-index ed1af72..77bbd2c 100644
+index ed1af72..6d81d84 100644
 --- a/model/option.go
 +++ b/model/option.go
-@@ -155,6 +155,12 @@ func InitOptionMap() {
+@@ -155,6 +155,17 @@ func InitOptionMap() {
  	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
  	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
  	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -3535,10 +3566,15 @@ index ed1af72..77bbd2c 100644
 +	common.OptionMap["DashboardDefaultPageSize"] = strconv.Itoa(common.DashboardDefaultPageSize)
 +	common.OptionMap["DashboardDefaultHealthFilter"] = common.DashboardDefaultHealthFilter
 +	common.OptionMap["DashboardDefaultTrendMode"] = common.DashboardDefaultTrendMode
++	common.OptionMap["DashboardSlowFirstTokenThresholdMs"] = strconv.Itoa(common.DashboardSlowFirstTokenThresholdMs)
++	common.OptionMap["DashboardErrorRateWarningThreshold"] = strconv.FormatFloat(common.DashboardErrorRateWarningThreshold, 'f', -1, 64)
++	common.OptionMap["DashboardErrorRateCriticalThreshold"] = strconv.FormatFloat(common.DashboardErrorRateCriticalThreshold, 'f', -1, 64)
++	common.OptionMap["DashboardSuccessRateGoodThreshold"] = strconv.FormatFloat(common.DashboardSuccessRateGoodThreshold, 'f', -1, 64)
++	common.OptionMap["DashboardSuccessRateDegradedThreshold"] = strconv.FormatFloat(common.DashboardSuccessRateDegradedThreshold, 'f', -1, 64)
  	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
  	common.OptionMap["MjNotifyEnabled"] = strconv.FormatBool(setting.MjNotifyEnabled)
  	common.OptionMap["MjAccountFilterEnabled"] = strconv.FormatBool(setting.MjAccountFilterEnabled)
-@@ -324,6 +330,8 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -324,6 +335,8 @@ func updateOptionMap(key string, value string) (err error) {
  			common.TaskEnabled = boolValue
  		case "DataExportEnabled":
  			common.DataExportEnabled = boolValue
@@ -3547,7 +3583,7 @@ index ed1af72..77bbd2c 100644
  		case "DefaultCollapseSidebar":
  			common.DefaultCollapseSidebar = boolValue
  		case "MjNotifyEnabled":
-@@ -376,6 +384,16 @@ func updateOptionMap(key string, value string) (err error) {
+@@ -376,6 +389,26 @@ func updateOptionMap(key string, value string) (err error) {
  		common.SMTPToken = value
  	case "ServerAddress":
  		system_setting.ServerAddress = value
@@ -3561,6 +3597,16 @@ index ed1af72..77bbd2c 100644
 +		common.DashboardDefaultHealthFilter = value
 +	case "DashboardDefaultTrendMode":
 +		common.DashboardDefaultTrendMode = value
++	case "DashboardSlowFirstTokenThresholdMs":
++		common.DashboardSlowFirstTokenThresholdMs, _ = strconv.Atoi(value)
++	case "DashboardErrorRateWarningThreshold":
++		common.DashboardErrorRateWarningThreshold, _ = strconv.ParseFloat(value, 64)
++	case "DashboardErrorRateCriticalThreshold":
++		common.DashboardErrorRateCriticalThreshold, _ = strconv.ParseFloat(value, 64)
++	case "DashboardSuccessRateGoodThreshold":
++		common.DashboardSuccessRateGoodThreshold, _ = strconv.ParseFloat(value, 64)
++	case "DashboardSuccessRateDegradedThreshold":
++		common.DashboardSuccessRateDegradedThreshold, _ = strconv.ParseFloat(value, 64)
  	case "WorkerUrl":
  		system_setting.WorkerUrl = value
  	case "WorkerValidKey":
@@ -12337,10 +12383,10 @@ index 0000000..6b94d71
 +}
 diff --git a/web/default/src/features/dashboard/channel-stats-table.tsx b/web/default/src/features/dashboard/channel-stats-table.tsx
 new file mode 100644
-index 0000000..1c5c035
+index 0000000..8bb9061
 --- /dev/null
 +++ b/web/default/src/features/dashboard/channel-stats-table.tsx
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,118 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -12359,7 +12405,14 @@ index 0000000..1c5c035
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
-+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
++import { Badge } from '@/components/ui/badge'
++import {
++  Card,
++  CardContent,
++  CardDescription,
++  CardHeader,
++  CardTitle,
++} from '@/components/ui/card'
 +import {
 +  Table,
 +  TableBody,
@@ -12368,14 +12421,16 @@ index 0000000..1c5c035
 +  TableHeader,
 +  TableRow,
 +} from '@/components/ui/table'
-+import { Badge } from '@/components/ui/badge'
 +import type { ChannelStat } from './stats-api'
++import { useDashboardHealthThresholds } from './use-dashboard-controls'
 +
 +interface ChannelStatsTableProps {
 +  data: ChannelStat[]
 +}
 +
 +export function ChannelStatsTable({ data }: ChannelStatsTableProps) {
++  const healthThresholds = useDashboardHealthThresholds()
++
 +  return (
 +    <Card>
 +      <CardHeader>
@@ -12383,50 +12438,61 @@ index 0000000..1c5c035
 +        <CardDescription>Channel performance statistics</CardDescription>
 +      </CardHeader>
 +      <CardContent>
-+        <div className="rounded-md border">
++        <div className='rounded-md border'>
 +          <Table>
 +            <TableHeader>
 +              <TableRow>
 +                <TableHead>Channel</TableHead>
-+                <TableHead className="text-right">Requests</TableHead>
-+                <TableHead className="text-right">Success Rate</TableHead>
-+                <TableHead className="text-right">Avg First Token</TableHead>
-+                <TableHead className="text-right">Cost</TableHead>
++                <TableHead className='text-right'>Requests</TableHead>
++                <TableHead className='text-right'>Success Rate</TableHead>
++                <TableHead className='text-right'>Avg First Token</TableHead>
++                <TableHead className='text-right'>Cost</TableHead>
 +              </TableRow>
 +            </TableHeader>
 +            <TableBody>
 +              {data.length === 0 ? (
 +                <TableRow>
-+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
++                  <TableCell
++                    colSpan={5}
++                    className='text-muted-foreground text-center'
++                  >
 +                    No data available
 +                  </TableCell>
 +                </TableRow>
 +              ) : (
 +                data.slice(0, 10).map((channel) => (
 +                  <TableRow key={channel.channel_id}>
-+                    <TableCell className="font-medium">
++                    <TableCell className='font-medium'>
 +                      {channel.channel_name}
-+                      <span className="ml-2 text-xs text-muted-foreground">
++                      <span className='text-muted-foreground ml-2 text-xs'>
 +                        #{channel.channel_id}
 +                      </span>
 +                    </TableCell>
-+                    <TableCell className="text-right">
++                    <TableCell className='text-right'>
 +                      {channel.total_requests.toLocaleString()}
 +                    </TableCell>
-+                    <TableCell className="text-right">
++                    <TableCell className='text-right'>
 +                      <Badge
-+                        variant={channel.success_rate >= 95 ? 'default' : 'secondary'}
-+                        className="font-mono"
++                        variant={
++                          channel.success_rate >=
++                          healthThresholds.successRateGoodThreshold
++                            ? 'default'
++                            : channel.success_rate >=
++                                healthThresholds.successRateDegradedThreshold
++                              ? 'secondary'
++                              : 'destructive'
++                        }
++                        className='font-mono'
 +                      >
 +                        {channel.success_rate.toFixed(2)}%
 +                      </Badge>
 +                    </TableCell>
-+                    <TableCell className="text-right font-mono">
++                    <TableCell className='text-right font-mono'>
 +                      {channel.avg_first_token > 0
 +                        ? `${channel.avg_first_token.toFixed(0)}ms`
 +                        : 'N/A'}
 +                    </TableCell>
-+                    <TableCell className="text-right font-mono">
++                    <TableCell className='text-right font-mono'>
 +                      ${channel.total_cost.toFixed(4)}
 +                    </TableCell>
 +                  </TableRow>
@@ -12441,10 +12507,10 @@ index 0000000..1c5c035
 +}
 diff --git a/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..a065387
+index 0000000..ac71067
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
-@@ -0,0 +1,1631 @@
+@@ -0,0 +1,1660 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -12528,6 +12594,7 @@ index 0000000..a065387
 +  useDashboardDefaultHealthFilter,
 +  useDashboardDefaultPageSize,
 +  useDashboardDefaultPreference,
++  useDashboardHealthThresholds,
 +  useDashboardPreference,
 +} from '../../use-dashboard-controls'
 +
@@ -12549,16 +12616,22 @@ index 0000000..a065387
 +}
 +
 +function successBadgeVariant(
-+  rate: number
++  rate: number,
++  thresholds: DashboardHealthThresholds
 +): 'default' | 'secondary' | 'destructive' {
-+  if (rate >= 95) return 'default'
-+  if (rate >= 85) return 'secondary'
++  if (rate >= thresholds.successRateGoodThreshold) return 'default'
++  if (rate >= thresholds.successRateDegradedThreshold) return 'secondary'
 +  return 'destructive'
 +}
 +
-+function riskClass(rate: number): string {
-+  if (rate >= 5) return 'text-destructive'
-+  if (rate > 0) return 'text-warning'
++type DashboardHealthThresholds = ReturnType<typeof useDashboardHealthThresholds>
++
++function riskClass(
++  rate: number,
++  thresholds: DashboardHealthThresholds
++): string {
++  if (rate >= thresholds.errorRateCriticalThreshold) return 'text-destructive'
++  if (rate > thresholds.errorRateWarningThreshold) return 'text-warning'
 +  return 'text-success'
 +}
 +
@@ -12793,6 +12866,7 @@ index 0000000..a065387
 +  } = useDashboardControls('dashboard:channel-analytics')
 +  const defaultHealthFilter = useDashboardDefaultHealthFilter()
 +  const defaultPageSize = useDashboardDefaultPageSize()
++  const healthThresholds = useDashboardHealthThresholds()
 +  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
 +    null
 +  )
@@ -12903,10 +12977,16 @@ index 0000000..a065387
 +        channelHealthFilter === 'all' ||
 +        (channelHealthFilter === 'active' && channel.total_requests > 0) ||
 +        (channelHealthFilter === 'risk' && channel.failed_requests > 0) ||
-+        (channelHealthFilter === 'slow' && channel.avg_first_token >= 3000)
++        (channelHealthFilter === 'slow' &&
++          channel.avg_first_token >= healthThresholds.slowFirstTokenThresholdMs)
 +      return matchesQuery && matchesHealth
 +    })
-+  }, [channelHealthFilter, channelQuery, rows])
++  }, [
++    channelHealthFilter,
++    channelQuery,
++    healthThresholds.slowFirstTokenThresholdMs,
++    rows,
++  ])
 +  const sortedRows = useMemo(
 +    () =>
 +      [...filteredRows].sort((left, right) => {
@@ -13487,7 +13567,10 @@ index 0000000..a065387
 +                      </TableCell>
 +                      <TableCell className='text-right'>
 +                        <Badge
-+                          variant={successBadgeVariant(channel.success_rate)}
++                          variant={successBadgeVariant(
++                            channel.success_rate,
++                            healthThresholds
++                          )}
 +                          className='font-mono'
 +                        >
 +                          {channel.success_rate.toFixed(2)}%
@@ -13499,7 +13582,7 @@ index 0000000..a065387
 +                      <TableCell
 +                        className={cn(
 +                          'text-right font-mono',
-+                          riskClass(channel.error_rate)
++                          riskClass(channel.error_rate, healthThresholds)
 +                        )}
 +                      >
 +                        {channel.error_rate.toFixed(2)}%
@@ -13647,6 +13730,7 @@ index 0000000..a065387
 +}) {
 +  const defaultHealthFilter = useDashboardDefaultHealthFilter()
 +  const defaultPageSize = useDashboardDefaultPageSize()
++  const healthThresholds = useDashboardHealthThresholds()
 +  const [userQuery, setUserQuery] = useDashboardPreference(
 +    'dashboard:channel-analytics:channel-users-query',
 +    '',
@@ -13695,10 +13779,16 @@ index 0000000..a065387
 +        userHealthFilter === 'all' ||
 +        (userHealthFilter === 'active' && user.total_requests > 0) ||
 +        (userHealthFilter === 'risk' && user.failed_requests > 0) ||
-+        (userHealthFilter === 'slow' && user.avg_first_token >= 3000)
++        (userHealthFilter === 'slow' &&
++          user.avg_first_token >= healthThresholds.slowFirstTokenThresholdMs)
 +      return matchesQuery && matchesHealth
 +    })
-+  }, [props.rows, userHealthFilter, userQuery])
++  }, [
++    healthThresholds.slowFirstTokenThresholdMs,
++    props.rows,
++    userHealthFilter,
++    userQuery,
++  ])
 +  const sortedRows = useMemo(
 +    () =>
 +      [...filteredRows].sort((left, right) => {
@@ -13931,7 +14021,10 @@ index 0000000..a065387
 +                  </TableCell>
 +                  <TableCell className='text-right'>
 +                    <Badge
-+                      variant={successBadgeVariant(user.success_rate)}
++                      variant={successBadgeVariant(
++                        user.success_rate,
++                        healthThresholds
++                      )}
 +                      className='font-mono'
 +                    >
 +                      {user.success_rate.toFixed(2)}%
@@ -13943,7 +14036,7 @@ index 0000000..a065387
 +                  <TableCell
 +                    className={cn(
 +                      'text-right font-mono',
-+                      riskClass(user.error_rate)
++                      riskClass(user.error_rate, healthThresholds)
 +                    )}
 +                  >
 +                    {user.error_rate.toFixed(2)}%
@@ -14026,6 +14119,8 @@ index 0000000..a065387
 +  loading: boolean
 +  metric: 'latency' | 'risk'
 +}) {
++  const healthThresholds = useDashboardHealthThresholds()
++
 +  return (
 +    <Card className='rounded-lg shadow-none'>
 +      <CardHeader className='border-b pb-3'>
@@ -14063,7 +14158,7 @@ index 0000000..a065387
 +                <span
 +                  className={cn(
 +                    'font-mono text-sm tabular-nums',
-+                    riskClass(channel.error_rate)
++                    riskClass(channel.error_rate, healthThresholds)
 +                  )}
 +                >
 +                  {channel.error_rate.toFixed(2)}%
@@ -14675,10 +14770,10 @@ index 297bdbe..f0c6459 100644
            className={cn(
 diff --git a/web/default/src/features/dashboard/components/users/user-operations-panel.tsx b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
 new file mode 100644
-index 0000000..8dbde15
+index 0000000..eb190f1
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
-@@ -0,0 +1,1091 @@
+@@ -0,0 +1,1110 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -14760,6 +14855,7 @@ index 0000000..8dbde15
 +  useDashboardDefaultHealthFilter,
 +  useDashboardDefaultPageSize,
 +  useDashboardDefaultPreference,
++  useDashboardHealthThresholds,
 +  useDashboardPreference,
 +} from '../../use-dashboard-controls'
 +
@@ -14780,17 +14876,23 @@ index 0000000..8dbde15
 +  }).format(value)}`
 +}
 +
++type DashboardHealthThresholds = ReturnType<typeof useDashboardHealthThresholds>
++
 +function successBadgeVariant(
-+  rate: number
++  rate: number,
++  thresholds: DashboardHealthThresholds
 +): 'default' | 'secondary' | 'destructive' {
-+  if (rate >= 95) return 'default'
-+  if (rate >= 85) return 'secondary'
++  if (rate >= thresholds.successRateGoodThreshold) return 'default'
++  if (rate >= thresholds.successRateDegradedThreshold) return 'secondary'
 +  return 'destructive'
 +}
 +
-+function riskClass(rate: number): string {
-+  if (rate >= 5) return 'text-destructive'
-+  if (rate > 0) return 'text-warning'
++function riskClass(
++  rate: number,
++  thresholds: DashboardHealthThresholds
++): string {
++  if (rate >= thresholds.errorRateCriticalThreshold) return 'text-destructive'
++  if (rate > thresholds.errorRateWarningThreshold) return 'text-warning'
 +  return 'text-success'
 +}
 +
@@ -14938,6 +15040,7 @@ index 0000000..8dbde15
 +  } = useDashboardControls('dashboard:user-operations')
 +  const defaultHealthFilter = useDashboardDefaultHealthFilter()
 +  const defaultPageSize = useDashboardDefaultPageSize()
++  const healthThresholds = useDashboardHealthThresholds()
 +  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
 +  const [userQuery, setUserQuery] = useDashboardPreference(
 +    'dashboard:user-operations:user-query',
@@ -15025,10 +15128,16 @@ index 0000000..8dbde15
 +        userHealthFilter === 'all' ||
 +        (userHealthFilter === 'active' && user.total_requests > 0) ||
 +        (userHealthFilter === 'risk' && user.failed_requests > 0) ||
-+        (userHealthFilter === 'slow' && user.avg_first_token >= 3000)
++        (userHealthFilter === 'slow' &&
++          user.avg_first_token >= healthThresholds.slowFirstTokenThresholdMs)
 +      return matchesQuery && matchesHealth
 +    })
-+  }, [rows, userHealthFilter, userQuery])
++  }, [
++    healthThresholds.slowFirstTokenThresholdMs,
++    rows,
++    userHealthFilter,
++    userQuery,
++  ])
 +  const sortedRows = useMemo(
 +    () =>
 +      [...filteredRows].sort((left, right) => {
@@ -15558,7 +15667,10 @@ index 0000000..8dbde15
 +                      </TableCell>
 +                      <TableCell className='text-right'>
 +                        <Badge
-+                          variant={successBadgeVariant(user.success_rate)}
++                          variant={successBadgeVariant(
++                            user.success_rate,
++                            healthThresholds
++                          )}
 +                          className='font-mono'
 +                        >
 +                          {user.success_rate.toFixed(2)}%
@@ -15570,7 +15682,7 @@ index 0000000..8dbde15
 +                      <TableCell
 +                        className={cn(
 +                          'text-right font-mono',
-+                          riskClass(user.error_rate)
++                          riskClass(user.error_rate, healthThresholds)
 +                        )}
 +                      >
 +                        {user.error_rate.toFixed(2)}%
@@ -15721,6 +15833,8 @@ index 0000000..8dbde15
 +  loading: boolean
 +  metric: 'latency' | 'risk'
 +}) {
++  const healthThresholds = useDashboardHealthThresholds()
++
 +  return (
 +    <Card className='rounded-lg shadow-none'>
 +      <CardHeader className='border-b pb-3'>
@@ -15757,7 +15871,7 @@ index 0000000..8dbde15
 +                <span
 +                  className={cn(
 +                    'font-mono text-sm tabular-nums',
-+                    riskClass(user.error_rate)
++                    riskClass(user.error_rate, healthThresholds)
 +                  )}
 +                >
 +                  {user.error_rate.toFixed(2)}%
@@ -15971,10 +16085,10 @@ index 0000000..088640a
 +}
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..3686474
+index 0000000..8c50541
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
-@@ -0,0 +1,1083 @@
+@@ -0,0 +1,1107 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -16056,6 +16170,7 @@ index 0000000..3686474
 +  useDashboardDefaultHealthFilter,
 +  useDashboardDefaultPageSize,
 +  useDashboardDefaultPreference,
++  useDashboardHealthThresholds,
 +  useDashboardPreference,
 +} from './use-dashboard-controls'
 +
@@ -16076,17 +16191,23 @@ index 0000000..3686474
 +  }).format(value)}`
 +}
 +
++type DashboardHealthThresholds = ReturnType<typeof useDashboardHealthThresholds>
++
 +function successBadgeVariant(
-+  rate: number
++  rate: number,
++  thresholds: DashboardHealthThresholds
 +): 'default' | 'secondary' | 'destructive' {
-+  if (rate >= 95) return 'default'
-+  if (rate >= 85) return 'secondary'
++  if (rate >= thresholds.successRateGoodThreshold) return 'default'
++  if (rate >= thresholds.successRateDegradedThreshold) return 'secondary'
 +  return 'destructive'
 +}
 +
-+function riskClass(rate: number): string {
-+  if (rate >= 5) return 'text-destructive'
-+  if (rate > 0) return 'text-warning'
++function riskClass(
++  rate: number,
++  thresholds: DashboardHealthThresholds
++): string {
++  if (rate >= thresholds.errorRateCriticalThreshold) return 'text-destructive'
++  if (rate > thresholds.errorRateWarningThreshold) return 'text-warning'
 +  return 'text-success'
 +}
 +
@@ -16228,6 +16349,7 @@ index 0000000..3686474
 +  } = useDashboardControls('dashboard:model-analytics')
 +  const defaultHealthFilter = useDashboardDefaultHealthFilter()
 +  const defaultPageSize = useDashboardDefaultPageSize()
++  const healthThresholds = useDashboardHealthThresholds()
 +  const [selectedModelName, setSelectedModelName] = useState<string | null>(
 +    null
 +  )
@@ -16318,10 +16440,16 @@ index 0000000..3686474
 +        modelHealthFilter === 'all' ||
 +        (modelHealthFilter === 'active' && model.total_requests > 0) ||
 +        (modelHealthFilter === 'risk' && model.failed_requests > 0) ||
-+        (modelHealthFilter === 'slow' && model.avg_first_token >= 3000)
++        (modelHealthFilter === 'slow' &&
++          model.avg_first_token >= healthThresholds.slowFirstTokenThresholdMs)
 +      return matchesQuery && matchesHealth
 +    })
-+  }, [modelHealthFilter, modelQuery, rows])
++  }, [
++    healthThresholds.slowFirstTokenThresholdMs,
++    modelHealthFilter,
++    modelQuery,
++    rows,
++  ])
 +  const sortedRows = useMemo(
 +    () =>
 +      [...filteredRows].sort((left, right) => {
@@ -16572,7 +16700,9 @@ index 0000000..3686474
 +            loading={isLoading}
 +            empty='No model failures in this period'
 +            metric={(row) => `${row.error_rate.toFixed(2)}% error`}
-+            metricClassName={(row) => riskClass(row.error_rate)}
++            metricClassName={(row) =>
++              riskClass(row.error_rate, healthThresholds)
++            }
 +          />
 +          <RankList
 +            title='Slow first token'
@@ -16856,13 +16986,21 @@ index 0000000..3686474
 +                        {formatCount(model.total_requests)}
 +                      </TableCell>
 +                      <TableCell className='text-right tabular-nums'>
-+                        <span className={riskClass(model.error_rate)}>
++                        <span
++                          className={riskClass(
++                            model.error_rate,
++                            healthThresholds
++                          )}
++                        >
 +                          {formatCount(model.failed_requests)}
 +                        </span>
 +                      </TableCell>
 +                      <TableCell className='text-right'>
 +                        <Badge
-+                          variant={successBadgeVariant(model.success_rate)}
++                          variant={successBadgeVariant(
++                            model.success_rate,
++                            healthThresholds
++                          )}
 +                          className='tabular-nums'
 +                        >
 +                          {model.success_rate.toFixed(2)}%
@@ -18245,10 +18383,10 @@ index 0000000..7a23f48
 +}
 diff --git a/web/default/src/features/dashboard/use-dashboard-controls.ts b/web/default/src/features/dashboard/use-dashboard-controls.ts
 new file mode 100644
-index 0000000..2da1ba2
+index 0000000..4ca5c46
 --- /dev/null
 +++ b/web/default/src/features/dashboard/use-dashboard-controls.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,290 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -18512,6 +18650,29 @@ index 0000000..2da1ba2
 +    return isDashboardTrendMode(value)
 +      ? value
 +      : DEFAULT_DASHBOARD_DEFAULTS.trendMode
++  })
++}
++
++export function useDashboardHealthThresholds() {
++  return useSystemConfigStore((state) => {
++    const defaults = state.config.dashboardDefaults
++    return {
++      slowFirstTokenThresholdMs:
++        defaults.slowFirstTokenThresholdMs ??
++        DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs,
++      errorRateWarningThreshold:
++        defaults.errorRateWarningThreshold ??
++        DEFAULT_DASHBOARD_DEFAULTS.errorRateWarningThreshold,
++      errorRateCriticalThreshold:
++        defaults.errorRateCriticalThreshold ??
++        DEFAULT_DASHBOARD_DEFAULTS.errorRateCriticalThreshold,
++      successRateGoodThreshold:
++        defaults.successRateGoodThreshold ??
++        DEFAULT_DASHBOARD_DEFAULTS.successRateGoodThreshold,
++      successRateDegradedThreshold:
++        defaults.successRateDegradedThreshold ??
++        DEFAULT_DASHBOARD_DEFAULTS.successRateDegradedThreshold,
++    }
 +  })
 +}
 +
@@ -19306,7 +19467,7 @@ index 0000000..1f21fcf
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/content/dashboard-section.tsx b/web/default/src/features/system-settings/content/dashboard-section.tsx
-index e21f6eb..0b322cf 100644
+index e21f6eb..f49284d 100644
 --- a/web/default/src/features/system-settings/content/dashboard-section.tsx
 +++ b/web/default/src/features/system-settings/content/dashboard-section.tsx
 @@ -21,6 +21,16 @@ import * as z from 'zod'
@@ -19326,30 +19487,68 @@ index e21f6eb..0b322cf 100644
  import {
    Form,
    FormControl,
-@@ -54,6 +64,22 @@ const dataDashboardSchema = z.object({
-   DataExportEnabled: z.boolean(),
-   DataExportInterval: z.number().int().min(1).max(1440),
-   DataExportDefaultTime: z.enum(['hour', 'day', 'week']),
-+  DashboardDefaultTimeRange: z.enum(DASHBOARD_TIME_RANGE_VALUES),
-+  DashboardAutoRefreshEnabled: z.boolean(),
-+  DashboardRefreshIntervalSeconds: z.union([
-+    z.literal(5),
-+    z.literal(15),
-+    z.literal(30),
-+    z.literal(60),
-+  ]),
-+  DashboardDefaultPageSize: z.union([
-+    z.literal(10),
-+    z.literal(25),
-+    z.literal(50),
-+    z.literal(100),
-+  ]),
-+  DashboardDefaultHealthFilter: z.enum(DASHBOARD_HEALTH_FILTER_VALUES),
-+  DashboardDefaultTrendMode: z.enum(DASHBOARD_TREND_MODE_VALUES),
- })
+@@ -50,11 +60,55 @@ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ import { safeNumberFieldProps } from '../utils/numeric-field'
+ 
+-const dataDashboardSchema = z.object({
+-  DataExportEnabled: z.boolean(),
+-  DataExportInterval: z.number().int().min(1).max(1440),
+-  DataExportDefaultTime: z.enum(['hour', 'day', 'week']),
+-})
++const dataDashboardSchema = z
++  .object({
++    DataExportEnabled: z.boolean(),
++    DataExportInterval: z.number().int().min(1).max(1440),
++    DataExportDefaultTime: z.enum(['hour', 'day', 'week']),
++    DashboardDefaultTimeRange: z.enum(DASHBOARD_TIME_RANGE_VALUES),
++    DashboardAutoRefreshEnabled: z.boolean(),
++    DashboardRefreshIntervalSeconds: z.union([
++      z.literal(5),
++      z.literal(15),
++      z.literal(30),
++      z.literal(60),
++    ]),
++    DashboardDefaultPageSize: z.union([
++      z.literal(10),
++      z.literal(25),
++      z.literal(50),
++      z.literal(100),
++    ]),
++    DashboardDefaultHealthFilter: z.enum(DASHBOARD_HEALTH_FILTER_VALUES),
++    DashboardDefaultTrendMode: z.enum(DASHBOARD_TREND_MODE_VALUES),
++    DashboardSlowFirstTokenThresholdMs: z.number().min(100).max(120000),
++    DashboardErrorRateWarningThreshold: z.number().min(0).max(100),
++    DashboardErrorRateCriticalThreshold: z.number().min(0).max(100),
++    DashboardSuccessRateGoodThreshold: z.number().min(0).max(100),
++    DashboardSuccessRateDegradedThreshold: z.number().min(0).max(100),
++  })
++  .superRefine((values, context) => {
++    if (
++      values.DashboardErrorRateCriticalThreshold <
++      values.DashboardErrorRateWarningThreshold
++    ) {
++      context.addIssue({
++        code: z.ZodIssueCode.custom,
++        message: 'Critical threshold must be greater than warning threshold',
++        path: ['DashboardErrorRateCriticalThreshold'],
++      })
++    }
++    if (
++      values.DashboardSuccessRateGoodThreshold <
++      values.DashboardSuccessRateDegradedThreshold
++    ) {
++      context.addIssue({
++        code: z.ZodIssueCode.custom,
++        message: 'Good threshold must be greater than degraded threshold',
++        path: ['DashboardSuccessRateGoodThreshold'],
++      })
++    }
++  })
  
  type DataDashboardFormValues = z.infer<typeof dataDashboardSchema>
-@@ -68,6 +94,53 @@ const granularityOptions = [
+ 
+@@ -68,6 +122,53 @@ const granularityOptions = [
    { label: 'Week', value: 'week' },
  ]
  
@@ -19403,7 +19602,7 @@ index e21f6eb..0b322cf 100644
  export function DashboardSection({ defaultValues }: DashboardSectionProps) {
    const { t } = useTranslation()
    const updateOption = useUpdateOption()
-@@ -187,6 +260,234 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+@@ -187,6 +288,359 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                )}
              />
            </div>
@@ -19635,11 +19834,136 @@ index e21f6eb..0b322cf 100644
 +              )}
 +            />
 +          </div>
++
++          <div className='grid gap-6 sm:grid-cols-3'>
++            <FormField
++              control={form.control}
++              name='DashboardSlowFirstTokenThresholdMs'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Slow first-token threshold')}</FormLabel>
++                  <FormControl>
++                    <Input
++                      type='number'
++                      min={100}
++                      max={120000}
++                      step={100}
++                      {...safeNumberFieldProps(field)}
++                    />
++                  </FormControl>
++                  <FormDescription>
++                    {t(
++                      'Milliseconds used by slow filters and latency risk views'
++                    )}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardErrorRateWarningThreshold'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Error warning threshold')}</FormLabel>
++                  <FormControl>
++                    <Input
++                      type='number'
++                      min={0}
++                      max={100}
++                      step={0.1}
++                      {...safeNumberFieldProps(field)}
++                    />
++                  </FormControl>
++                  <FormDescription>
++                    {t('Error rate percentage that turns rows yellow')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardErrorRateCriticalThreshold'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Error critical threshold')}</FormLabel>
++                  <FormControl>
++                    <Input
++                      type='number'
++                      min={0}
++                      max={100}
++                      step={0.1}
++                      {...safeNumberFieldProps(field)}
++                    />
++                  </FormControl>
++                  <FormDescription>
++                    {t('Error rate percentage that turns rows red')}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++          </div>
++
++          <div className='grid gap-6 sm:grid-cols-2'>
++            <FormField
++              control={form.control}
++              name='DashboardSuccessRateGoodThreshold'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Good success-rate threshold')}</FormLabel>
++                  <FormControl>
++                    <Input
++                      type='number'
++                      min={0}
++                      max={100}
++                      step={0.1}
++                      {...safeNumberFieldProps(field)}
++                    />
++                  </FormControl>
++                  <FormDescription>
++                    {t(
++                      'Success rate percentage that receives the healthy badge'
++                    )}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <FormField
++              control={form.control}
++              name='DashboardSuccessRateDegradedThreshold'
++              render={({ field }) => (
++                <FormItem>
++                  <FormLabel>{t('Degraded success-rate threshold')}</FormLabel>
++                  <FormControl>
++                    <Input
++                      type='number'
++                      min={0}
++                      max={100}
++                      step={0.1}
++                      {...safeNumberFieldProps(field)}
++                    />
++                  </FormControl>
++                  <FormDescription>
++                    {t(
++                      'Success rate percentage below which rows become critical'
++                    )}
++                  </FormDescription>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++          </div>
          </SettingsForm>
        </Form>
      </SettingsSection>
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
-index 147a11d..b29f1bf 100644
+index 147a11d..026fdcd 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
 +++ b/web/default/src/features/system-settings/content/index.tsx
 @@ -25,6 +25,11 @@ import {
@@ -19654,7 +19978,7 @@ index 147a11d..b29f1bf 100644
    'console_setting.api_info': '[]',
    'console_setting.announcements': '[]',
    'console_setting.faq': '[]',
-@@ -36,6 +41,12 @@ const defaultContentSettings: ContentSettings = {
+@@ -36,6 +41,17 @@ const defaultContentSettings: ContentSettings = {
    DataExportEnabled: false,
    DataExportDefaultTime: 'hour',
    DataExportInterval: 5,
@@ -19664,11 +19988,16 @@ index 147a11d..b29f1bf 100644
 +  DashboardDefaultPageSize: 25,
 +  DashboardDefaultHealthFilter: 'all',
 +  DashboardDefaultTrendMode: 'overview',
++  DashboardSlowFirstTokenThresholdMs: 3000,
++  DashboardErrorRateWarningThreshold: 0,
++  DashboardErrorRateCriticalThreshold: 5,
++  DashboardSuccessRateGoodThreshold: 95,
++  DashboardSuccessRateDegradedThreshold: 85,
    Chats: '[]',
    DrawingEnabled: false,
    MjNotifyEnabled: false,
 diff --git a/web/default/src/features/system-settings/content/section-registry.tsx b/web/default/src/features/system-settings/content/section-registry.tsx
-index 1de3165..1d13db1 100644
+index 1de3165..d03f062 100644
 --- a/web/default/src/features/system-settings/content/section-registry.tsx
 +++ b/web/default/src/features/system-settings/content/section-registry.tsx
 @@ -16,10 +16,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
@@ -19706,7 +20035,7 @@ index 1de3165..1d13db1 100644
  import { ChatSettingsSection } from './chat-settings-section'
  import { DashboardSection } from './dashboard-section'
  import { DrawingSettingsSection } from './drawing-settings-section'
-@@ -37,6 +61,44 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
+@@ -37,6 +61,54 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
    return 'hour'
  }
  
@@ -19740,6 +20069,16 @@ index 1de3165..1d13db1 100644
 +    : 'overview'
 +}
 +
++function validatePercentThreshold(value: number, fallback: number): number {
++  return Number.isFinite(value) && value >= 0 && value <= 100 ? value : fallback
++}
++
++function validateSlowFirstTokenThreshold(value: number): number {
++  return Number.isFinite(value) && value >= 100 && value <= 120000
++    ? value
++    : 3000
++}
++
 +function safeThemeValue<T extends string>(
 +  value: string,
 +  allowed: ReadonlySet<T>,
@@ -19751,7 +20090,7 @@ index 1de3165..1d13db1 100644
  const CONTENT_SECTIONS = [
    {
      id: 'dashboard',
-@@ -49,6 +111,60 @@ const CONTENT_SECTIONS = [
+@@ -49,6 +121,79 @@ const CONTENT_SECTIONS = [
            DataExportDefaultTime: validateDataExportDefaultTime(
              settings.DataExportDefaultTime
            ),
@@ -19771,6 +20110,25 @@ index 1de3165..1d13db1 100644
 +          ),
 +          DashboardDefaultTrendMode: validateDashboardTrendMode(
 +            settings.DashboardDefaultTrendMode
++          ),
++          DashboardSlowFirstTokenThresholdMs: validateSlowFirstTokenThreshold(
++            settings.DashboardSlowFirstTokenThresholdMs
++          ),
++          DashboardErrorRateWarningThreshold: validatePercentThreshold(
++            settings.DashboardErrorRateWarningThreshold,
++            0
++          ),
++          DashboardErrorRateCriticalThreshold: validatePercentThreshold(
++            settings.DashboardErrorRateCriticalThreshold,
++            5
++          ),
++          DashboardSuccessRateGoodThreshold: validatePercentThreshold(
++            settings.DashboardSuccessRateGoodThreshold,
++            95
++          ),
++          DashboardSuccessRateDegradedThreshold: validatePercentThreshold(
++            settings.DashboardSuccessRateDegradedThreshold,
++            85
 +          ),
 +        }}
 +      />
@@ -23562,7 +23920,7 @@ index 6cea57a..e553edb 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..68259a5 100644
+index 2122268..da829c2 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,7 @@ export type SiteSettings = {
@@ -23585,7 +23943,7 @@ index 2122268..68259a5 100644
    'console_setting.api_info': string
    'console_setting.announcements': string
    'console_setting.faq': string
-@@ -127,6 +133,12 @@ export type ContentSettings = {
+@@ -127,6 +133,17 @@ export type ContentSettings = {
    DataExportEnabled: boolean
    DataExportDefaultTime: string
    DataExportInterval: number
@@ -23595,10 +23953,15 @@ index 2122268..68259a5 100644
 +  DashboardDefaultPageSize: number
 +  DashboardDefaultHealthFilter: string
 +  DashboardDefaultTrendMode: string
++  DashboardSlowFirstTokenThresholdMs: number
++  DashboardErrorRateWarningThreshold: number
++  DashboardErrorRateCriticalThreshold: number
++  DashboardSuccessRateGoodThreshold: number
++  DashboardSuccessRateDegradedThreshold: number
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +387,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +392,29 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -23679,10 +24042,10 @@ index e1b99d0..06d59f9 100644
              icon: Settings,
            },
 diff --git a/web/default/src/hooks/use-system-config.ts b/web/default/src/hooks/use-system-config.ts
-index 256bd7d..e32b0c1 100644
+index 256bd7d..267eb42 100644
 --- a/web/default/src/hooks/use-system-config.ts
 +++ b/web/default/src/hooks/use-system-config.ts
-@@ -25,7 +25,29 @@ import {
+@@ -25,7 +25,31 @@ import {
    DEFAULT_CURRENCY_CONFIG,
  } from '@/stores/system-config-store'
  import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
@@ -23692,6 +24055,8 @@ index 256bd7d..e32b0c1 100644
 +  isDashboardHealthFilter,
 +  isDashboardPageSize,
 +  isDashboardTrendMode,
++  normalizeDashboardPercentThreshold,
++  normalizeSlowFirstTokenThresholdMs,
 +  secondsToDashboardRefreshIntervalMs,
 +} from '@/lib/dashboard-defaults'
  import { applyFaviconToDom } from '@/lib/dom-utils'
@@ -23712,7 +24077,7 @@ index 256bd7d..e32b0c1 100644
  
  interface UseSystemConfigOptions {
    /** Automatically fetch config from backend (use only in root component) */
-@@ -46,6 +68,19 @@ interface StatusApiResponse {
+@@ -46,6 +70,24 @@ interface StatusApiResponse {
      usd_exchange_rate?: number
      custom_currency_symbol?: string
      custom_currency_exchange_rate?: number
@@ -23722,6 +24087,11 @@ index 256bd7d..e32b0c1 100644
 +    dashboard_default_page_size?: number
 +    dashboard_default_health?: string
 +    dashboard_default_trend_mode?: string
++    dashboard_slow_first_token_ms?: number
++    dashboard_error_warning?: number
++    dashboard_error_critical?: number
++    dashboard_success_good?: number
++    dashboard_success_degraded?: number
 +    theme_customization?: {
 +      preset?: string
 +      font?: string
@@ -23732,7 +24102,7 @@ index 256bd7d..e32b0c1 100644
    }
  }
  
-@@ -58,6 +93,16 @@ function toNumber(value: unknown, fallback: number): number {
+@@ -58,6 +100,16 @@ function toNumber(value: unknown, fallback: number): number {
    return fallback
  }
  
@@ -23749,7 +24119,7 @@ index 256bd7d..e32b0c1 100644
  /**
   * Map `/api/status` response data to our persisted system config structure
   */
-@@ -91,6 +136,57 @@ export function mapStatusDataToConfig(
+@@ -91,6 +143,77 @@ export function mapStatusDataToConfig(
      ),
    }
  
@@ -23802,12 +24172,32 @@ index 256bd7d..e32b0c1 100644
 +    trendMode: isDashboardTrendMode(data.dashboard_default_trend_mode)
 +      ? data.dashboard_default_trend_mode
 +      : DEFAULT_DASHBOARD_DEFAULTS.trendMode,
++    slowFirstTokenThresholdMs: normalizeSlowFirstTokenThresholdMs(
++      data.dashboard_slow_first_token_ms,
++      DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs
++    ),
++    errorRateWarningThreshold: normalizeDashboardPercentThreshold(
++      data.dashboard_error_warning,
++      DEFAULT_DASHBOARD_DEFAULTS.errorRateWarningThreshold
++    ),
++    errorRateCriticalThreshold: normalizeDashboardPercentThreshold(
++      data.dashboard_error_critical,
++      DEFAULT_DASHBOARD_DEFAULTS.errorRateCriticalThreshold
++    ),
++    successRateGoodThreshold: normalizeDashboardPercentThreshold(
++      data.dashboard_success_good,
++      DEFAULT_DASHBOARD_DEFAULTS.successRateGoodThreshold
++    ),
++    successRateDegradedThreshold: normalizeDashboardPercentThreshold(
++      data.dashboard_success_degraded,
++      DEFAULT_DASHBOARD_DEFAULTS.successRateDegradedThreshold
++    ),
 +  }
 +
    return {
      systemName: data.system_name || DEFAULT_SYSTEM_NAME,
      logo: data.logo || DEFAULT_LOGO,
-@@ -98,6 +194,8 @@ export function mapStatusDataToConfig(
+@@ -98,6 +221,8 @@ export function mapStatusDataToConfig(
      demoSiteEnabled: data.demo_site_enabled,
      displayTokenStatEnabled: data.display_token_stat_enabled,
      currency,
@@ -23818,10 +24208,10 @@ index 256bd7d..e32b0c1 100644
  
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
-index 0000000..167c9fe
+index 0000000..68c491a
 --- /dev/null
 +++ b/web/default/src/lib/dashboard-defaults.ts
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,161 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -23859,6 +24249,11 @@ index 0000000..167c9fe
 +  pageSize: DashboardPageSize
 +  healthFilter: DashboardHealthFilter
 +  trendMode: DashboardTrendMode
++  slowFirstTokenThresholdMs: number
++  errorRateWarningThreshold: number
++  errorRateCriticalThreshold: number
++  successRateGoodThreshold: number
++  successRateDegradedThreshold: number
 +}
 +
 +export const DASHBOARD_TIME_RANGE_VALUES: readonly DashboardTimeRange[] = [
@@ -23891,6 +24286,31 @@ index 0000000..167c9fe
 +  pageSize: 25,
 +  healthFilter: 'all',
 +  trendMode: 'overview',
++  slowFirstTokenThresholdMs: 3000,
++  errorRateWarningThreshold: 0,
++  errorRateCriticalThreshold: 5,
++  successRateGoodThreshold: 95,
++  successRateDegradedThreshold: 85,
++}
++
++export function normalizeDashboardPercentThreshold(
++  value: unknown,
++  fallback: number
++): number {
++  const parsed = typeof value === 'number' ? value : Number(value)
++  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100
++    ? parsed
++    : fallback
++}
++
++export function normalizeSlowFirstTokenThresholdMs(
++  value: unknown,
++  fallback: number = DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs
++): number {
++  const parsed = typeof value === 'number' ? value : Number(value)
++  return Number.isFinite(parsed) && parsed >= 100 && parsed <= 120000
++    ? parsed
++    : fallback
 +}
 +
 +export function isDashboardTimeRange(
