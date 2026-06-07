@@ -24616,10 +24616,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..c9d63ce
+index 0000000..74649e6
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,752 @@
+@@ -0,0 +1,881 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -24639,6 +24639,7 @@ index 0000000..c9d63ce
 +For commercial licensing, please contact support@quantumnous.com
 +*/
 +import { Link } from '@tanstack/react-router'
++import { useQuery } from '@tanstack/react-query'
 +import {
 +  Activity,
 +  BadgeDollarSign,
@@ -24657,6 +24658,7 @@ index 0000000..c9d63ce
 +  Timer,
 +  type LucideIcon,
 +} from 'lucide-react'
++import { api } from '@/lib/api'
 +import { useSystemConfigStore } from '@/stores/system-config-store'
 +import { cn } from '@/lib/utils'
 +import { useStatus } from '@/hooks/use-status'
@@ -24669,6 +24671,9 @@ index 0000000..c9d63ce
 +  CardHeader,
 +  CardTitle,
 +} from '@/components/ui/card'
++import { getOfficialPriceSyncStatus } from '../api'
++import { parseHeaderNavModules } from '../maintenance/config'
++import type { OfficialPriceSyncStatus } from '../types'
 +
 +type OperationsCenterProps = {
 +  currentVersion?: string | null
@@ -24710,6 +24715,18 @@ index 0000000..c9d63ce
 +    label: string
 +    link: ActionLink
 +  }>
++}
++
++type ErrorRule = {
++  id: number
++  enabled: boolean
++}
++
++async function listErrorRules() {
++  const res = await api.get<{ success: boolean; data: ErrorRule[] }>(
++    '/api/compat/error-rules'
++  )
++  return res.data.data ?? []
 +}
 +
 +const PRIMARY_ACTIONS: OperationsAction[] = [
@@ -24995,6 +25012,14 @@ index 0000000..c9d63ce
 +    (state) => state.config.themeCustomization
 +  )
 +  const { status } = useStatus()
++  const { data: priceSyncResponse } = useQuery({
++    queryKey: ['official-price-sync-status'],
++    queryFn: getOfficialPriceSyncStatus,
++  })
++  const { data: errorRules = [] } = useQuery({
++    queryKey: ['upstream-error-rules'],
++    queryFn: listErrorRules,
++  })
 +
 +  return (
 +    <section className='space-y-4'>
@@ -25030,6 +25055,10 @@ index 0000000..c9d63ce
 +        sidebarModulesAdmin={
 +          status?.SidebarModulesAdmin as string | null | undefined
 +        }
++        headerNavModules={status?.HeaderNavModules as string | null | undefined}
++        docsLink={status?.docs_link as string | null | undefined}
++        priceSyncStatus={priceSyncResponse?.data}
++        errorRules={errorRules}
 +      />
 +
 +      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
@@ -25062,6 +25091,10 @@ index 0000000..c9d63ce
 +  >['config']['themeCustomization']
 +  sidebarSectionOrder?: string | null
 +  sidebarModulesAdmin?: string | null
++  headerNavModules?: string | null
++  docsLink?: string | null
++  priceSyncStatus?: OfficialPriceSyncStatus
++  errorRules: ErrorRule[]
 +}) {
 +  const dashboard = props.dashboardDefaults
 +  const theme = props.themeCustomization
@@ -25069,6 +25102,12 @@ index 0000000..c9d63ce
 +    props.sidebarSectionOrder,
 +    props.sidebarModulesAdmin
 +  )
++  const headerSummary = getHeaderNavSummary(
++    props.headerNavModules,
++    props.docsLink
++  )
++  const priceSummary = getPriceSyncSummary(props.priceSyncStatus)
++  const errorRuleSummary = getErrorRuleSummary(props.errorRules)
 +  const items = [
 +    {
 +      label: 'Dashboard view',
@@ -25095,6 +25134,21 @@ index 0000000..c9d63ce
 +      value: sidebarSummary.value,
 +      detail: sidebarSummary.detail,
 +    },
++    {
++      label: 'Header navigation',
++      value: headerSummary.value,
++      detail: headerSummary.detail,
++    },
++    {
++      label: 'Official pricing',
++      value: priceSummary.value,
++      detail: priceSummary.detail,
++    },
++    {
++      label: 'Error safety',
++      value: errorRuleSummary.value,
++      detail: errorRuleSummary.detail,
++    },
 +  ]
 +
 +  return (
@@ -25106,7 +25160,7 @@ index 0000000..c9d63ce
 +          choices may still override them.
 +        </CardDescription>
 +      </CardHeader>
-+      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-5'>
++      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-3'>
 +        {items.map((item) => (
 +          <div key={item.label} className='bg-muted/20 rounded-md border p-3'>
 +            <p className='text-muted-foreground text-xs'>{item.label}</p>
@@ -25119,6 +25173,70 @@ index 0000000..c9d63ce
 +      </CardContent>
 +    </Card>
 +  )
++}
++
++function getHeaderNavSummary(navConfig?: string | null, docsLink?: string | null) {
++  const parsed = parseHeaderNavModules(navConfig)
++  const modules = [
++    ['home', parsed.home],
++    ['console', parsed.console],
++    ['models', parsed.pricing.enabled],
++    ['rankings', parsed.rankings.enabled],
++    ['docs', parsed.docs],
++    ['about', parsed.about],
++  ] as const
++  const enabledModules = modules.filter(([, enabled]) => enabled)
++  const gatedModules = [
++    parsed.pricing.requireAuth ? 'models' : '',
++    parsed.rankings.requireAuth ? 'rankings' : '',
++  ].filter(Boolean)
++  const normalizedDocsLink = docsLink?.trim() || 'default docs link'
++
++  return {
++    value: `${enabledModules.length}/${modules.length} modules visible`,
++    detail:
++      gatedModules.length > 0
++        ? `${gatedModules.join('/')} require login · ${normalizedDocsLink}`
++        : `public modules · ${normalizedDocsLink}`,
++  }
++}
++
++function getPriceSyncSummary(status?: OfficialPriceSyncStatus) {
++  if (!status) {
++    return {
++      value: 'Status loading',
++      detail: 'official-only models.dev sync status',
++    }
++  }
++
++  const source = status.source_url || 'https://models.dev/api.json'
++  const lastRun = formatTimestamp(status.last_run_unix)
++  if (!status.last_run_unix) {
++    return {
++      value: 'Never synced',
++      detail: source,
++    }
++  }
++
++  return {
++    value: status.last_ok ? 'Last sync ok' : 'Last sync failed',
++    detail: `${status.last_models_num ?? 0} models · ${lastRun} · ${source}`,
++  }
++}
++
++function getErrorRuleSummary(rules: ErrorRule[]) {
++  if (rules.length === 0) {
++    return {
++      value: 'Built-in fixed errors',
++      detail: 'no custom rules configured',
++    }
++  }
++
++  const enabledRules = rules.filter((rule) => rule.enabled)
++  return {
++    value: `${enabledRules.length}/${rules.length} custom rules enabled`,
++    detail: 'clients see normalized messages; logs keep masked previews',
++  }
 +}
 +
 +function getSidebarSummary(
@@ -25354,6 +25472,17 @@ index 0000000..c9d63ce
 +  const minutes = Math.floor((elapsed % 3600) / 60)
 +  if (hours > 0) return `${hours}h ${minutes}m uptime`
 +  return `${Math.max(1, minutes)}m uptime`
++}
++
++function formatTimestamp(timestamp?: number) {
++  if (!timestamp) return 'never'
++  return new Intl.DateTimeFormat(undefined, {
++    year: 'numeric',
++    month: '2-digit',
++    day: '2-digit',
++    hour: '2-digit',
++    minute: '2-digit',
++  }).format(new Date(timestamp * 1000))
 +}
 +
 +function formatTimeRange(value: string) {
