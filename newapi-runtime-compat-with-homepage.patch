@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..e264b63
+index 0000000..81e5264
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,918 @@
+@@ -0,0 +1,943 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11411,6 +11411,31 @@ index 0000000..e264b63
 +          navigate({
 +            to: '/system-settings/site/$section',
 +            params: { section: 'system-info' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-system-notice',
++        label: 'System Notice',
++        description: 'Configure and import/export the site-wide notice',
++        icon: FileText,
++        keywords: [
++          'system',
++          'notice',
++          'announcement',
++          'site',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/site/$section',
++            params: { section: 'notice' },
 +          })
 +          close()
 +        },
@@ -24249,6 +24274,193 @@ index 7a4bd04..861445e 100644
      </SettingsSection>
    )
  }
+diff --git a/web/default/src/features/system-settings/maintenance/notice-section.tsx b/web/default/src/features/system-settings/maintenance/notice-section.tsx
+index c988de8..441ec8a 100644
+--- a/web/default/src/features/system-settings/maintenance/notice-section.tsx
++++ b/web/default/src/features/system-settings/maintenance/notice-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -31,7 +42,10 @@ import {
+ } from '@/components/ui/form'
+ import { Textarea } from '@/components/ui/textarea'
+ import { SettingsForm } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -45,9 +59,19 @@ type NoticeSectionProps = {
+   defaultValue: string
+ }
+ 
++type NoticeImportExportPayload = {
++  SystemNotice?: {
++    notice?: unknown
++  }
++  notice?: unknown
++  Notice?: unknown
++}
++
+ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const form = useForm<NoticeFormValues>({
+     resolver: zodResolver(noticeSchema),
+     defaultValues: {
+@@ -70,10 +94,96 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
+     })
+   }
+ 
++  const exportConfig = async () => {
++    const notice = form.getValues().Notice ?? ''
++    const payload = {
++      SystemNotice: {
++        notice,
++      },
++      Notice: notice,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-system-notice.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('System notice JSON exported and copied'))
++    } catch {
++      toast.success(t('System notice JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          SystemNotice: {
++            notice: form.getValues().Notice ?? '',
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as NoticeImportExportPayload
++      const source = raw.SystemNotice ?? raw
++      const importedNotice = source.notice ?? raw.Notice
++      if (importedNotice === undefined) {
++        throw new Error('Missing system notice')
++      }
++      if (typeof importedNotice !== 'string') {
++        throw new Error('System notice must be a string')
++      }
++
++      form.setValue('Notice', importedNotice, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      await form.trigger('Notice')
++      setImportOpen(false)
++      toast.success(t('System notice imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid system notice JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('System Notice')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -100,6 +210,29 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
+           />
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import system notice JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported system notice JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx b/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
 index 782fbd4..4c483a6 100644
 --- a/web/default/src/features/system-settings/maintenance/sidebar-modules-section.tsx
@@ -27110,10 +27322,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..7bbd898
+index 0000000..843a7e1
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,992 @@
+@@ -0,0 +1,1000 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -27530,6 +27742,14 @@ index 0000000..7bbd898
 +          kind: 'system-settings',
 +          area: 'site',
 +          section: 'system-info',
++        },
++      },
++      {
++        label: 'System notice',
++        link: {
++          kind: 'system-settings',
++          area: 'site',
++          section: 'notice',
 +        },
 +      },
 +      {
