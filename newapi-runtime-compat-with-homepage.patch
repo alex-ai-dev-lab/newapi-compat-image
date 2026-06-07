@@ -9411,10 +9411,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..e9663fc
+index 0000000..a6a5d44
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,357 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -9457,6 +9457,8 @@ index 0000000..e9663fc
 +  Palette,
 +  Shield,
 +  Zap,
++  Globe,
++  AlertTriangle,
 +  type LucideIcon,
 +} from 'lucide-react'
 +
@@ -9578,6 +9580,22 @@ index 0000000..e9663fc
 +        },
 +        requiresRole: 100,
 +      },
++      {
++        id: 'settings-user-agents',
++        label: 'User-Agent Management',
++        description: 'Manage global and channel User-Agent profiles',
++        icon: Globe,
++        keywords: ['ua', 'user-agent', 'codex', 'claude', 'gpt', 'model'],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/models/$section',
++            params: { section: 'user-agents' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
 +      // Settings - Client Identity
 +      {
 +        id: 'settings-client-identity',
@@ -9610,6 +9628,22 @@ index 0000000..e9663fc
 +          close()
 +        },
 +        requiresRole: 100,
++      },
++      {
++        id: 'settings-upstream-error-rules',
++        label: 'Upstream Error Rules',
++        description: 'Normalize unsafe upstream error messages',
++        icon: AlertTriangle,
++        keywords: ['error', 'upstream', 'anti-poison', 'security', 'normalize'],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/security/$section',
++            params: { section: 'upstream-error-rules' },
++          })
++          close()
++        },
++        requiresRole: 10,
 +      },
 +      // Settings - Appearance
 +      {
@@ -9820,7 +9854,7 @@ index 6e92519..d7119ce 100644
  // Channel Operations
  // ============================================================================
 diff --git a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
-index d511128..8659e90 100644
+index d511128..bf7c879 100644
 --- a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 +++ b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 @@ -220,7 +220,7 @@ export function ChannelTestDialog({
@@ -9841,6 +9875,15 @@ index d511128..8659e90 100644
      setSearchTerm('')
      setTestResults({})
      setRowSelection({})
+@@ -798,7 +798,7 @@ function FailureStatusContent({
+             size='sm'
+             className='h-7 w-fit px-2 text-xs'
+             onClick={() =>
+-              window.open('/system-settings/billing/model-pricing', '_blank')
++              window.open('/system-settings/models/model-pricing', '_blank')
+             }
+           >
+             <Settings className='mr-1 h-3 w-3 shrink-0' />
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 index 6b26cd1..763b6d6 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
@@ -12215,6 +12258,19 @@ index 81855ab..61bb535 100644
    )
  
    const handleToggleStatus = async (
+diff --git a/web/default/src/features/playground/components/message-error.tsx b/web/default/src/features/playground/components/message-error.tsx
+index 6496791..2191496 100644
+--- a/web/default/src/features/playground/components/message-error.tsx
++++ b/web/default/src/features/playground/components/message-error.tsx
+@@ -57,7 +57,7 @@ export function MessageError({ message, className = '' }: MessageErrorProps) {
+               variant='outline'
+               size='sm'
+               onClick={() =>
+-                window.open('/system-settings/billing/model-pricing', '_blank')
++                window.open('/system-settings/models/model-pricing', '_blank')
+               }
+             >
+               <Settings className='mr-1 h-3.5 w-3.5' />
 diff --git a/web/default/src/features/playground/index.tsx b/web/default/src/features/playground/index.tsx
 index b131680..71c805e 100644
 --- a/web/default/src/features/playground/index.tsx
