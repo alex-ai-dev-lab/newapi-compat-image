@@ -11217,6 +11217,21 @@ index 0000000..f5aa683
 +    </Button>
 +  )
 +}
+diff --git a/web/default/src/components/profile-dropdown.tsx b/web/default/src/components/profile-dropdown.tsx
+index 7db6d32..ec6aff5 100644
+--- a/web/default/src/components/profile-dropdown.tsx
++++ b/web/default/src/components/profile-dropdown.tsx
+@@ -113,8 +113,8 @@ export function ProfileDropdown() {
+             <DropdownMenuItem
+               onClick={() =>
+                 navigate({
+-                  to: '/system-settings/site/$section',
+-                  params: { section: 'system-info' },
++                  to: '/system-settings/operations/$section',
++                  params: { section: 'overview' },
+                 })
+               }
+             >
 diff --git a/web/default/src/components/search.tsx b/web/default/src/components/search.tsx
 index 04cd3b6..5ada576 100644
 --- a/web/default/src/components/search.tsx
@@ -23457,6 +23472,31 @@ index 4a6eb0e..374371c 100644
            />
          </div>
          <SummaryField
+diff --git a/web/default/src/hooks/use-sidebar-config.ts b/web/default/src/hooks/use-sidebar-config.ts
+index 5bc7fba..99e25f7 100644
+--- a/web/default/src/hooks/use-sidebar-config.ts
++++ b/web/default/src/hooks/use-sidebar-config.ts
+@@ -114,6 +114,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
+   '/redemption-codes': { section: 'admin', module: 'redemption' },
+   '/subscriptions': { section: 'admin', module: 'subscription' },
+   '/system-settings': { section: 'admin', module: 'setting' },
++  '/system-settings/operations': { section: 'admin', module: 'setting' },
+   '/system-settings/site': { section: 'admin', module: 'setting' },
+ }
+ 
+diff --git a/web/default/src/hooks/use-sidebar-data.ts b/web/default/src/hooks/use-sidebar-data.ts
+index e1b99d0..06d59f9 100644
+--- a/web/default/src/hooks/use-sidebar-data.ts
++++ b/web/default/src/hooks/use-sidebar-data.ts
+@@ -143,7 +143,7 @@ export function useSidebarData(): SidebarData {
+           },
+           {
+             title: t('System Settings'),
+-            url: '/system-settings/site',
++            url: '/system-settings/operations/overview',
+             activeUrls: ['/system-settings'],
+             icon: Settings,
+           },
 diff --git a/web/default/src/hooks/use-system-config.ts b/web/default/src/hooks/use-system-config.ts
 index 256bd7d..7b321e7 100644
 --- a/web/default/src/hooks/use-system-config.ts
@@ -23755,6 +23795,20 @@ index 994f287..549e19e 100644
    },
 +  validateSearch: dashboardSearchSchema,
    component: Dashboard,
+ })
+diff --git a/web/default/src/routes/_authenticated/system-settings/index.tsx b/web/default/src/routes/_authenticated/system-settings/index.tsx
+index 3c56ec8..5cf8044 100644
+--- a/web/default/src/routes/_authenticated/system-settings/index.tsx
++++ b/web/default/src/routes/_authenticated/system-settings/index.tsx
+@@ -21,7 +21,8 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
+ export const Route = createFileRoute('/_authenticated/system-settings/')({
+   beforeLoad: () => {
+     throw redirect({
+-      to: '/system-settings/site',
++      to: '/system-settings/operations/$section',
++      params: { section: 'overview' },
+     })
+   },
  })
 diff --git a/web/default/src/stores/command-palette-store.ts b/web/default/src/stores/command-palette-store.ts
 new file mode 100644

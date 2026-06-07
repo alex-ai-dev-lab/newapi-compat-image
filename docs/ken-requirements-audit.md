@@ -16,13 +16,13 @@
 
 本轮 Dashboard 默认项增量：`系统设置 -> 内容/外观 -> Data Dashboard` 已补充统计默认时间范围、默认自动刷新开关和默认刷新间隔配置；后端 option 会通过 `/api/status` 下发到前端，Dashboard 在浏览器没有保存本地偏好时使用后台默认值，用户手动切换后的本地偏好仍优先。
 
-本轮运维入口增量：`系统设置 -> 运维/Operations` 默认页已从 `System Behavior` 改为 `Operations Center`，集中提供模型控制中心、UA 管理、Client Identity、官方价格、统计分析、上游错误规则、Dashboard 默认值、外观、Header navigation、渠道测试、性能设置和 Usage Logs 的快捷入口；命令面板新增 `Operations Center` 命令，搜索 `ua`、`client identity`、`dashboard defaults`、`sqlite`、`error rules` 等关键词也能找到该入口。这是后台信息架构和可发现性的补强，不代表所有运维页面已经重写。
+本轮运维入口增量：`系统设置` 总入口、侧边栏 `System Settings` 和个人菜单里的 `System Settings` 已默认进入 `系统设置 -> 运维/Operations -> Operations Center`，不再先落到站点信息页；该控制中心集中提供模型控制中心、UA 管理、Client Identity、官方价格、统计分析、上游错误规则、Dashboard 默认值、外观、Header navigation、渠道测试、性能设置和 Usage Logs 的快捷入口；命令面板新增 `Operations Center` 命令，搜索 `ua`、`client identity`、`dashboard defaults`、`sqlite`、`error rules` 等关键词也能找到该入口。这是后台信息架构和可发现性的补强，不代表所有运维页面已经重写。
 
 ## 功能入口速查
 
 | 功能 | 后台入口 |
 |---|---|
-| 运维控制中心 | `系统设置 -> 运维/Operations -> Operations Center`，或命令面板 `Operations Center` |
+| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，或命令面板 `Operations Center` |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
