@@ -81,6 +81,7 @@
 | 功能 | 入口 |
 |---|---|
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
+| 运维控制中心 | `系统设置 -> 运维/Operations -> Operations Center`，或命令面板 `Operations Center` |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |

@@ -10476,10 +10476,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..9dc59b5
+index 0000000..943e38a
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,575 @@
+@@ -0,0 +1,601 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10723,6 +10723,32 @@ index 0000000..9dc59b5
 +        section: 'Settings',
 +        action: () => {
 +          navigate({ to: '/system-settings' })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-operations-center',
++        label: 'Operations Center',
++        description:
++          'Open the compatibility and admin operations control surface',
++        icon: LayoutDashboard,
++        keywords: [
++          'operations',
++          'compat',
++          'ua',
++          'user-agent',
++          'client identity',
++          'dashboard defaults',
++          'sqlite',
++          'error rules',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/operations/$section',
++            params: { section: 'overview' },
++          })
 +          close()
 +        },
 +        requiresRole: 100,
@@ -22385,6 +22411,434 @@ index 0000000..86d3672
 +    </SettingsSection>
 +  )
 +}
+diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
+new file mode 100644
+index 0000000..54c4254
+--- /dev/null
++++ b/web/default/src/features/system-settings/operations/operations-center.tsx
+@@ -0,0 +1,388 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { Link } from '@tanstack/react-router'
++import {
++  Activity,
++  BadgeDollarSign,
++  BellRing,
++  FileText,
++  Fingerprint,
++  Gauge,
++  Globe,
++  LayoutDashboard,
++  ListChecks,
++  Palette,
++  RadioTower,
++  Search,
++  ShieldAlert,
++  ShieldCheck,
++  Timer,
++  type LucideIcon,
++} from 'lucide-react'
++import { cn } from '@/lib/utils'
++import { Badge } from '@/components/ui/badge'
++import { buttonVariants } from '@/components/ui/button'
++import {
++  Card,
++  CardContent,
++  CardDescription,
++  CardHeader,
++  CardTitle,
++} from '@/components/ui/card'
++
++type OperationsCenterProps = {
++  currentVersion?: string | null
++  startTime?: number | null
++}
++
++type ActionLink =
++  | {
++      kind: 'system-settings'
++      area: 'models' | 'security' | 'content' | 'site' | 'operations'
++      section: string
++    }
++  | {
++      kind: 'dashboard'
++      section: 'overview' | 'models' | 'channels' | 'users'
++    }
++  | {
++      kind: 'usage-logs'
++    }
++  | {
++      kind: 'plain'
++      to: '/channels' | '/models'
++    }
++
++type OperationsAction = {
++  title: string
++  description: string
++  icon: LucideIcon
++  status: string
++  cta: string
++  link: ActionLink
++}
++
++const PRIMARY_ACTIONS: OperationsAction[] = [
++  {
++    title: 'Model operations',
++    description:
++      'Pricing, User-Agent profiles, Client Identity, Claude thinking, model routing, and model health in one place.',
++    icon: LayoutDashboard,
++    status: 'Model control',
++    cta: 'Open center',
++    link: { kind: 'system-settings', area: 'models', section: 'overview' },
++  },
++  {
++    title: 'User-Agent management',
++    description:
++      'Manage default, model-category, selected, and per-channel User-Agent rules without touching channel code.',
++    icon: Globe,
++    status: 'Hot path',
++    cta: 'Manage UA',
++    link: { kind: 'system-settings', area: 'models', section: 'user-agents' },
++  },
++  {
++    title: 'Client Identity',
++    description:
++      'Force Codex, Claude, and custom provider identifiers, then rotate them manually or on a schedule.',
++    icon: Fingerprint,
++    status: 'Forced IDs',
++    cta: 'Manage IDs',
++    link: {
++      kind: 'system-settings',
++      area: 'models',
++      section: 'client-identity',
++    },
++  },
++  {
++    title: 'Official pricing',
++    description:
++      'Sync official-only prices from models.dev while keeping reseller and aggregator aliases out.',
++    icon: BadgeDollarSign,
++    status: 'Official-only',
++    cta: 'Open pricing',
++    link: { kind: 'system-settings', area: 'models', section: 'model-pricing' },
++  },
++  {
++    title: 'Operations analytics',
++    description:
++      'Review request volume, success rate, first-token latency, cost, and risk signals across models and channels.',
++    icon: Activity,
++    status: 'Admin stats',
++    cta: 'Open analytics',
++    link: { kind: 'dashboard', section: 'overview' },
++  },
++  {
++    title: 'Upstream error rules',
++    description:
++      'Normalize unsafe upstream error bodies for clients while preserving masked previews in backend logs.',
++    icon: ShieldAlert,
++    status: 'Anti-poison',
++    cta: 'Open rules',
++    link: {
++      kind: 'system-settings',
++      area: 'security',
++      section: 'upstream-error-rules',
++    },
++  },
++]
++
++const SECONDARY_ACTIONS: OperationsAction[] = [
++  {
++    title: 'Dashboard defaults',
++    description:
++      'Set the default statistics time range, auto-refresh behavior, and refresh interval for users without local preferences.',
++    icon: Gauge,
++    status: 'Global default',
++    cta: 'Configure',
++    link: { kind: 'system-settings', area: 'content', section: 'dashboard' },
++  },
++  {
++    title: 'Appearance',
++    description:
++      'Tune the global default theme preset, font, radius, density, and content width for the admin interface.',
++    icon: Palette,
++    status: 'Visual system',
++    cta: 'Open appearance',
++    link: { kind: 'system-settings', area: 'content', section: 'appearance' },
++  },
++  {
++    title: 'Header navigation',
++    description:
++      'Edit top navigation modules and the documentation URL shown in the header and default footer.',
++    icon: ListChecks,
++    status: 'Navigation',
++    cta: 'Edit nav',
++    link: {
++      kind: 'system-settings',
++      area: 'site',
++      section: 'header-navigation',
++    },
++  },
++  {
++    title: 'Channel test scheduler',
++    description:
++      'Find channels that need custom test intervals, retry attempts, disable thresholds, and cross-day windows.',
++    icon: Timer,
++    status: 'Recovery',
++    cta: 'Open channels',
++    link: { kind: 'plain', to: '/channels' },
++  },
++  {
++    title: 'Performance',
++    description:
++      'Review cache, monitor thresholds, and low-level operational knobs that affect backend pressure.',
++    icon: ShieldCheck,
++    status: 'Runtime',
++    cta: 'Tune runtime',
++    link: {
++      kind: 'system-settings',
++      area: 'operations',
++      section: 'performance',
++    },
++  },
++  {
++    title: 'Usage Logs',
++    description:
++      'Jump to raw request logs when an analytics card needs a concrete request trail.',
++    icon: FileText,
++    status: 'Drilldown',
++    cta: 'Open logs',
++    link: { kind: 'usage-logs' },
++  },
++]
++
++const QUICK_FILTERS: OperationsAction[] = [
++  {
++    title: 'Channel analytics',
++    description:
++      'Channel reliability, first-token latency, spend, user mix, and trend windows.',
++    icon: RadioTower,
++    status: 'Channels',
++    cta: 'View channels',
++    link: { kind: 'dashboard', section: 'channels' },
++  },
++  {
++    title: 'Model analytics',
++    description:
++      'Model success rate, cost, token volume, first-token latency, and selected model trend.',
++    icon: Search,
++    status: 'Models',
++    cta: 'View models',
++    link: { kind: 'dashboard', section: 'models' },
++  },
++  {
++    title: 'Monitoring',
++    description:
++      'Automatic disable/enable settings, retry status codes, quota reminders, and global channel tests.',
++    icon: BellRing,
++    status: 'Alerts',
++    cta: 'Open monitoring',
++    link: {
++      kind: 'system-settings',
++      area: 'operations',
++      section: 'monitoring',
++    },
++  },
++]
++
++export function OperationsCenter(props: OperationsCenterProps) {
++  return (
++    <section className='space-y-4'>
++      <div className='bg-card rounded-lg border px-4 py-4'>
++        <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
++          <div className='max-w-3xl space-y-1'>
++            <p className='text-sm font-medium'>Operations Center</p>
++            <p className='text-muted-foreground text-sm'>
++              A compact control surface for the custom compatibility features,
++              analytics workspaces, runtime safeguards, and admin appearance
++              defaults.
++            </p>
++          </div>
++          <div className='flex flex-wrap gap-2'>
++            <Badge variant='secondary'>
++              {props.currentVersion
++                ? `NewAPI ${props.currentVersion}`
++                : 'NewAPI'}
++            </Badge>
++            <Badge variant='secondary'>{formatUptime(props.startTime)}</Badge>
++          </div>
++        </div>
++      </div>
++
++      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
++        {PRIMARY_ACTIONS.map((action) => (
++          <OperationsActionCard key={action.title} action={action} />
++        ))}
++      </div>
++
++      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
++        {SECONDARY_ACTIONS.map((action) => (
++          <OperationsActionCard key={action.title} action={action} compact />
++        ))}
++      </div>
++
++      <div className='grid gap-3 lg:grid-cols-3'>
++        {QUICK_FILTERS.map((action) => (
++          <OperationsActionCard key={action.title} action={action} compact />
++        ))}
++      </div>
++    </section>
++  )
++}
++
++function OperationsActionCard(props: {
++  action: OperationsAction
++  compact?: boolean
++}) {
++  const Icon = props.action.icon
++  return (
++    <Card className='rounded-lg shadow-none'>
++      <CardHeader className='gap-3'>
++        <div className='flex min-w-0 items-center gap-3'>
++          <div className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
++            <Icon className='text-muted-foreground size-4' />
++          </div>
++          <div className='min-w-0'>
++            <CardTitle className='truncate text-sm'>
++              {props.action.title}
++            </CardTitle>
++            <Badge variant='outline' className='mt-1'>
++              {props.action.status}
++            </Badge>
++          </div>
++        </div>
++        <CardDescription
++          className={cn(
++            'leading-relaxed',
++            props.compact ? 'min-h-16' : 'min-h-20'
++          )}
++        >
++          {props.action.description}
++        </CardDescription>
++      </CardHeader>
++      <CardContent>
++        <OperationsActionLink action={props.action} />
++      </CardContent>
++    </Card>
++  )
++}
++
++function OperationsActionLink(props: { action: OperationsAction }) {
++  const className = cn(
++    buttonVariants({ variant: 'outline', size: 'sm' }),
++    'w-full'
++  )
++  const { link } = props.action
++
++  if (link.kind === 'system-settings') {
++    return (
++      <Link
++        to={`/system-settings/${link.area}/$section`}
++        params={{ section: link.section }}
++        className={className}
++      >
++        {props.action.cta}
++      </Link>
++    )
++  }
++
++  if (link.kind === 'dashboard') {
++    return (
++      <Link
++        to='/dashboard/$section'
++        params={{ section: link.section }}
++        className={className}
++      >
++        {props.action.cta}
++      </Link>
++    )
++  }
++
++  if (link.kind === 'usage-logs') {
++    return (
++      <Link
++        to='/usage-logs/$section'
++        params={{ section: 'common' }}
++        search={{ page: 1 }}
++        className={className}
++      >
++        {props.action.cta}
++      </Link>
++    )
++  }
++
++  return (
++    <Link to={link.to} className={className}>
++      {props.action.cta}
++    </Link>
++  )
++}
++
++function formatUptime(startTime?: number | null) {
++  if (!startTime || !Number.isFinite(startTime)) return 'Uptime unavailable'
++  const nowSeconds = Math.floor(Date.now() / 1000)
++  const elapsed = Math.max(0, nowSeconds - startTime)
++  const days = Math.floor(elapsed / 86400)
++  const hours = Math.floor((elapsed % 86400) / 3600)
++  if (days > 0) return `${days}d ${hours}h uptime`
++  const minutes = Math.floor((elapsed % 3600) / 60)
++  if (hours > 0) return `${hours}h ${minutes}m uptime`
++  return `${Math.max(1, minutes)}m uptime`
++}
+diff --git a/web/default/src/features/system-settings/operations/section-registry.tsx b/web/default/src/features/system-settings/operations/section-registry.tsx
+index 56861c9..17233b3 100644
+--- a/web/default/src/features/system-settings/operations/section-registry.tsx
++++ b/web/default/src/features/system-settings/operations/section-registry.tsx
+@@ -25,8 +25,20 @@ import { PerformanceSection } from '../maintenance/performance-section'
+ import { UpdateCheckerSection } from '../maintenance/update-checker-section'
+ import type { OperationsSettings } from '../types'
+ import { createSectionRegistry } from '../utils/section-registry'
++import { OperationsCenter } from './operations-center'
+ 
+ const OPERATIONS_SECTIONS = [
++  {
++    id: 'overview',
++    titleKey: 'Operations Center',
++    build: (
++      _settings: OperationsSettings,
++      currentVersion?: string | null,
++      startTime?: number | null
++    ) => (
++      <OperationsCenter currentVersion={currentVersion} startTime={startTime} />
++    ),
++  },
+   {
+     id: 'behavior',
+     titleKey: 'System Behavior',
+@@ -161,7 +173,7 @@ const operationsRegistry = createSectionRegistry<
+   [string | null | undefined, number | null | undefined]
+ >({
+   sections: OPERATIONS_SECTIONS,
+-  defaultSection: 'behavior',
++  defaultSection: 'overview',
+   basePath: '/system-settings/operations',
+   urlStyle: 'path',
+ })
 diff --git a/web/default/src/features/system-settings/security/section-registry.tsx b/web/default/src/features/system-settings/security/section-registry.tsx
 index e63f883..e8a9880 100644
 --- a/web/default/src/features/system-settings/security/section-registry.tsx
