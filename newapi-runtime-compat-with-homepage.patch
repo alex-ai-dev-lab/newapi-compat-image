@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..30a45d4
+index 0000000..de12842
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,767 @@
+@@ -0,0 +1,792 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11228,6 +11228,31 @@ index 0000000..30a45d4
 +          navigate({
 +            to: '/system-settings/content/$section',
 +            params: { section: 'appearance' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-announcements',
++        label: 'Announcements',
++        description: 'Configure and import/export console announcements',
++        icon: FileText,
++        keywords: [
++          'announcement',
++          'announcements',
++          'notice',
++          'console',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'announcements' },
 +          })
 +          close()
 +        },
@@ -20241,6 +20266,212 @@ index 86f4179..2ee461d 100644
 +  )
 +  return res.data
 +}
+diff --git a/web/default/src/features/system-settings/content/announcements-section.tsx b/web/default/src/features/system-settings/content/announcements-section.tsx
+index 560cb2c..ed589f3 100644
+--- a/web/default/src/features/system-settings/content/announcements-section.tsx
++++ b/web/default/src/features/system-settings/content/announcements-section.tsx
+@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
+-import { Plus, Edit, Trash2, Save } from 'lucide-react'
++import { Plus, Edit, Trash2, Save, Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import dayjs from '@/lib/dayjs'
+@@ -105,6 +105,17 @@ const announcementSchema = z.object({
+ 
+ type AnnouncementFormValues = z.infer<typeof announcementSchema>
+ 
++type AnnouncementsImportExportPayload = {
++  ConsoleAnnouncements?: {
++    enabled?: boolean
++    announcements?: unknown
++  }
++  enabled?: boolean
++  announcements?: unknown
++  'console_setting.announcements_enabled'?: boolean
++  'console_setting.announcements'?: unknown
++}
++
+ const typeOptions = [
+   {
+     value: 'default',
+@@ -149,6 +160,8 @@ export function AnnouncementsSection({
+   const [hasChanges, setHasChanges] = useState(false)
+   const [selectedIds, setSelectedIds] = useState<number[]>([])
+   const [showDialog, setShowDialog] = useState(false)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+   const [editingAnnouncement, setEditingAnnouncement] =
+     useState<Announcement | null>(null)
+@@ -184,6 +197,26 @@ export function AnnouncementsSection({
+     setIsEnabled(enabled)
+   }, [enabled])
+ 
++  const normalizeAnnouncements = (value: unknown): Announcement[] => {
++    const raw = typeof value === 'string' ? JSON.parse(value || '[]') : value
++    if (!Array.isArray(raw)) {
++      throw new Error('Announcements must be an array')
++    }
++
++    return raw.map((item, idx) => {
++      const parsed = announcementSchema.parse(item)
++      return {
++        id:
++          typeof item === 'object' &&
++          item !== null &&
++          typeof (item as { id?: unknown }).id === 'number'
++            ? (item as { id: number }).id
++            : idx + 1,
++        ...parsed,
++      }
++    })
++  }
++
+   const handleToggleEnabled = async (checked: boolean) => {
+     try {
+       await updateOption.mutateAsync({
+@@ -280,6 +313,12 @@ export function AnnouncementsSection({
+         key: 'console_setting.announcements',
+         value: JSON.stringify(announcements),
+       })
++      if (isEnabled !== enabled) {
++        await updateOption.mutateAsync({
++          key: 'console_setting.announcements_enabled',
++          value: isEnabled,
++        })
++      }
+       setHasChanges(false)
+       toast.success(t('Announcements saved successfully'))
+     } catch {
+@@ -287,6 +326,79 @@ export function AnnouncementsSection({
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const payload = {
++      ConsoleAnnouncements: {
++        enabled: isEnabled,
++        announcements,
++      },
++      'console_setting.announcements_enabled': isEnabled,
++      'console_setting.announcements': announcements,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-announcements.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Announcements JSON exported and copied'))
++    } catch {
++      toast.success(t('Announcements JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          ConsoleAnnouncements: {
++            enabled: isEnabled,
++            announcements,
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as AnnouncementsImportExportPayload
++      const source = raw.ConsoleAnnouncements ?? raw
++      const importedAnnouncements =
++        source.announcements ?? raw['console_setting.announcements']
++      const importedEnabled =
++        typeof source.enabled === 'boolean'
++          ? source.enabled
++          : raw['console_setting.announcements_enabled']
++
++      if (importedAnnouncements === undefined) {
++        throw new Error('Missing announcements')
++      }
++
++      const nextAnnouncements = normalizeAnnouncements(importedAnnouncements)
++      setAnnouncements(nextAnnouncements)
++      setSelectedIds([])
++      if (typeof importedEnabled === 'boolean') {
++        setIsEnabled(importedEnabled)
++      }
++      setHasChanges(true)
++      setImportOpen(false)
++      toast.success(t('Announcements imported. Click Save Settings to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid announcements JSON')
++      )
++    }
++  }
++
+   const toggleSelectAll = (checked: boolean) => {
+     setSelectedIds(checked ? announcements.map((item) => item.id) : [])
+   }
+@@ -346,6 +458,14 @@ export function AnnouncementsSection({
+               <Save className='mr-2 h-4 w-4' />
+               {updateOption.isPending ? t('Saving...') : t('Save Settings')}
+             </Button>
++            <Button onClick={exportConfig} size='sm' variant='outline'>
++              <Download className='mr-2 h-4 w-4' />
++              {t('Export JSON')}
++            </Button>
++            <Button onClick={openImportDialog} size='sm' variant='outline'>
++              <Upload className='mr-2 h-4 w-4' />
++              {t('Import JSON')}
++            </Button>
+           </div>
+           <SettingsSwitchField
+             checked={isEnabled}
+@@ -610,6 +730,30 @@ export function AnnouncementsSection({
+         </DialogContent>
+       </Dialog>
+ 
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import announcements JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported announcements JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
++
+       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+         <AlertDialogContent>
+           <AlertDialogHeader>
 diff --git a/web/default/src/features/system-settings/content/appearance-settings.tsx b/web/default/src/features/system-settings/content/appearance-settings.tsx
 new file mode 100644
 index 0000000..208037c
@@ -25733,10 +25964,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..4c30699
+index 0000000..5cf6cc2
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,943 @@
+@@ -0,0 +1,952 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -26087,7 +26318,8 @@ index 0000000..4c30699
 +  },
 +  {
 +    title: 'Appearance',
-+    description: 'Navigation, theme defaults, layout, and visible modules.',
++    description:
++      'Content modules, navigation, theme defaults, layout, and visible modules.',
 +    icon: Palette,
 +    items: [
 +      {
@@ -26096,6 +26328,14 @@ index 0000000..4c30699
 +          kind: 'system-settings',
 +          area: 'content',
 +          section: 'appearance',
++        },
++      },
++      {
++        label: 'Announcements',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'announcements',
 +        },
 +      },
 +      {

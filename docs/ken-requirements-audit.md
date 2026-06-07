@@ -24,13 +24,15 @@
 
 本轮站点信息增量：`系统设置 -> 站点设置 -> System Information` 已补充 JSON 导入/导出，覆盖系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策等站点基础 option；导入支持平铺 option key、`theme` / `legal` 分组和 `SystemInformation` 包装格式，导入后只更新当前表单，仍需管理员点 Save 才写入后台。后续又把 System Information 加入 Operations Center 的二级卡片、Configuration map 和命令面板直达入口，可通过 `system information`、`site info`、`json`、`import`、`export` 等关键词找到。这是站点基础配置迁移能力和入口可发现性的补强，不代表所有站点页面已经重写。
 
+本轮内容模块增量：`系统设置 -> 内容/外观 -> Announcements` 已补充 JSON 导入/导出，导出会保存 `console_setting.announcements_enabled` 和 `console_setting.announcements`；导入支持 `ConsoleAnnouncements` 包装格式和原 option key，导入后只更新当前页面状态，仍需管理员点 `Save Settings` 才写入后台；Operations Center 的配置地图和命令面板也新增 Announcements 入口，可通过 `announcement`、`notice`、`json`、`import`、`export` 等关键词找到。这是内容模块迁移能力的局部补强，不代表全部内容模块都已支持导入/导出。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
 |---|---|
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/System Information/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
@@ -40,6 +42,7 @@
 | Claude thinking 支持开关 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 统计看板 | `Dashboard -> Overview` 的管理员 `Operations center`；`Dashboard -> Model Call Analytics` 的管理员模型运维面板和原消费图表；`Dashboard -> Channel Analytics` 的渠道分析和渠道用户消费表；`Dashboard -> User Analytics` 的用户运维面板和消费图表 |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
+| 控制台公告 | `系统设置 -> 内容/外观 -> Announcements`，配置公告列表和启用状态，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页 `Logs` / `View logs` 动作，或命令面板 `Usage Logs`，进入 `Usage Logs -> common` |
 | 主题/外观 | `系统设置 -> 内容/外观 -> Appearance` 配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出；顶部主题切换保存用户本地偏好 |
 | 站点基础信息 | `系统设置 -> 站点设置 -> System Information`，配置系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策，并支持 JSON 导入/导出 |
