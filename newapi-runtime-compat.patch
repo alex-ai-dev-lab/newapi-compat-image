@@ -21133,6 +21133,263 @@ index 1de3165..6facdb8 100644
          }}
        />
      ),
+diff --git a/web/default/src/features/system-settings/general/system-info-section.tsx b/web/default/src/features/system-settings/general/system-info-section.tsx
+index d1ecbc5..6e90d40 100644
+--- a/web/default/src/features/system-settings/general/system-info-section.tsx
++++ b/web/default/src/features/system-settings/general/system-info-section.tsx
+@@ -16,10 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import * as z from 'zod'
+ import type { Resolver } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -73,14 +84,103 @@ type SystemInfoSectionProps = {
+   defaultValues: SystemInfoFormValues
+ }
+ 
++type SystemInfoFieldName =
++  | 'theme.frontend'
++  | 'SystemName'
++  | 'ServerAddress'
++  | 'Logo'
++  | 'Footer'
++  | 'About'
++  | 'HomePageContent'
++  | 'legal.user_agreement'
++  | 'legal.privacy_policy'
++
++type SystemInfoPayload = Partial<Record<SystemInfoFieldName, string>> & {
++  theme?: Partial<Record<'frontend', string>>
++  legal?: Partial<Record<'user_agreement' | 'privacy_policy', string>>
++}
++
++type SystemInfoImportExportPayload = SystemInfoPayload & {
++  SystemInformation?: SystemInfoPayload
++}
++
++const systemInfoFieldNames: SystemInfoFieldName[] = [
++  'theme.frontend',
++  'SystemName',
++  'ServerAddress',
++  'Logo',
++  'Footer',
++  'About',
++  'HomePageContent',
++  'legal.user_agreement',
++  'legal.privacy_policy',
++]
++
+ function normalizeValue(value: unknown): string {
+   if (value === undefined || value === null) return ''
+   return typeof value === 'string' ? value : String(value)
+ }
+ 
++function getSystemInfoFieldValue(
++  values: SystemInfoFormValues,
++  name: SystemInfoFieldName
++): string {
++  switch (name) {
++    case 'theme.frontend':
++      return values.theme.frontend
++    case 'legal.user_agreement':
++      return normalizeValue(values.legal.user_agreement)
++    case 'legal.privacy_policy':
++      return normalizeValue(values.legal.privacy_policy)
++    default:
++      return normalizeValue(values[name])
++  }
++}
++
++function setSystemInfoFieldValue(
++  values: SystemInfoFormValues,
++  name: SystemInfoFieldName,
++  value: string
++) {
++  switch (name) {
++    case 'theme.frontend':
++      values.theme.frontend = value === 'classic' ? 'classic' : 'default'
++      break
++    case 'legal.user_agreement':
++      values.legal.user_agreement = value
++      break
++    case 'legal.privacy_policy':
++      values.legal.privacy_policy = value
++      break
++    default:
++      values[name] = value
++  }
++}
++
++function getImportedSystemInfoValue(
++  payload: SystemInfoPayload,
++  name: SystemInfoFieldName
++): string | undefined {
++  if (payload[name] !== undefined) {
++    return payload[name]
++  }
++  if (name === 'theme.frontend') {
++    return payload.theme?.frontend
++  }
++  if (name === 'legal.user_agreement') {
++    return payload.legal?.user_agreement
++  }
++  if (name === 'legal.privacy_policy') {
++    return payload.legal?.privacy_policy
++  }
++  return undefined
++}
++
+ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const normalizedDefaults: SystemInfoFormValues = {
+     theme: {
+@@ -139,6 +239,73 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
+       },
+     })
+ 
++  const buildExportPayload = () => {
++    const values = form.getValues()
++    return systemInfoFieldNames.reduce<Record<SystemInfoFieldName, string>>(
++      (acc, name) => {
++        acc[name] = getSystemInfoFieldValue(values, name)
++        return acc
++      },
++      {} as Record<SystemInfoFieldName, string>
++    )
++  }
++
++  const exportConfig = async () => {
++    const text = JSON.stringify(buildExportPayload(), null, 2)
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-system-information.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success(t('System information exported'))
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as SystemInfoImportExportPayload
++      const payload = raw.SystemInformation ?? raw
++      const nextValues: SystemInfoFormValues = {
++        ...form.getValues(),
++        theme: { ...form.getValues().theme },
++        legal: { ...form.getValues().legal },
++      }
++
++      systemInfoFieldNames.forEach((name) => {
++        const value = getImportedSystemInfoValue(payload, name)
++        if (value !== undefined) {
++          setSystemInfoFieldValue(nextValues, name, normalizeValue(value))
++        }
++      })
++
++      const parsedValues = systemInfoSchemaWithI18n.parse(nextValues)
++
++      systemInfoFieldNames.forEach((name) => {
++        form.setValue(name, getSystemInfoFieldValue(parsedValues, name), {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      setImportOpen(false)
++      toast.success(t('System information imported'))
++    } catch {
++      toast.error(t('Invalid system information JSON'))
++    }
++  }
++
+   return (
+     <>
+       <FormNavigationGuard when={isDirty} />
+@@ -153,6 +320,20 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
+               isResetDisabled={!isDirty}
+             />
+             <FormDirtyIndicator isDirty={isDirty} />
++            <div className='flex flex-wrap justify-end gap-2'>
++              <Button type='button' variant='outline' onClick={exportConfig}>
++                <Download className='mr-2 h-4 w-4' />
++                {t('Export JSON')}
++              </Button>
++              <Button
++                type='button'
++                variant='outline'
++                onClick={openImportDialog}
++              >
++                <Upload className='mr-2 h-4 w-4' />
++                {t('Import JSON')}
++              </Button>
++            </div>
+             <SettingsFormGrid>
+               <FormField
+                 control={form.control}
+@@ -381,6 +562,31 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
+             </SettingsFormGrid>
+           </SettingsForm>
+         </Form>
++        <Dialog open={importOpen} onOpenChange={setImportOpen}>
++          <DialogContent>
++            <DialogHeader>
++              <DialogTitle>{t('Import system information')}</DialogTitle>
++            </DialogHeader>
++            <Textarea
++              value={importText}
++              onChange={(event) => setImportText(event.target.value)}
++              placeholder={t('Paste system information JSON')}
++              className='min-h-[260px] font-mono text-sm'
++            />
++            <DialogFooter>
++              <Button
++                type='button'
++                variant='outline'
++                onClick={() => setImportOpen(false)}
++              >
++                {t('Cancel')}
++              </Button>
++              <Button type='button' onClick={importConfig}>
++                {t('Import')}
++              </Button>
++            </DialogFooter>
++          </DialogContent>
++        </Dialog>
+       </SettingsSection>
+     </>
+   )
 diff --git a/web/default/src/features/system-settings/hooks/use-update-option.ts b/web/default/src/features/system-settings/hooks/use-update-option.ts
 index 2f73207..1871c65 100644
 --- a/web/default/src/features/system-settings/hooks/use-update-option.ts
