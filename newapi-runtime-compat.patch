@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..a69d0bb
+index 0000000..0d038e3
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,1001 @@
+@@ -0,0 +1,1109 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11150,6 +11150,114 @@ index 0000000..a69d0bb
 +          navigate({
 +            to: '/system-settings/operations/$section',
 +            params: { section: 'email' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-basic-auth',
++        label: 'Basic Authentication',
++        description:
++          'Configure and import/export password login, registration, email verification, and domain rules',
++        icon: Shield,
++        keywords: [
++          'basic auth',
++          'authentication',
++          'password',
++          'registration',
++          'email',
++          'domain',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/auth/$section',
++            params: { section: 'basic-auth' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-oauth-integrations',
++        label: 'OAuth Integrations',
++        description:
++          'Configure and import/export OAuth providers with redacted client secrets and tokens',
++        icon: Shield,
++        keywords: [
++          'oauth',
++          'github',
++          'discord',
++          'oidc',
++          'telegram',
++          'linuxdo',
++          'wechat',
++          'secret',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/auth/$section',
++            params: { section: 'oauth' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-passkey-authentication',
++        label: 'Passkey Authentication',
++        description:
++          'Configure and import/export WebAuthn relying party, origins, and verification settings',
++        icon: Key,
++        keywords: [
++          'passkey',
++          'webauthn',
++          'authentication',
++          'origin',
++          'rp id',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/auth/$section',
++            params: { section: 'passkey' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-bot-protection',
++        label: 'Bot Protection',
++        description:
++          'Configure and import/export Turnstile site key with redacted secret key',
++        icon: Shield,
++        keywords: [
++          'bot',
++          'turnstile',
++          'captcha',
++          'protection',
++          'secret',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/auth/$section',
++            params: { section: 'bot-protection' },
 +          })
 +          close()
 +        },
@@ -19782,6 +19890,826 @@ index 86f4179..2ee461d 100644
 +  )
 +  return res.data
 +}
+diff --git a/web/default/src/features/system-settings/auth/basic-auth-section.tsx b/web/default/src/features/system-settings/auth/basic-auth-section.tsx
+index 8d53ea1..2fdce05 100644
+--- a/web/default/src/features/system-settings/auth/basic-auth-section.tsx
++++ b/web/default/src/features/system-settings/auth/basic-auth-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useMemo } from 'react'
++import { useMemo, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -37,7 +48,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useResetForm } from '../hooks/use-reset-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -58,9 +72,15 @@ type BasicAuthSectionProps = {
+   defaultValues: BasicAuthFormValues
+ }
+ 
++type BasicAuthImportExportPayload = {
++  BasicAuthentication?: Partial<BasicAuthFormValues>
++} & Partial<BasicAuthFormValues>
++
+ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const formDefaults = useMemo<BasicAuthFormValues>(
+     () => ({
+@@ -104,10 +124,92 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
+     }
+   }
+ 
++  const currentValues = () => basicAuthSchema.parse(form.getValues())
++
++  const exportConfig = async () => {
++    const values = currentValues()
++    const payload = {
++      BasicAuthentication: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-basic-auth.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Basic Authentication JSON exported and copied'))
++    } catch {
++      toast.success(t('Basic Authentication JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          BasicAuthentication: currentValues(),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as BasicAuthImportExportPayload
++      const source = raw.BasicAuthentication ?? raw
++      const parsed = basicAuthSchema.parse({
++        ...currentValues(),
++        ...source,
++      })
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof BasicAuthFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Basic Authentication imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid basic auth JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Basic Authentication')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -262,6 +364,31 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
+           />
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import Basic Authentication JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported Basic Authentication JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/auth/bot-protection-section.tsx b/web/default/src/features/system-settings/auth/bot-protection-section.tsx
+index 4494370..55146b2 100644
+--- a/web/default/src/features/system-settings/auth/bot-protection-section.tsx
++++ b/web/default/src/features/system-settings/auth/bot-protection-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -32,15 +43,21 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
++const REDACTED_SECRET = '__SECRET_REDACTED__'
++
+ const botProtectionSchema = z.object({
+   TurnstileCheckEnabled: z.boolean(),
+   TurnstileSiteKey: z.string().optional(),
+@@ -53,11 +70,17 @@ type BotProtectionSectionProps = {
+   defaultValues: BotProtectionFormValues
+ }
+ 
++type BotProtectionImportExportPayload = {
++  BotProtection?: Partial<BotProtectionFormValues>
++} & Partial<BotProtectionFormValues>
++
+ export function BotProtectionSection({
+   defaultValues,
+ }: BotProtectionSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const form = useForm<BotProtectionFormValues>({
+     resolver: zodResolver(botProtectionSchema),
+@@ -79,10 +102,110 @@ export function BotProtectionSection({
+     }
+   }
+ 
++  const currentValues = () => botProtectionSchema.parse(form.getValues())
++
++  const exportConfig = async () => {
++    const values = currentValues()
++    const safeValues = {
++      ...values,
++      TurnstileSecretKey: values.TurnstileSecretKey ? REDACTED_SECRET : '',
++    }
++    const payload = {
++      BotProtection: safeValues,
++      ...safeValues,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-bot-protection.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Bot Protection JSON exported and copied'))
++    } catch {
++      toast.success(t('Bot Protection JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    const values = currentValues()
++    setImportText(
++      JSON.stringify(
++        {
++          BotProtection: {
++            ...values,
++            TurnstileSecretKey: values.TurnstileSecretKey
++              ? REDACTED_SECRET
++              : '',
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as BotProtectionImportExportPayload
++      const source = raw.BotProtection ?? raw
++      const current = currentValues()
++      const parsed = botProtectionSchema.parse({
++        ...current,
++        ...source,
++        TurnstileSecretKey:
++          source.TurnstileSecretKey === REDACTED_SECRET ||
++          source.TurnstileSecretKey === undefined
++            ? current.TurnstileSecretKey
++            : source.TurnstileSecretKey,
++      })
++      Object.entries(parsed).forEach(([key, value]) => {
++        form.setValue(key as keyof BotProtectionFormValues, value, {
++          shouldDirty: true,
++          shouldValidate: true,
++        })
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Bot Protection imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid bot protection JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Bot Protection')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -148,6 +271,31 @@ export function BotProtectionSection({
+           />
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import Bot Protection JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported Bot Protection JSON payload. Redacted credentials keep the current saved secret.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/auth/oauth-section.tsx b/web/default/src/features/system-settings/auth/oauth-section.tsx
+index 741d312..3106da2 100644
+--- a/web/default/src/features/system-settings/auth/oauth-section.tsx
++++ b/web/default/src/features/system-settings/auth/oauth-section.tsx
+@@ -21,8 +21,18 @@ import * as z from 'zod'
+ import axios from 'axios'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -35,6 +45,7 @@ import {
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
++import { Textarea } from '@/components/ui/textarea'
+ import { FormDirtyIndicator } from '../components/form-dirty-indicator'
+ import { FormNavigationGuard } from '../components/form-navigation-guard'
+ import {
+@@ -42,10 +53,15 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
++const REDACTED_SECRET = '__SECRET_REDACTED__'
++
+ /**
+  * react-hook-form 7 treats dotted `name` strings as nested paths. To keep
+  * form state, schema validation, and dirty tracking aligned, the
+@@ -177,10 +193,46 @@ type OAuthSectionProps = {
+   defaultValues: FlatOAuthDefaults
+ }
+ 
++type OAuthImportExportPayload = {
++  OAuthIntegrations?: Partial<FlatOAuthDefaults>
++} & Partial<FlatOAuthDefaults>
++
++const OAUTH_SECRET_KEYS = [
++  'GitHubClientSecret',
++  'discord.client_secret',
++  'oidc.client_secret',
++  'TelegramBotToken',
++  'LinuxDOClientSecret',
++  'WeChatServerToken',
++] as const satisfies Array<keyof FlatOAuthDefaults>
++
++const redactOAuthSecrets = (values: FlatOAuthDefaults): FlatOAuthDefaults => {
++  const redacted = { ...values }
++  OAUTH_SECRET_KEYS.forEach((key) => {
++    redacted[key] = values[key] ? REDACTED_SECRET : ''
++  })
++  return redacted
++}
++
++const mergeOAuthImport = (
++  current: FlatOAuthDefaults,
++  source: Partial<FlatOAuthDefaults>
++): FlatOAuthDefaults => {
++  const next = { ...current, ...source }
++  OAUTH_SECRET_KEYS.forEach((key) => {
++    if (source[key] === undefined || source[key] === REDACTED_SECRET) {
++      next[key] = current[key]
++    }
++  })
++  return next
++}
++
+ export function OAuthSection(props: OAuthSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+   const [activeTab, setActiveTab] = useState('github')
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const formDefaults = useMemo(
+     () => buildFormDefaults(props.defaultValues),
+@@ -278,6 +330,91 @@ export function OAuthSection(props: OAuthSectionProps) {
+     toast.success(t('Form reset to saved values'))
+   }
+ 
++  const currentValues = () =>
++    normalizeFormValues(oauthSchema.parse(form.getValues()))
++
++  const exportConfig = async () => {
++    const values = redactOAuthSecrets(currentValues())
++    const payload = {
++      OAuthIntegrations: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-oauth-integrations.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('OAuth Integrations JSON exported and copied'))
++    } catch {
++      toast.success(t('OAuth Integrations JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          OAuthIntegrations: redactOAuthSecrets(currentValues()),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as OAuthImportExportPayload
++      const source = raw.OAuthIntegrations ?? raw
++      const parsed = oauthSchema.parse(
++        buildFormDefaults(mergeOAuthImport(currentValues(), source))
++      )
++      const options = { shouldDirty: true, shouldValidate: true }
++      form.setValue('GitHubOAuthEnabled', parsed.GitHubOAuthEnabled, options)
++      form.setValue('GitHubClientId', parsed.GitHubClientId, options)
++      form.setValue('GitHubClientSecret', parsed.GitHubClientSecret, options)
++      form.setValue('discord', parsed.discord, options)
++      form.setValue('oidc', parsed.oidc, options)
++      form.setValue(
++        'TelegramOAuthEnabled',
++        parsed.TelegramOAuthEnabled,
++        options
++      )
++      form.setValue('TelegramBotToken', parsed.TelegramBotToken, options)
++      form.setValue('TelegramBotName', parsed.TelegramBotName, options)
++      form.setValue('LinuxDOOAuthEnabled', parsed.LinuxDOOAuthEnabled, options)
++      form.setValue('LinuxDOClientId', parsed.LinuxDOClientId, options)
++      form.setValue('LinuxDOClientSecret', parsed.LinuxDOClientSecret, options)
++      form.setValue(
++        'LinuxDOMinimumTrustLevel',
++        parsed.LinuxDOMinimumTrustLevel,
++        options
++      )
++      form.setValue('WeChatAuthEnabled', parsed.WeChatAuthEnabled, options)
++      form.setValue('WeChatServerAddress', parsed.WeChatServerAddress, options)
++      form.setValue('WeChatServerToken', parsed.WeChatServerToken, options)
++      form.setValue(
++        'WeChatAccountQRCodeImageURL',
++        parsed.WeChatAccountQRCodeImageURL,
++        options
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('OAuth Integrations imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid OAuth JSON')
++      )
++    }
++  }
++
+   return (
+     <>
+       <FormNavigationGuard when={form.formState.isDirty} />
+@@ -285,6 +422,26 @@ export function OAuthSection(props: OAuthSectionProps) {
+       <SettingsSection title={t('OAuth Integrations')}>
+         <Form {...form}>
+           <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++            <SettingsPageActionsPortal>
++              <Button
++                type='button'
++                size='sm'
++                variant='outline'
++                onClick={exportConfig}
++              >
++                <Download data-icon='inline-start' />
++                <span>{t('Export JSON')}</span>
++              </Button>
++              <Button
++                type='button'
++                size='sm'
++                variant='outline'
++                onClick={openImportDialog}
++              >
++                <Upload data-icon='inline-start' />
++                <span>{t('Import JSON')}</span>
++              </Button>
++            </SettingsPageActionsPortal>
+             <SettingsPageFormActions
+               onSave={form.handleSubmit(onSubmit)}
+               onReset={handleReset}
+@@ -897,6 +1054,31 @@ export function OAuthSection(props: OAuthSectionProps) {
+           </SettingsForm>
+         </Form>
+       </SettingsSection>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import OAuth Integrations JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported OAuth JSON payload. Redacted credentials keep the current saved secrets.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/auth/passkey-section.tsx b/web/default/src/features/system-settings/auth/passkey-section.tsx
+index ec889ee..acfd02d 100644
+--- a/web/default/src/features/system-settings/auth/passkey-section.tsx
++++ b/web/default/src/features/system-settings/auth/passkey-section.tsx
+@@ -16,12 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect, useMemo, useRef } from 'react'
++import { useEffect, useMemo, useRef, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -47,7 +57,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -134,9 +147,15 @@ interface PasskeySectionProps {
+   defaultValues: FlatPasskeyDefaults
+ }
+ 
++type PasskeyImportExportPayload = {
++  PasskeyAuthentication?: Partial<FlatPasskeyDefaults>
++} & Partial<FlatPasskeyDefaults>
++
+ export function PasskeySection(props: PasskeySectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const formDefaults = useMemo(
+     () => buildFormDefaults(props.defaultValues),
+@@ -184,10 +203,92 @@ export function PasskeySection(props: PasskeySectionProps) {
+     form.reset(buildFormDefaults(normalized))
+   }
+ 
++  const currentValues = () =>
++    normalizeFormValues(passkeySchema.parse(form.getValues()))
++
++  const exportConfig = async () => {
++    const values = currentValues()
++    const payload = {
++      PasskeyAuthentication: values,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-passkey-authentication.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Passkey Authentication JSON exported and copied'))
++    } catch {
++      toast.success(t('Passkey Authentication JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          PasskeyAuthentication: currentValues(),
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as PasskeyImportExportPayload
++      const source = raw.PasskeyAuthentication ?? raw
++      const next = {
++        ...currentValues(),
++        ...source,
++      }
++      const parsed = passkeySchema.parse(buildFormDefaults(next))
++      form.setValue('passkey', parsed.passkey, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Passkey Authentication imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid passkey JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Passkey Authentication')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+@@ -404,6 +505,31 @@ export function PasskeySection(props: PasskeySectionProps) {
+           />
+         </SettingsForm>
+       </Form>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import Passkey Authentication JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported Passkey Authentication JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++            spellCheck={false}
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/content/announcements-section.tsx b/web/default/src/features/system-settings/content/announcements-section.tsx
 index 560cb2c..ed589f3 100644
 --- a/web/default/src/features/system-settings/content/announcements-section.tsx
@@ -27764,10 +28692,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..1cd0536
+index 0000000..f642ae9
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1016 @@
+@@ -0,0 +1,1048 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -27834,7 +28762,7 @@ index 0000000..1cd0536
 +type ActionLink =
 +  | {
 +      kind: 'system-settings'
-+      area: 'models' | 'security' | 'content' | 'site' | 'operations'
++      area: 'models' | 'security' | 'content' | 'site' | 'operations' | 'auth'
 +      section: string
 +    }
 +  | {
@@ -28224,6 +29152,38 @@ index 0000000..1cd0536
 +          kind: 'system-settings',
 +          area: 'security',
 +          section: 'upstream-error-rules',
++        },
++      },
++      {
++        label: 'Basic authentication',
++        link: {
++          kind: 'system-settings',
++          area: 'auth',
++          section: 'basic-auth',
++        },
++      },
++      {
++        label: 'OAuth integrations',
++        link: {
++          kind: 'system-settings',
++          area: 'auth',
++          section: 'oauth',
++        },
++      },
++      {
++        label: 'Passkey authentication',
++        link: {
++          kind: 'system-settings',
++          area: 'auth',
++          section: 'passkey',
++        },
++      },
++      {
++        label: 'Bot protection',
++        link: {
++          kind: 'system-settings',
++          area: 'auth',
++          section: 'bot-protection',
 +        },
 +      },
 +      {

@@ -38,6 +38,8 @@
 
 SMTP/Worker 密钥页增量：`系统设置 -> 运维/Operations -> SMTP Email` 和 `Worker Proxy` 已补充 JSON 导入/导出。导出会保留非敏感配置并将 `SMTPToken`、`WorkerValidKey` 写成 `__SECRET_REDACTED__`；导入遇到该占位符或缺失字段时保留当前页面里的密钥值，只有显式提供新密钥才会在保存时更新后台。Operations Center 配置地图和命令面板也新增 SMTP/Worker 入口。这是密钥页面迁移能力的保守实现，不把密钥明文写入导出文件。
 
+Auth 配置页增量：`系统设置 -> 认证/Auth -> Basic Authentication`、`OAuth Integrations`、`Passkey Authentication`、`Bot Protection` 已补充 JSON 导入/导出。OAuth 导出会将 `GitHubClientSecret`、`discord.client_secret`、`oidc.client_secret`、`TelegramBotToken`、`LinuxDOClientSecret`、`WeChatServerToken` 写成 `__SECRET_REDACTED__`；Bot Protection 导出会将 `TurnstileSecretKey` 脱敏；导入脱敏占位符时保留当前密钥，只有显式提供新值才会更新。Operations Center 配置地图和命令面板也新增 Auth 入口。Custom OAuth 是独立列表型资源，本轮未覆盖，需要后续单独处理。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
@@ -56,6 +58,7 @@ SMTP/Worker 密钥页增量：`系统设置 -> 运维/Operations -> SMTP Email` 
 | 监控与告警 | `系统设置 -> 运维/Operations -> Monitoring & Alerts`，配置全局渠道测试、自动禁用/恢复、失败关键词、禁用/重试状态码、额度提醒，并支持 JSON 导入/导出 |
 | 性能设置 | `系统设置 -> 运维/Operations -> Performance`，配置磁盘缓存、资源阈值和性能指标采集，并支持 JSON 导入/导出 |
 | SMTP/Worker | `系统设置 -> 运维/Operations -> SMTP Email` 与 `Worker Proxy`，配置邮件发送和 worker 转发，并支持默认脱敏的 JSON 导入/导出 |
+| 认证配置 | `系统设置 -> 认证/Auth -> Basic Authentication`、`OAuth Integrations`、`Passkey Authentication`、`Bot Protection`，支持 JSON 导入/导出；OAuth/Turnstile 密钥默认脱敏 |
 | 统计看板 | `Dashboard -> Overview` 的管理员 `Operations center`；`Dashboard -> Model Call Analytics` 的管理员模型运维面板和原消费图表；`Dashboard -> Channel Analytics` 的渠道分析和渠道用户消费表；`Dashboard -> User Analytics` 的用户运维面板和消费图表 |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 控制台公告 | `系统设置 -> 内容/外观 -> Announcements`，配置公告列表和启用状态，并支持 JSON 导入/导出 |
