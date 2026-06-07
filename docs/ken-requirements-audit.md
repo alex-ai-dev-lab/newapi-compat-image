@@ -18,7 +18,7 @@
 
 本轮 Dashboard 图表和分区默认项增量：`系统设置 -> 内容/外观 -> Data Dashboard` 已补充旧 Dashboard 图表默认时间窗口、消费分布图默认类型、模型分析图默认类型和 Dashboard 分区可见性配置；`DataExportDefaultTime` 继续作为默认图表粒度；这些值通过 `/api/status` 下发，旧 Dashboard 模型图表在浏览器没有保存本地偏好时使用后台默认，已有本地偏好仍优先；Dashboard tabs 会按后台可见分区显示，直达隐藏分区时会跳到第一个可见分区。
 
-本轮运维入口增量：`系统设置` 总入口、侧边栏 `System Settings` 和个人菜单里的 `System Settings` 已默认进入 `系统设置 -> 运维/Operations -> Operations Center`，不再先落到站点信息页；该控制中心集中提供模型控制中心、UA 管理、Client Identity、官方价格、统计分析、上游错误规则、Dashboard 默认值、外观、Header navigation、渠道测试、性能设置和 Usage Logs 的快捷入口，并新增 `Configuration map`，按 Runtime / Analytics / Appearance / Safety 四组列出最短配置路径；控制中心还新增 `Defaults snapshot`，直接展示 `/api/status` 下发的 Dashboard 视图默认值、旧图表默认值、健康阈值、外观默认值和 Sidebar 分组/模块摘要，便于管理员不用点进多个页面也能扫到当前全局配置；命令面板新增 `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` 等直达命令，搜索 `ua`、`client identity`、`dashboard defaults`、`sqlite`、`error rules`、`sidebar` 等关键词也能找到对应入口。这是后台信息架构和可发现性的补强，不代表所有运维页面已经重写。
+本轮运维入口增量：`系统设置` 总入口、侧边栏 `System Settings` 和个人菜单里的 `System Settings` 已默认进入 `系统设置 -> 运维/Operations -> Operations Center`，不再先落到站点信息页；该控制中心集中提供模型控制中心、UA 管理、Client Identity、官方价格、统计分析、上游错误规则、Dashboard 默认值、外观、Header navigation、渠道测试、性能设置和 Usage Logs 的快捷入口，并新增 `Configuration map`，按 Runtime / Analytics / Appearance / Safety 四组列出最短配置路径；控制中心还新增 `Defaults snapshot`，直接展示 `/api/status` 下发的 Dashboard 视图默认值、旧图表默认值、健康阈值、外观默认值和 Sidebar 分组/模块摘要，便于管理员不用点进多个页面也能扫到当前全局配置；后续快照又补充 Header navigation 模块数量/Docs URL、官方价格同步状态和上游错误规则启用数量，方便管理员从一个页面扫到导航、价格和错误安全配置是否符合预期；命令面板新增 `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` 等直达命令，搜索 `ua`、`client identity`、`dashboard defaults`、`sqlite`、`error rules`、`sidebar` 等关键词也能找到对应入口。这是后台信息架构和可发现性的补强，不代表所有运维页面已经重写。
 
 本轮侧边栏模块增量：`系统设置 -> 站点设置 -> Sidebar modules` 在原有全局显示/隐藏基础上补充分组内模块排序，管理员可以用上移/下移按钮调整 Chat、Console、Personal、Admin 各分组内部模块顺序；配置仍复用 `SidebarModulesAdmin` JSON option，旧配置没有 `order` 字段时会自动按默认顺序补齐，保存后才写入扩展后的 JSON；后续又新增 `SidebarSectionOrder` option，支持调整 Chat、Console、Personal、Admin 顶层分组顺序，并通过 `/api/status` 下发给运行时侧边栏；运行时侧边栏会按后台顺序渲染，同时保留管理员全局开关和用户侧边栏偏好叠加过滤。这是“模块可配置”的局部补强，不代表所有页面参数都已后台化。
 
@@ -26,7 +26,7 @@
 
 | 功能 | 后台入口 |
 |---|---|
-| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和当前默认值快照，或命令面板 `Operations Center` |
+| 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/侧边栏/Header navigation/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Performance Settings`、`Monitoring & Alerts`、`Sidebar Modules` |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
