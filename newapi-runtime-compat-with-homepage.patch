@@ -1333,10 +1333,10 @@ index 0000000..3054bfb
 +}
 diff --git a/controller/official_price_sync_test.go b/controller/official_price_sync_test.go
 new file mode 100644
-index 0000000..f1ccb67
+index 0000000..67f1d2f
 --- /dev/null
 +++ b/controller/official_price_sync_test.go
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,84 @@
 +package controller
 +
 +import (
@@ -1376,6 +1376,19 @@ index 0000000..f1ccb67
 +				}
 +			}
 +		},
++		"alibaba-cn": {
++			"models": {
++				"qwen3-max": {
++					"cost": {"input": 1.2, "output": 6, "cache_read": 0.12}
++				},
++				"siliconflow/deepseek-v3.2": {
++					"cost": {"input": 0.1, "output": 0.2, "cache_read": 0.01}
++				},
++				"MiniMax/MiniMax-M2.7": {
++					"cost": {"input": 0.2, "output": 0.4, "cache_read": 0.02}
++				}
++			}
++		},
 +		"vercel": {
 +			"models": {
 +				"anthropic/claude-opus-4-6": {
@@ -1401,12 +1414,18 @@ index 0000000..f1ccb67
 +	require.Equal(t, 5.0, completionRatios["claude-opus-4-6"])
 +	require.Equal(t, 0.1, cacheRatios["claude-opus-4-6"])
 +	require.NotContains(t, modelRatios, "anthropic/claude-opus-4-6")
++
++	require.Equal(t, 0.6, modelRatios["qwen3-max"])
++	require.Equal(t, 5.0, completionRatios["qwen3-max"])
++	require.Equal(t, 0.1, cacheRatios["qwen3-max"])
++	require.NotContains(t, modelRatios, "siliconflow/deepseek-v3.2")
++	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/ratio_sync.go b/controller/ratio_sync.go
-index 1f57bcc..9c355e8 100644
+index 1f57bcc..30dd6da 100644
 --- a/controller/ratio_sync.go
 +++ b/controller/ratio_sync.go
-@@ -45,6 +45,34 @@ const (
+@@ -45,6 +45,45 @@ const (
  	modelsDevInputCostRatioBase = 1000.0
  )
  
@@ -1438,10 +1457,21 @@ index 1f57bcc..9c355e8 100644
 +	return officialModelsDevProviderIDs[strings.ToLower(strings.TrimSpace(provider))]
 +}
 +
++func isOfficialModelsDevModelName(modelName string) bool {
++	modelName = strings.TrimSpace(modelName)
++	if modelName == "" {
++		return false
++	}
++	// models.dev can include reseller/aggregator aliases even under otherwise
++	// official provider buckets, for example "siliconflow/deepseek-v3". Ken
++	// wants official model IDs only, so do not import slash-prefixed aliases.
++	return !strings.Contains(modelName, "/")
++}
++
  func nearlyEqual(a, b float64) bool {
  	if a > b {
  		return a-b < floatEpsilon
-@@ -920,6 +948,9 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
+@@ -920,6 +959,9 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
  
  	selectedCandidates := make(map[string]modelsDevCandidate)
  	for _, provider := range providers {
@@ -1451,6 +1481,60 @@ index 1f57bcc..9c355e8 100644
  		providerData := upstreamData[provider]
  		if len(providerData.Models) == 0 {
  			continue
+@@ -932,6 +974,9 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
+ 		sort.Strings(modelNames)
+ 
+ 		for _, modelName := range modelNames {
++			if !isOfficialModelsDevModelName(modelName) {
++				continue
++			}
+ 			candidate, ok := buildModelsDevCandidate(provider, providerData.Models[modelName].Cost)
+ 			if !ok {
+ 				continue
+@@ -985,41 +1030,12 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
+ }
+ 
+ func GetSyncableChannels(c *gin.Context) {
+-	channels, err := model.GetAllChannels(0, 0, true, false)
+-	if err != nil {
+-		c.JSON(http.StatusOK, gin.H{
+-			"success": false,
+-			"message": err.Error(),
+-		})
+-		return
+-	}
+-
+-	var syncableChannels []dto.SyncableChannel
+-	for _, channel := range channels {
+-		if channel.GetBaseURL() != "" {
+-			syncableChannels = append(syncableChannels, dto.SyncableChannel{
+-				ID:      channel.Id,
+-				Name:    channel.Name,
+-				BaseURL: channel.GetBaseURL(),
+-				Status:  channel.Status,
+-				Type:    channel.Type,
+-			})
+-		}
+-	}
+-
+-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+-		ID:      officialRatioPresetID,
+-		Name:    officialRatioPresetName,
+-		BaseURL: officialRatioPresetBaseURL,
+-		Status:  1,
+-	})
+-
+-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
++	syncableChannels := []dto.SyncableChannel{{
+ 		ID:      modelsDevPresetID,
+ 		Name:    modelsDevPresetName,
+ 		BaseURL: modelsDevPresetBaseURL,
+ 		Status:  1,
+-	})
++	}}
+ 
+ 	c.JSON(http.StatusOK, gin.H{
+ 		"success": true,
 diff --git a/controller/relay.go b/controller/relay.go
 index 1d14dcc..e68a002 100644
 --- a/controller/relay.go
@@ -2716,7 +2800,7 @@ index 03740d2..8909b7d 100644
  		return GetChannelById(id, true)
 diff --git a/model/client_identity.go b/model/client_identity.go
 new file mode 100644
-index 0000000..97182e6
+index 0000000..a3679d6
 --- /dev/null
 +++ b/model/client_identity.go
 @@ -0,0 +1,305 @@
@@ -2826,8 +2910,8 @@ index 0000000..97182e6
 +func getDefaultClientIdentitySetting() ClientIdentitySetting {
 +	return ClientIdentitySetting{
 +		Enabled:                   true,
-+		ApplyToAllOpenAIResponses: false,
-+		ApplyToAllClaudeMessages:  false,
++		ApplyToAllOpenAIResponses: true,
++		ApplyToAllClaudeMessages:  true,
 +		Codex: CodexIdentityConfig{
 +			Enabled:             true,
 +			Mode:                IdentityModeForceGlobal,
@@ -3072,10 +3156,10 @@ index 9083ee5..aaea5dc 100644
  	errChan := make(chan error, len(migrations))
 diff --git a/model/stats.go b/model/stats.go
 new file mode 100644
-index 0000000..9787411
+index 0000000..2868043
 --- /dev/null
 +++ b/model/stats.go
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,386 @@
 +package model
 +
 +import (
@@ -3195,22 +3279,21 @@ index 0000000..9787411
 +	var stats []UserStat
 +	query := `
 +		SELECT
-+			l.user_id,
-+			COALESCE(u.username, l.username, 'Unknown') AS username,
++			user_id,
++			COALESCE(NULLIF(MAX(username), ''), 'Unknown') AS username,
 +			COUNT(*) AS total_requests,
-+			CAST(SUM(CASE WHEN l.type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
-+			AVG(` + frtExprWithAlias("l") + `) AS avg_first_token,
-+			COALESCE(SUM(l.quota), 0) AS total_quota
-+		FROM logs l
-+		LEFT JOIN users u ON l.user_id = u.id
++			CAST(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			AVG(` + frtExpr() + `) AS avg_first_token,
++			COALESCE(SUM(quota), 0) AS total_quota
++		FROM logs
 +	`
 +
 +	args := []interface{}{LogTypeConsume}
 +	if !startTime.IsZero() {
-+		query += " WHERE l.created_at >= ?"
++		query += " WHERE created_at >= ?"
 +		args = append(args, startTime.Unix())
 +	}
-+	query += " GROUP BY l.user_id, u.username, l.username ORDER BY total_quota DESC, total_requests DESC LIMIT 50"
++	query += " GROUP BY user_id ORDER BY total_quota DESC, total_requests DESC LIMIT 50"
 +
 +	rows, err := LOG_DB.Raw(query, args...).Rows()
 +	if err != nil {
@@ -3229,8 +3312,18 @@ index 0000000..9787411
 +			stat.AvgFirstToken = avgFirstToken.Float64
 +		}
 +		stat.TotalCost = quotaToUSD(totalQuota)
-+		stat.TopChannelID, stat.TopChannelName = getUserTopChannel(startTime, stat.UserID)
++		stat.TopChannelID = getUserTopChannelID(startTime, stat.UserID)
 +		stats = append(stats, stat)
++	}
++	channelIDs := make([]int, 0, len(stats))
++	for _, stat := range stats {
++		if stat.TopChannelID > 0 {
++			channelIDs = append(channelIDs, stat.TopChannelID)
++		}
++	}
++	channelNames := getChannelNameMap(channelIDs)
++	for i := range stats {
++		stats[i].TopChannelName = channelNameOrUnknown(channelNames, stats[i].TopChannelID)
 +	}
 +	return stats, nil
 +}
@@ -3273,22 +3366,20 @@ index 0000000..9787411
 +	var stats []ChannelStat
 +	query := `
 +		SELECT
-+			l.channel_id,
-+			COALESCE(c.name, 'Unknown') AS channel_name,
++			channel_id,
 +			COUNT(*) AS total_requests,
-+			CAST(SUM(CASE WHEN l.type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
-+			AVG(` + frtExprWithAlias("l") + `) AS avg_first_token,
-+			COALESCE(SUM(l.quota), 0) AS total_quota
-+		FROM logs l
-+		LEFT JOIN channels c ON l.channel_id = c.id
++			CAST(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) AS REAL) * 100.0 / COUNT(*) AS success_rate,
++			AVG(` + frtExpr() + `) AS avg_first_token,
++			COALESCE(SUM(quota), 0) AS total_quota
++		FROM logs
 +	`
 +
 +	args := []interface{}{LogTypeConsume}
 +	if !startTime.IsZero() {
-+		query += " WHERE l.created_at >= ?"
++		query += " WHERE created_at >= ?"
 +		args = append(args, startTime.Unix())
 +	}
-+	query += " GROUP BY l.channel_id, c.name ORDER BY total_requests DESC LIMIT ?"
++	query += " GROUP BY channel_id ORDER BY total_requests DESC LIMIT ?"
 +	args = append(args, limit)
 +
 +	rows, err := LOG_DB.Raw(query, args...).Rows()
@@ -3301,7 +3392,7 @@ index 0000000..9787411
 +		var stat ChannelStat
 +		var totalQuota int64
 +		var avgFirstToken sql.NullFloat64
-+		if err := rows.Scan(&stat.ChannelID, &stat.ChannelName, &stat.TotalRequests, &stat.SuccessRate, &avgFirstToken, &totalQuota); err != nil {
++		if err := rows.Scan(&stat.ChannelID, &stat.TotalRequests, &stat.SuccessRate, &avgFirstToken, &totalQuota); err != nil {
 +			continue
 +		}
 +		if avgFirstToken.Valid {
@@ -3309,6 +3400,14 @@ index 0000000..9787411
 +		}
 +		stat.TotalCost = quotaToUSD(totalQuota)
 +		stats = append(stats, stat)
++	}
++	channelIDs := make([]int, 0, len(stats))
++	for _, stat := range stats {
++		channelIDs = append(channelIDs, stat.ChannelID)
++	}
++	channelNames := getChannelNameMap(channelIDs)
++	for i := range stats {
++		stats[i].ChannelName = channelNameOrUnknown(channelNames, stats[i].ChannelID)
 +	}
 +	return stats
 +}
@@ -3350,24 +3449,48 @@ index 0000000..9787411
 +	return stats
 +}
 +
-+func getUserTopChannel(startTime time.Time, userID int) (int, string) {
++func getUserTopChannelID(startTime time.Time, userID int) int {
 +	query := `
-+		SELECT l.channel_id, COALESCE(c.name, 'Unknown') AS channel_name
-+		FROM logs l
-+		LEFT JOIN channels c ON l.channel_id = c.id
-+		WHERE l.user_id = ?
++		SELECT channel_id
++		FROM logs
++		WHERE user_id = ?
 +	`
 +	args := []interface{}{userID}
 +	if !startTime.IsZero() {
-+		query += " AND l.created_at >= ?"
++		query += " AND created_at >= ?"
 +		args = append(args, startTime.Unix())
 +	}
-+	query += " GROUP BY l.channel_id, c.name ORDER BY COALESCE(SUM(l.quota), 0) DESC, COUNT(*) DESC LIMIT 1"
++	query += " GROUP BY channel_id ORDER BY COALESCE(SUM(quota), 0) DESC, COUNT(*) DESC LIMIT 1"
 +
 +	var channelID int
-+	var channelName string
-+	_ = LOG_DB.Raw(query, args...).Row().Scan(&channelID, &channelName)
-+	return channelID, channelName
++	_ = LOG_DB.Raw(query, args...).Row().Scan(&channelID)
++	return channelID
++}
++
++func getChannelNameMap(ids []int) map[int]string {
++	names := map[int]string{}
++	if len(ids) == 0 {
++		return names
++	}
++	type row struct {
++		ID   int
++		Name string
++	}
++	var rows []row
++	if err := DB.Table("channels").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
++		return names
++	}
++	for _, r := range rows {
++		names[r.ID] = r.Name
++	}
++	return names
++}
++
++func channelNameOrUnknown(names map[int]string, id int) string {
++	if name := names[id]; name != "" {
++		return name
++	}
++	return "Unknown"
 +}
 +
 +func statsBaseQuery(startTime time.Time) *gorm.DB {
@@ -4444,23 +4567,38 @@ index 0000000..4559727
 +}
 diff --git a/pkg/compat/pricesync/fetcher.go b/pkg/compat/pricesync/fetcher.go
 new file mode 100644
-index 0000000..6280c0c
+index 0000000..312b18e
 --- /dev/null
 +++ b/pkg/compat/pricesync/fetcher.go
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,29 @@
 +// Package pricesync provides the entry point for official model price sync.
 +// The actual fetching/syncing logic lives in controller/official_price_sync.go
 +// for now; this package centralizes the startup hook for cleanliness.
 +package pricesync
 +
 +import (
++	"os"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
 +	"github.com/QuantumNous/new-api/controller"
 +)
 +
-+// Start launches the official price sync task (daily from models.dev).
-+// This is the unified entry point for main.go.
++// Start launches the official price sync task only when explicitly enabled.
++//
++// Ken's current production choice is manual one-shot sync, not a default
++// background job. Set OFFICIAL_PRICE_SYNC_ENABLED=true to restore auto sync.
 +func Start() {
++	if !autoSyncEnabled() {
++		common.SysLog("official price sync auto task disabled; use /api/pricing/official-sync/trigger for manual sync")
++		return
++	}
 +	controller.StartOfficialPriceSyncTask()
++}
++
++func autoSyncEnabled() bool {
++	value := strings.TrimSpace(strings.ToLower(os.Getenv("OFFICIAL_PRICE_SYNC_ENABLED")))
++	return value == "1" || value == "true" || value == "yes" || value == "on"
 +}
 diff --git a/pkg/compat/scheduler/runner.go b/pkg/compat/scheduler/runner.go
 new file mode 100644
@@ -12311,6 +12449,135 @@ index 1de3165..05533b8 100644
    {
      id: 'announcements',
      titleKey: 'Announcements',
+diff --git a/web/default/src/features/system-settings/models/channel-selector-dialog.tsx b/web/default/src/features/system-settings/models/channel-selector-dialog.tsx
+index 8417ea5..d1841ac 100644
+--- a/web/default/src/features/system-settings/models/channel-selector-dialog.tsx
++++ b/web/default/src/features/system-settings/models/channel-selector-dialog.tsx
+@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useCallback, useEffect, useMemo, useState } from 'react'
++import { useEffect, useMemo, useState } from 'react'
+ import {
+   flexRender,
+   getCoreRowModel,
+@@ -39,14 +39,6 @@ import {
+   DialogTitle,
+ } from '@/components/ui/dialog'
+ import { Input } from '@/components/ui/input'
+-import {
+-  Select,
+-  SelectContent,
+-  SelectGroup,
+-  SelectItem,
+-  SelectTrigger,
+-  SelectValue,
+-} from '@/components/ui/select'
+ import {
+   Table,
+   TableBody,
+@@ -60,8 +52,6 @@ import { StatusBadge } from '@/components/status-badge'
+ import type { UpstreamChannel } from '../types'
+ import {
+   CHANNEL_STATUS_CONFIG,
+-  DEFAULT_ENDPOINT,
+-  ENDPOINT_OPTIONS,
+   MODELS_DEV_PRESET_ID,
+   OFFICIAL_CHANNEL_ID,
+ } from './constants'
+@@ -92,7 +82,6 @@ export function ChannelSelectorDialog({
+   selectedChannelIds,
+   onSelectedChannelIdsChange,
+   channelEndpoints,
+-  onChannelEndpointsChange,
+   onConfirm,
+ }: ChannelSelectorDialogProps) {
+   const { t } = useTranslation()
+@@ -117,21 +106,6 @@ export function ChannelSelectorDialog({
+     setRowSelection(newSelection)
+   }, [selectedChannelIds, channels])
+ 
+-  const updateEndpoint = useCallback(
+-    (channelId: number, endpoint: string) => {
+-      onChannelEndpointsChange({
+-        ...channelEndpoints,
+-        [channelId]: endpoint,
+-      })
+-    },
+-    [channelEndpoints, onChannelEndpointsChange]
+-  )
+-
+-  const getEndpointType = (endpoint: string) => {
+-    const option = ENDPOINT_OPTIONS.find((opt) => opt.value === endpoint)
+-    return option ? endpoint : 'custom'
+-  }
+-
+   const columns = useMemo<ColumnDef<UpstreamChannel>[]>(
+     () => [
+       {
+@@ -228,57 +202,15 @@ export function ChannelSelectorDialog({
+         header: t('Sync Endpoint'),
+         cell: ({ row }) => {
+           const channel = row.original
+-          const currentEndpoint =
+-            channelEndpoints[channel.id] || DEFAULT_ENDPOINT
+-          const endpointType = getEndpointType(currentEndpoint)
+-
+-          const handleTypeChange = (value: string) => {
+-            if (value === 'custom') {
+-              updateEndpoint(channel.id, '')
+-            } else {
+-              updateEndpoint(channel.id, value)
+-            }
+-          }
+-
+           return (
+-            <div className='flex items-center gap-2'>
+-              <Select
+-                items={[
+-                  ...ENDPOINT_OPTIONS.map((option) => ({
+-                    value: option.value,
+-                    label: option.label,
+-                  })),
+-                ]}
+-                value={endpointType}
+-                onValueChange={(v) => v !== null && handleTypeChange(v)}
+-              >
+-                <SelectTrigger className='h-8 w-32'>
+-                  <SelectValue />
+-                </SelectTrigger>
+-                <SelectContent alignItemWithTrigger={false}>
+-                  <SelectGroup>
+-                    {ENDPOINT_OPTIONS.map((option) => (
+-                      <SelectItem key={option.value} value={option.value}>
+-                        {option.label}
+-                      </SelectItem>
+-                    ))}
+-                  </SelectGroup>
+-                </SelectContent>
+-              </Select>
+-              {endpointType === 'custom' && (
+-                <Input
+-                  value={currentEndpoint}
+-                  onChange={(e) => updateEndpoint(channel.id, e.target.value)}
+-                  placeholder={t('/your/endpoint')}
+-                  className='h-8 w-40 font-mono text-xs'
+-                />
+-              )}
+-            </div>
++            <span className='text-muted-foreground font-mono text-xs'>
++              {channelEndpoints[channel.id] || channel.base_url}
++            </span>
+           )
+         },
+       },
+     ],
+-    [channelEndpoints, t, updateEndpoint]
++    [channelEndpoints, t]
+   )
+ 
+   const filteredChannels = useMemo(() => {
 diff --git a/web/default/src/features/system-settings/models/client-identity-api.ts b/web/default/src/features/system-settings/models/client-identity-api.ts
 new file mode 100644
 index 0000000..b90b14c
@@ -13785,6 +14052,520 @@ index 0000000..86d3672
 +        destructive
 +        isLoading={deleteMutation.isPending}
 +        handleConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
++      />
++    </SettingsSection>
++  )
++}
+diff --git a/web/default/src/features/system-settings/security/section-registry.tsx b/web/default/src/features/system-settings/security/section-registry.tsx
+index e63f883..e8a9880 100644
+--- a/web/default/src/features/system-settings/security/section-registry.tsx
++++ b/web/default/src/features/system-settings/security/section-registry.tsx
+@@ -21,6 +21,7 @@ import { SensitiveWordsSection } from '../request-limits/sensitive-words-section
+ import { SSRFSection } from '../request-limits/ssrf-section'
+ import type { SecuritySettings } from '../types'
+ import { createSectionRegistry } from '../utils/section-registry'
++import { UpstreamErrorRulesSection } from './upstream-error-rules-section'
+ 
+ const SECURITY_SECTIONS = [
+   {
+@@ -77,6 +78,11 @@ const SECURITY_SECTIONS = [
+       />
+     ),
+   },
++  {
++    id: 'upstream-error-rules',
++    titleKey: 'Upstream Error Rules',
++    build: () => <UpstreamErrorRulesSection />,
++  },
+ ] as const
+ 
+ export type SecuritySectionId = (typeof SECURITY_SECTIONS)[number]['id']
+diff --git a/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
+new file mode 100644
+index 0000000..2efc8a2
+--- /dev/null
++++ b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
+@@ -0,0 +1,484 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useEffect, useMemo, useState } from 'react'
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
++import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { api } from '@/lib/api'
++import { Badge } from '@/components/ui/badge'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
++import { Input } from '@/components/ui/input'
++import { Switch } from '@/components/ui/switch'
++import {
++  Table,
++  TableBody,
++  TableCell,
++  TableHead,
++  TableHeader,
++  TableRow,
++} from '@/components/ui/table'
++import { Textarea } from '@/components/ui/textarea'
++import { ConfirmDialog } from '@/components/confirm-dialog'
++import { SettingsSection } from '../components/settings-section'
++
++type ErrorRule = {
++  id: number
++  enabled: boolean
++  description: string
++  platforms: string
++  upstream_status: number
++  keywords: string
++  passthrough_code: boolean
++  response_code: number
++  passthrough_body: boolean
++  custom_message: string
++  skip_monitoring: boolean
++  priority: number
++  created_at?: number
++  updated_at?: number
++}
++
++type ErrorRuleForm = Omit<ErrorRule, 'id' | 'created_at' | 'updated_at'> & {
++  id?: number
++}
++
++const EMPTY_RULE: ErrorRuleForm = {
++  enabled: true,
++  description: '',
++  platforms: '',
++  upstream_status: 0,
++  keywords: '',
++  passthrough_code: false,
++  response_code: 0,
++  passthrough_body: false,
++  custom_message: '',
++  skip_monitoring: false,
++  priority: 100,
++}
++
++async function listRules() {
++  const res = await api.get<{ success: boolean; data: ErrorRule[] }>(
++    '/api/compat/error-rules'
++  )
++  return res.data.data ?? []
++}
++
++async function saveRule(values: ErrorRuleForm) {
++  if (values.id) {
++    const res = await api.put(`/api/compat/error-rules/${values.id}`, values)
++    return res.data
++  }
++  const res = await api.post('/api/compat/error-rules', values)
++  return res.data
++}
++
++async function deleteRule(id: number) {
++  const res = await api.delete(`/api/compat/error-rules/${id}`)
++  return res.data
++}
++
++async function reloadRules() {
++  const res = await api.post('/api/compat/error-rules/reload')
++  return res.data
++}
++
++function normalizeForm(values: ErrorRuleForm): ErrorRuleForm {
++  return {
++    ...values,
++    description: values.description.trim(),
++    platforms: values.platforms.trim(),
++    keywords: values.keywords.trim(),
++    custom_message: values.custom_message.trim(),
++    upstream_status: Number(values.upstream_status) || 0,
++    response_code: Number(values.response_code) || 0,
++    priority: Number(values.priority) || 100,
++  }
++}
++
++export function UpstreamErrorRulesSection() {
++  const { t } = useTranslation()
++  const queryClient = useQueryClient()
++  const [formOpen, setFormOpen] = useState(false)
++  const [formValues, setFormValues] = useState<ErrorRuleForm>(EMPTY_RULE)
++  const [deleteTarget, setDeleteTarget] = useState<ErrorRule | null>(null)
++
++  const { data: rules = [], isLoading } = useQuery({
++    queryKey: ['upstream-error-rules'],
++    queryFn: listRules,
++  })
++
++  const sortedRules = useMemo(
++    () =>
++      [...rules].sort((a, b) =>
++        a.priority === b.priority ? a.id - b.id : a.priority - b.priority
++      ),
++    [rules]
++  )
++
++  const saveMutation = useMutation({
++    mutationFn: saveRule,
++    onSuccess: () => {
++      toast.success(t('Saved'))
++      setFormOpen(false)
++      queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
++    },
++  })
++
++  const deleteMutation = useMutation({
++    mutationFn: deleteRule,
++    onSuccess: () => {
++      toast.success(t('Deleted'))
++      setDeleteTarget(null)
++      queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
++    },
++  })
++
++  const reloadMutation = useMutation({
++    mutationFn: reloadRules,
++    onSuccess: () => {
++      toast.success(t('Rules reloaded'))
++      queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
++    },
++  })
++
++  const openCreate = () => {
++    setFormValues(EMPTY_RULE)
++    setFormOpen(true)
++  }
++
++  const openEdit = (rule: ErrorRule) => {
++    setFormValues({ ...rule })
++    setFormOpen(true)
++  }
++
++  const handleSubmit = () => {
++    const normalized = normalizeForm(formValues)
++    if (!normalized.description) {
++      toast.error(t('Description is required'))
++      return
++    }
++    saveMutation.mutate(normalized)
++  }
++
++  useEffect(() => {
++    if (!formOpen) setFormValues(EMPTY_RULE)
++  }, [formOpen])
++
++  return (
++    <SettingsSection title={t('Upstream Error Rules')}>
++      <div className='flex flex-wrap items-center justify-between gap-3'>
++        <p className='text-muted-foreground text-sm'>
++          {t(
++            'Normalize upstream error responses before they are shown to clients. Backend logs keep masked originals.'
++          )}
++        </p>
++        <div className='flex flex-wrap gap-2'>
++          <Button
++            type='button'
++            variant='outline'
++            size='sm'
++            onClick={() => reloadMutation.mutate()}
++            disabled={reloadMutation.isPending}
++          >
++            <RefreshCw className='mr-2 h-4 w-4' />
++            {t('Reload')}
++          </Button>
++          <Button type='button' size='sm' onClick={openCreate}>
++            <Plus className='mr-2 h-4 w-4' />
++            {t('Add Rule')}
++          </Button>
++        </div>
++      </div>
++
++      <div className='rounded-md border'>
++        <Table>
++          <TableHeader>
++            <TableRow>
++              <TableHead>{t('Priority')}</TableHead>
++              <TableHead>{t('Description')}</TableHead>
++              <TableHead>{t('Match')}</TableHead>
++              <TableHead>{t('Response')}</TableHead>
++              <TableHead>{t('Status')}</TableHead>
++              <TableHead className='text-right'>{t('Actions')}</TableHead>
++            </TableRow>
++          </TableHeader>
++          <TableBody>
++            {isLoading ? (
++              <TableRow>
++                <TableCell colSpan={6}>{t('Loading...')}</TableCell>
++              </TableRow>
++            ) : sortedRules.length === 0 ? (
++              <TableRow>
++                <TableCell colSpan={6} className='text-muted-foreground'>
++                  {t('No custom rules. Built-in fixed messages are still active.')}
++                </TableCell>
++              </TableRow>
++            ) : (
++              sortedRules.map((rule) => (
++                <TableRow key={rule.id}>
++                  <TableCell className='font-mono text-xs'>
++                    {rule.priority}
++                  </TableCell>
++                  <TableCell>
++                    <div className='max-w-[260px] truncate font-medium'>
++                      {rule.description}
++                    </div>
++                    {rule.skip_monitoring && (
++                      <div className='text-muted-foreground mt-1 text-xs'>
++                        {t('Skip monitoring log')}
++                      </div>
++                    )}
++                  </TableCell>
++                  <TableCell className='text-xs'>
++                    <div>
++                      {t('Platform')}: {rule.platforms || t('Any')}
++                    </div>
++                    <div>
++                      {t('HTTP')}: {rule.upstream_status || t('Any')}
++                    </div>
++                    <div className='max-w-[240px] truncate'>
++                      {t('Keywords')}: {rule.keywords || t('Any')}
++                    </div>
++                  </TableCell>
++                  <TableCell className='text-xs'>
++                    <div>
++                      {rule.passthrough_code
++                        ? t('Keep status')
++                        : `${t('Status')} ${rule.response_code || t('Upstream')}`}
++                    </div>
++                    <div className='max-w-[260px] truncate'>
++                      {rule.passthrough_body
++                        ? t('Keep body')
++                        : rule.custom_message || t('Built-in fixed message')}
++                    </div>
++                  </TableCell>
++                  <TableCell>
++                    <Badge variant={rule.enabled ? 'default' : 'secondary'}>
++                      {rule.enabled ? t('Enabled') : t('Disabled')}
++                    </Badge>
++                  </TableCell>
++                  <TableCell className='text-right'>
++                    <div className='flex justify-end gap-1'>
++                      <Button
++                        type='button'
++                        variant='ghost'
++                        size='icon'
++                        onClick={() => openEdit(rule)}
++                      >
++                        <Pencil className='h-4 w-4' />
++                      </Button>
++                      <Button
++                        type='button'
++                        variant='ghost'
++                        size='icon'
++                        onClick={() => setDeleteTarget(rule)}
++                      >
++                        <Trash2 className='h-4 w-4' />
++                      </Button>
++                    </div>
++                  </TableCell>
++                </TableRow>
++              ))
++            )}
++          </TableBody>
++        </Table>
++      </div>
++
++      <Dialog open={formOpen} onOpenChange={setFormOpen}>
++        <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>
++              {formValues.id ? t('Edit Error Rule') : t('Add Error Rule')}
++            </DialogTitle>
++          </DialogHeader>
++          <div className='grid gap-4 py-2'>
++            <label className='space-y-2'>
++              <span className='text-sm font-medium'>{t('Description')}</span>
++              <Input
++                value={formValues.description}
++                onChange={(event) =>
++                  setFormValues((prev) => ({
++                    ...prev,
++                    description: event.target.value,
++                  }))
++                }
++              />
++            </label>
++
++            <div className='grid gap-4 md:grid-cols-3'>
++              <label className='space-y-2'>
++                <span className='text-sm font-medium'>{t('Priority')}</span>
++                <Input
++                  type='number'
++                  value={formValues.priority}
++                  onChange={(event) =>
++                    setFormValues((prev) => ({
++                      ...prev,
++                      priority: Number(event.target.value) || 100,
++                    }))
++                  }
++                />
++              </label>
++              <label className='space-y-2'>
++                <span className='text-sm font-medium'>
++                  {t('Upstream HTTP Status')}
++                </span>
++                <Input
++                  type='number'
++                  value={formValues.upstream_status}
++                  onChange={(event) =>
++                    setFormValues((prev) => ({
++                      ...prev,
++                      upstream_status: Number(event.target.value) || 0,
++                    }))
++                  }
++                />
++              </label>
++              <label className='space-y-2'>
++                <span className='text-sm font-medium'>
++                  {t('Response HTTP Status')}
++                </span>
++                <Input
++                  type='number'
++                  value={formValues.response_code}
++                  onChange={(event) =>
++                    setFormValues((prev) => ({
++                      ...prev,
++                      response_code: Number(event.target.value) || 0,
++                    }))
++                  }
++                />
++              </label>
++            </div>
++
++            <label className='space-y-2'>
++              <span className='text-sm font-medium'>{t('Platforms')}</span>
++              <Input
++                value={formValues.platforms}
++                placeholder='1,14'
++                onChange={(event) =>
++                  setFormValues((prev) => ({
++                    ...prev,
++                    platforms: event.target.value,
++                  }))
++                }
++              />
++              <p className='text-muted-foreground text-xs'>
++                {t('Comma-separated channel type IDs. Empty means all platforms.')}
++              </p>
++            </label>
++
++            <label className='space-y-2'>
++              <span className='text-sm font-medium'>{t('Keywords')}</span>
++              <Input
++                value={formValues.keywords}
++                placeholder='invalid api key, access restricted'
++                onChange={(event) =>
++                  setFormValues((prev) => ({
++                    ...prev,
++                    keywords: event.target.value,
++                  }))
++                }
++              />
++              <p className='text-muted-foreground text-xs'>
++                {t('Comma-separated case-insensitive body keywords. Empty matches all.')}
++              </p>
++            </label>
++
++            <label className='space-y-2'>
++              <span className='text-sm font-medium'>{t('Custom Message')}</span>
++              <Textarea
++                rows={3}
++                value={formValues.custom_message}
++                placeholder={t('Leave empty to use the built-in fixed message.')}
++                onChange={(event) =>
++                  setFormValues((prev) => ({
++                    ...prev,
++                    custom_message: event.target.value,
++                  }))
++                }
++              />
++            </label>
++
++            <div className='grid gap-3 rounded-md border p-3 md:grid-cols-2'>
++              {[
++                ['enabled', t('Enabled')],
++                ['passthrough_code', t('Keep upstream status code')],
++                ['passthrough_body', t('Keep upstream error body')],
++                ['skip_monitoring', t('Skip monitoring log')],
++              ].map(([key, label]) => (
++                <label
++                  key={key}
++                  className='flex items-center justify-between gap-4 text-sm'
++                >
++                  <span>{label}</span>
++                  <Switch
++                    checked={Boolean(formValues[key as keyof ErrorRuleForm])}
++                    onCheckedChange={(checked) =>
++                      setFormValues((prev) => ({
++                        ...prev,
++                        [key]: checked,
++                      }))
++                    }
++                  />
++                </label>
++              ))}
++            </div>
++          </div>
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setFormOpen(false)}
++            >
++              {t('Cancel')}
++            </Button>
++            <Button
++              type='button'
++              onClick={handleSubmit}
++              disabled={saveMutation.isPending}
++            >
++              {t('Save')}
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
++
++      <ConfirmDialog
++        open={Boolean(deleteTarget)}
++        onOpenChange={(open) => !open && setDeleteTarget(null)}
++        title={t('Delete error rule?')}
++        desc={deleteTarget?.description ?? ''}
++        destructive
++        isLoading={deleteMutation.isPending}
++        handleConfirm={() => {
++          if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
++        }}
 +      />
 +    </SettingsSection>
 +  )

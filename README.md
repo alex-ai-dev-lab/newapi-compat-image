@@ -53,6 +53,11 @@
 - 定时渠道测试：
   - 每渠道可设置启用、间隔、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
   - 支持跨天窗口，例如 `23:00-07:00`。
+- 官方价格同步：
+  - 来源固定为 `https://models.dev/api.json`。
+  - 后端只接收白名单官方 provider，并过滤带 `/` 的聚合商/转售商模型别名，例如 `openai/gpt-*`、`siliconflow/deepseek-*`。
+  - 后台“上游价格同步”只暴露 `models.dev` 预设，不再列出生产渠道或 OpenRouter/custom 入口。
+  - 自动后台同步默认关闭；需要自动跑时显式设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
 - 统计看板：
   - 支持 `1d`、`7d`、`30d`、`1y`、`all`。
   - 管理员可看渠道、模型、用户维度统计。
@@ -69,7 +74,7 @@
 - 当前代码不是 README 旧版描述的 `pkg/compat/` 全量 hook 化架构；仍有不少兼容逻辑直接落在上游目录中。
 - 没有承诺 7MB 镜像体积。实际 release tar 大约几十 MB，取决于 upstream 构建产物。
 - 没有完整 metrics 面板；统计看板基于现有 NewAPI 日志表查询。
-- 官方价格同步历史上做过一次官方-only 同步。不要重新启用旧的聚合商/转售商模型价格同步。
+- 官方价格同步不是“所有模型官网逐一抓取”。当前实现以 `models.dev` 的官方 provider 元数据为源，并做 provider 白名单与 slash alias 过滤；若 `models.dev` 本身缺失某个官方模型，需要后续补映射或手工维护。
 - 生产 compose 目前需要 `user: "0:0"`，因为服务器挂载的 `logs` / `data` 目录权限按 root 跑最稳。移除 root override 前必须先验证挂载目录权限。
 
 ## 构建
