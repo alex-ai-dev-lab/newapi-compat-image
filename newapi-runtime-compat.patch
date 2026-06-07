@@ -19781,13 +19781,21 @@ index 0000000..1f21fcf
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/content/dashboard-section.tsx b/web/default/src/features/system-settings/content/dashboard-section.tsx
-index e21f6eb..60d4e45 100644
+index e21f6eb..f40a026 100644
 --- a/web/default/src/features/system-settings/content/dashboard-section.tsx
 +++ b/web/default/src/features/system-settings/content/dashboard-section.tsx
-@@ -21,6 +21,25 @@ import * as z from 'zod'
+@@ -16,11 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import { useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import * as z from 'zod'
  import { useForm } from 'react-hook-form'
  import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
  import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
 +import {
 +  DASHBOARD_HEALTH_FILTER_VALUES,
 +  DASHBOARD_CHART_TIME_RANGE_DAYS_VALUES,
@@ -19806,11 +19814,27 @@ index e21f6eb..60d4e45 100644
 +  type DashboardTrendMode,
 +  type DashboardVisibleSection,
 +} from '@/lib/dashboard-defaults'
++import { Button } from '@/components/ui/button'
 +import { Checkbox } from '@/components/ui/checkbox'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
  import {
    Form,
    FormControl,
-@@ -50,11 +69,70 @@ import { SettingsSection } from '../components/settings-section'
+@@ -40,6 +69,7 @@ import {
+   SelectValue,
+ } from '@/components/ui/select'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+@@ -50,11 +80,70 @@ import { SettingsSection } from '../components/settings-section'
  import { useUpdateOption } from '../hooks/use-update-option'
  import { safeNumberFieldProps } from '../utils/numeric-field'
  
@@ -19886,7 +19910,23 @@ index e21f6eb..60d4e45 100644
  
  type DataDashboardFormValues = z.infer<typeof dataDashboardSchema>
  
-@@ -68,6 +146,88 @@ const granularityOptions = [
+@@ -62,15 +151,109 @@ type DashboardSectionProps = {
+   defaultValues: DataDashboardFormValues
+ }
+ 
++type DashboardDefaultsPayload = Partial<
++  Omit<DataDashboardFormValues, 'DashboardVisibleSections'> & {
++    DashboardVisibleSections: DashboardVisibleSection[] | string
++  }
++>
++
++type DashboardImportExportPayload = DashboardDefaultsPayload & {
++  DashboardDefaults?: DashboardDefaultsPayload
++}
++
+ const granularityOptions = [
+   { label: 'Hour', value: 'hour' },
+   { label: 'Day', value: 'day' },
    { label: 'Week', value: 'week' },
  ]
  
@@ -19975,20 +20015,24 @@ index e21f6eb..60d4e45 100644
  export function DashboardSection({ defaultValues }: DashboardSectionProps) {
    const { t } = useTranslation()
    const updateOption = useUpdateOption()
-@@ -82,9 +242,18 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const form = useForm<DataDashboardFormValues>({
+     resolver: zodResolver(dataDashboardSchema),
+@@ -81,10 +264,17 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+     form.reset(defaultValues)
    }, [defaultValues, form])
  
++  const serializeDashboardValues = (values: DataDashboardFormValues) => ({
++    ...values,
++    DashboardVisibleSections: values.DashboardVisibleSections.join(','),
++  })
++
    const onSubmit = async (values: DataDashboardFormValues) => {
 -    const updates = Object.entries(values).filter(
-+    const serializedValues = {
-+      ...values,
-+      DashboardVisibleSections: values.DashboardVisibleSections.join(','),
-+    }
-+    const serializedDefaults = {
-+      ...defaultValues,
-+      DashboardVisibleSections:
-+        defaultValues.DashboardVisibleSections.join(','),
-+    }
++    const serializedValues = serializeDashboardValues(values)
++    const serializedDefaults = serializeDashboardValues(defaultValues)
 +    const updates = Object.entries(serializedValues).filter(
        ([key, value]) =>
 -        value !== defaultValues[key as keyof DataDashboardFormValues]
@@ -19996,7 +20040,90 @@ index e21f6eb..60d4e45 100644
      )
  
      for (const [key, value] of updates) {
-@@ -187,6 +356,521 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+@@ -92,6 +282,65 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const text = JSON.stringify(
++      serializeDashboardValues(form.getValues()),
++      null,
++      2
++    )
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-dashboard-defaults.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success(t('Dashboard defaults exported'))
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as DashboardImportExportPayload
++      const payload =
++        'DashboardDefaults' in raw && raw.DashboardDefaults
++          ? raw.DashboardDefaults
++          : raw
++      const currentValues = form.getValues()
++      const importedSections = payload.DashboardVisibleSections
++      const DashboardVisibleSections = Array.isArray(importedSections)
++        ? importedSections
++        : typeof importedSections === 'string'
++          ? importedSections
++              .split(',')
++              .map((value) => value.trim())
++              .filter(Boolean)
++          : currentValues.DashboardVisibleSections
++      const parsedValues = dataDashboardSchema.parse({
++        ...currentValues,
++        ...payload,
++        DashboardVisibleSections,
++      })
++
++      form.reset(parsedValues)
++      setImportOpen(false)
++      toast.success(t('Dashboard defaults imported'))
++    } catch {
++      toast.error(t('Invalid dashboard defaults JSON'))
++    }
++  }
++
+   const isEnabled = form.watch('DataExportEnabled')
+ 
+   return (
+@@ -102,6 +351,16 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending}
+           />
++          <div className='flex flex-wrap justify-end gap-2'>
++            <Button type='button' variant='outline' onClick={exportConfig}>
++              <Download className='mr-2 h-4 w-4' />
++              {t('Export JSON')}
++            </Button>
++            <Button type='button' variant='outline' onClick={openImportDialog}>
++              <Upload className='mr-2 h-4 w-4' />
++              {t('Import JSON')}
++            </Button>
++          </div>
+           <FormField
+             control={form.control}
+             name='DataExportEnabled'
+@@ -187,8 +446,548 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                )}
              />
            </div>
@@ -20517,7 +20644,34 @@ index e21f6eb..60d4e45 100644
 +          </div>
          </SettingsForm>
        </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent>
++          <DialogHeader>
++            <DialogTitle>{t('Import dashboard defaults')}</DialogTitle>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            placeholder={t('Paste dashboard defaults JSON')}
++            className='min-h-[260px] font-mono text-sm'
++          />
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setImportOpen(false)}
++            >
++              {t('Cancel')}
++            </Button>
++            <Button type='button' onClick={importConfig}>
++              {t('Import')}
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
      </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
 index 147a11d..3377d9d 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
