@@ -7199,16 +7199,18 @@ index 0000000..0c21e4a
 +}
 diff --git a/service/claude_thinking_compat_test.go b/service/claude_thinking_compat_test.go
 new file mode 100644
-index 0000000..cd5258c
+index 0000000..e464e33
 --- /dev/null
 +++ b/service/claude_thinking_compat_test.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,99 @@
 +package service
 +
 +import (
 +	"testing"
 +
++	"github.com/QuantumNous/new-api/constant"
 +	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/model"
 +	"github.com/stretchr/testify/require"
 +)
 +
@@ -7283,6 +7285,22 @@ index 0000000..cd5258c
 +	require.True(t, ok)
 +	require.Len(t, blocks, 1)
 +	require.Equal(t, "text", blocks[0]["type"])
++}
++
++func TestChannelSupportsClaudeThinkingInfersAndHonorsOverrides(t *testing.T) {
++	anthropic := &model.Channel{Type: constant.ChannelTypeAnthropic}
++	require.True(t, ChannelSupportsClaudeThinking(anthropic))
++
++	falseValue := false
++	anthropic.SetSetting(dto.ChannelSettings{SupportsClaudeThinking: &falseValue})
++	require.False(t, ChannelSupportsClaudeThinking(anthropic))
++
++	openai := &model.Channel{Type: constant.ChannelTypeOpenAI}
++	require.False(t, ChannelSupportsClaudeThinking(openai))
++
++	trueValue := true
++	openai.SetSetting(dto.ChannelSettings{SupportsClaudeThinking: &trueValue})
++	require.True(t, ChannelSupportsClaudeThinking(openai))
 +}
 diff --git a/service/client_identity.go b/service/client_identity.go
 new file mode 100644
@@ -9209,10 +9227,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..bdbbbf3
+index 0000000..e9663fc
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,323 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -9388,6 +9406,22 @@ index 0000000..bdbbbf3
 +          navigate({
 +            to: '/system-settings/models/$section',
 +            params: { section: 'client-identity' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-model-pricing',
++        label: 'Model Pricing',
++        description: 'Sync and edit official model prices',
++        icon: Zap,
++        keywords: ['pricing', 'ratio', 'models.dev', 'official', 'sync'],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/models/$section',
++            params: { section: 'model-pricing' },
 +          })
 +          close()
 +        },
@@ -9624,7 +9658,7 @@ index d511128..8659e90 100644
      setTestResults({})
      setRowSelection({})
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 6b26cd1..f0026c6 100644
+index 6b26cd1..763b6d6 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -112,6 +112,7 @@ import {
@@ -9690,7 +9724,7 @@ index 6b26cd1..f0026c6 100644
                                <div className='space-y-0.5'>
                                  <FormLabel>{t('Auto Ban')}</FormLabel>
                                  <FormDescription>
-@@ -2586,11 +2604,239 @@ export function ChannelMutateDrawer({
+@@ -2586,10 +2604,258 @@ export function ChannelMutateDrawer({
                                    }
                                  />
                                </FormControl>
@@ -9805,24 +9839,44 @@ index 6b26cd1..f0026c6 100644
 +                          control={form.control}
 +                          name='supports_claude_thinking'
 +                          render={({ field }) => (
-+                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
-+                              <div className='space-y-0.5'>
++                            <FormItem>
++                              <div className='space-y-2 rounded-md border p-3'>
 +                                <FormLabel>{t('Supports Claude thinking')}</FormLabel>
 +                                <FormDescription>
-+                                  {t('Prefer this channel for Claude requests containing thinking blocks.')}
++                                  {t('Auto infers support from channel type. Explicit values override inference.')}
 +                                </FormDescription>
++                                <Select
++                                  value={field.value || 'auto'}
++                                  onValueChange={(value) =>
++                                    field.onChange(value ?? 'auto')
++                                  }
++                                >
++                                  <FormControl>
++                                    <SelectTrigger>
++                                      <SelectValue />
++                                    </SelectTrigger>
++                                  </FormControl>
++                                  <SelectContent>
++                                    <SelectGroup>
++                                      <SelectItem value='auto'>
++                                        {t('Auto infer')}
++                                      </SelectItem>
++                                      <SelectItem value='true'>
++                                        {t('Force supported')}
++                                      </SelectItem>
++                                      <SelectItem value='false'>
++                                        {t('Force unsupported')}
++                                      </SelectItem>
++                                    </SelectGroup>
++                                  </SelectContent>
++                                </Select>
 +                              </div>
-+                              <FormControl>
-+                                <Switch
-+                                  checked={field.value === true}
-+                                  onCheckedChange={field.onChange}
-+                                />
-+                              </FormControl>
-                             </FormItem>
-                           )}
-                         />
-                       </div>
- 
++                              <FormMessage />
++                            </FormItem>
++                          )}
++                        />
++                      </div>
++
 +                      <div className='grid gap-4 border-t pt-4 sm:grid-cols-3'>
 +                        <FormField
 +                          control={form.control}
@@ -9921,15 +9975,14 @@ index 6b26cd1..f0026c6 100644
 +                                <Input placeholder='Asia/Taipei' {...field} />
 +                              </FormControl>
 +                              <FormMessage />
-+                            </FormItem>
-+                          )}
-+                        />
-+                      </div>
+                             </FormItem>
+                           )}
+                         />
+                       </div>
 +                    </div>
-+
+ 
                        <div className='flex flex-col gap-4 border-t pt-4'>
                          <SubHeading
-                           title={t('Internal Notes')}
 diff --git a/web/default/src/features/channels/constants.ts b/web/default/src/features/channels/constants.ts
 index 5fd88d5..af187d1 100644
 --- a/web/default/src/features/channels/constants.ts
@@ -9944,17 +9997,19 @@ index 5fd88d5..af187d1 100644
    TAG: 'Group channels by tag for batch operations',
    REMARK: 'Internal notes (not shown to users)',
 diff --git a/web/default/src/features/channels/lib/channel-form.ts b/web/default/src/features/channels/lib/channel-form.ts
-index 4f0e504..621ad61 100644
+index 4f0e504..8960581 100644
 --- a/web/default/src/features/channels/lib/channel-form.ts
 +++ b/web/default/src/features/channels/lib/channel-form.ts
-@@ -182,6 +182,16 @@ export const channelFormSchema = z
+@@ -182,6 +182,18 @@ export const channelFormSchema = z
      pass_through_body_enabled: z.boolean().optional(),
      system_prompt: z.string().optional(),
      system_prompt_override: z.boolean().optional(),
 +    user_agent_id: z.number().optional(),
 +    user_agent_override: z.string().optional(),
 +    normalize_upstream_errors: z.boolean().optional(),
-+    supports_claude_thinking: z.boolean().optional(),
++    supports_claude_thinking: z
++      .enum(['auto', 'true', 'false'])
++      .optional(),
 +    auto_test_interval: z.number().optional(),
 +    auto_test_retry_count: z.number().optional(),
 +    auto_test_retry_threshold: z.number().optional(),
@@ -9964,7 +10019,7 @@ index 4f0e504..621ad61 100644
      // Type-specific settings (stored in settings JSON)
      is_enterprise_account: z.boolean().optional(), // OpenRouter specific
      vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
-@@ -195,6 +205,7 @@ export const channelFormSchema = z
+@@ -195,6 +207,7 @@ export const channelFormSchema = z
      allow_inference_geo: z.boolean().optional(), // OpenAI/Anthropic: inference geography
      allow_speed: z.boolean().optional(), // Anthropic: speed mode control
      claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
@@ -9972,14 +10027,24 @@ index 4f0e504..621ad61 100644
      // Upstream model update settings (stored in settings JSON)
      upstream_model_update_check_enabled: z.boolean().optional(),
      upstream_model_update_auto_sync_enabled: z.boolean().optional(),
-@@ -300,6 +311,16 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -262,6 +275,9 @@ export const channelFormSchema = z
+   })
+ 
+ export type ChannelFormValues = z.infer<typeof channelFormSchema>
++type ClaudeThinkingSupportMode = NonNullable<
++  ChannelFormValues['supports_claude_thinking']
++>
+ 
+ // ============================================================================
+ // Default Form Values
+@@ -300,6 +316,16 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    pass_through_body_enabled: false,
    system_prompt: '',
    system_prompt_override: false,
 +  user_agent_id: 0,
 +  user_agent_override: '',
 +  normalize_upstream_errors: true,
-+  supports_claude_thinking: false,
++  supports_claude_thinking: 'auto',
 +  auto_test_interval: 0,
 +  auto_test_retry_count: 1,
 +  auto_test_retry_threshold: 1,
@@ -9989,7 +10054,7 @@ index 4f0e504..621ad61 100644
    // Type-specific settings
    is_enterprise_account: false,
    vertex_key_type: 'json',
-@@ -313,6 +334,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -313,6 +339,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    allow_inference_geo: false,
    allow_speed: false,
    claude_beta_query: false,
@@ -9997,14 +10062,40 @@ index 4f0e504..621ad61 100644
    upstream_model_update_check_enabled: false,
    upstream_model_update_auto_sync_enabled: false,
    upstream_model_update_ignored_models: '',
-@@ -336,6 +358,16 @@ export function transformChannelToFormDefaults(
+@@ -329,13 +356,41 @@ export function transformChannelToFormDefaults(
+   channel: Channel
+ ): ChannelFormValues {
+   // Parse channel extra settings from setting field
+-  let extraSettings = {
++  let extraSettings: Pick<
++    ChannelFormValues,
++    | 'force_format'
++    | 'thinking_to_content'
++    | 'proxy'
++    | 'pass_through_body_enabled'
++    | 'system_prompt'
++    | 'system_prompt_override'
++    | 'user_agent_id'
++    | 'user_agent_override'
++    | 'normalize_upstream_errors'
++    | 'supports_claude_thinking'
++    | 'auto_test_interval'
++    | 'auto_test_retry_count'
++    | 'auto_test_retry_threshold'
++    | 'auto_test_time_window_start'
++    | 'auto_test_time_window_end'
++    | 'auto_test_timezone'
++  > = {
+     force_format: false,
+     thinking_to_content: false,
+     proxy: '',
      pass_through_body_enabled: false,
      system_prompt: '',
      system_prompt_override: false,
 +    user_agent_id: 0,
 +    user_agent_override: '',
 +    normalize_upstream_errors: true,
-+    supports_claude_thinking: false,
++    supports_claude_thinking: 'auto',
 +    auto_test_interval: 0,
 +    auto_test_retry_count: 1,
 +    auto_test_retry_threshold: 1,
@@ -10014,14 +10105,17 @@ index 4f0e504..621ad61 100644
    }
  
    if (channel.setting) {
-@@ -348,6 +380,16 @@ export function transformChannelToFormDefaults(
+@@ -348,6 +403,19 @@ export function transformChannelToFormDefaults(
          pass_through_body_enabled: parsed.pass_through_body_enabled || false,
          system_prompt: parsed.system_prompt || '',
          system_prompt_override: parsed.system_prompt_override || false,
 +        user_agent_id: Number(parsed.user_agent_id || 0),
 +        user_agent_override: parsed.user_agent_override || '',
 +        normalize_upstream_errors: parsed.normalize_upstream_errors !== false,
-+        supports_claude_thinking: parsed.supports_claude_thinking === true,
++        supports_claude_thinking:
++          typeof parsed.supports_claude_thinking === 'boolean'
++            ? (String(parsed.supports_claude_thinking) as ClaudeThinkingSupportMode)
++            : 'auto',
 +        auto_test_interval: Number(parsed.auto_test_interval || 0),
 +        auto_test_retry_count: Number(parsed.auto_test_retry_count || 1),
 +        auto_test_retry_threshold: Number(parsed.auto_test_retry_threshold || 1),
@@ -10031,7 +10125,7 @@ index 4f0e504..621ad61 100644
        }
      } catch (error) {
        // eslint-disable-next-line no-console
-@@ -367,6 +409,7 @@ export function transformChannelToFormDefaults(
+@@ -367,6 +435,7 @@ export function transformChannelToFormDefaults(
    let allowInferenceGeo = false
    let allowSpeed = false
    let claudeBetaQuery = false
@@ -10039,7 +10133,7 @@ index 4f0e504..621ad61 100644
    let upstreamModelUpdateCheckEnabled = false
    let upstreamModelUpdateAutoSyncEnabled = false
    let upstreamModelUpdateIgnoredModels = ''
-@@ -385,6 +428,8 @@ export function transformChannelToFormDefaults(
+@@ -385,6 +454,8 @@ export function transformChannelToFormDefaults(
        allowInferenceGeo = parsed.allow_inference_geo === true
        allowSpeed = parsed.allow_speed === true
        claudeBetaQuery = parsed.claude_beta_query === true
@@ -10048,7 +10142,7 @@ index 4f0e504..621ad61 100644
        upstreamModelUpdateCheckEnabled =
          parsed.upstream_model_update_check_enabled === true
        upstreamModelUpdateAutoSyncEnabled =
-@@ -439,6 +484,7 @@ export function transformChannelToFormDefaults(
+@@ -439,6 +510,7 @@ export function transformChannelToFormDefaults(
      allow_inference_geo: allowInferenceGeo,
      allow_speed: allowSpeed,
      claude_beta_query: claudeBetaQuery,
@@ -10056,24 +10150,36 @@ index 4f0e504..621ad61 100644
      allow_safety_identifier: allowSafetyIdentifier,
      upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
      upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
-@@ -457,6 +503,16 @@ function buildSettingJSON(formData: ChannelFormValues): string {
+@@ -450,13 +522,27 @@ export function transformChannelToFormDefaults(
+  * Build the setting JSON string from form extra settings
+  */
+ function buildSettingJSON(formData: ChannelFormValues): string {
+-  const settingObj = {
++  const settingObj: Record<string, unknown> = {
+     force_format: formData.force_format || false,
+     thinking_to_content: formData.thinking_to_content || false,
+     proxy: formData.proxy || '',
      pass_through_body_enabled: formData.pass_through_body_enabled || false,
      system_prompt: formData.system_prompt || '',
      system_prompt_override: formData.system_prompt_override || false,
 +    user_agent_id: formData.user_agent_id ? Number(formData.user_agent_id) : undefined,
 +    user_agent_override: formData.user_agent_override || '',
 +    normalize_upstream_errors: formData.normalize_upstream_errors !== false,
-+    supports_claude_thinking: formData.supports_claude_thinking === true,
 +    auto_test_interval: Number(formData.auto_test_interval || 0),
 +    auto_test_retry_count: Number(formData.auto_test_retry_count || 1),
 +    auto_test_retry_threshold: Number(formData.auto_test_retry_threshold || 1),
 +    auto_test_time_window_start: formData.auto_test_time_window_start || '',
 +    auto_test_time_window_end: formData.auto_test_time_window_end || '',
 +    auto_test_timezone: formData.auto_test_timezone || '',
++  }
++  if (formData.supports_claude_thinking === 'true') {
++    settingObj.supports_claude_thinking = true
++  } else if (formData.supports_claude_thinking === 'false') {
++    settingObj.supports_claude_thinking = false
    }
    return JSON.stringify(settingObj)
  }
-@@ -541,6 +597,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
+@@ -541,6 +627,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
      if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
    }
  
@@ -10084,7 +10190,7 @@ index 4f0e504..621ad61 100644
    if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
      settingsObj.upstream_model_update_check_enabled =
 diff --git a/web/default/src/features/channels/types.ts b/web/default/src/features/channels/types.ts
-index a282053..ba8f2c6 100644
+index a282053..b4df59d 100644
 --- a/web/default/src/features/channels/types.ts
 +++ b/web/default/src/features/channels/types.ts
 @@ -322,6 +322,28 @@ export interface ChannelFormData {
@@ -10095,7 +10201,7 @@ index a282053..ba8f2c6 100644
 +  user_agent_id?: number
 +  user_agent_override?: string
 +  normalize_upstream_errors?: boolean
-+  supports_claude_thinking?: boolean
++  supports_claude_thinking?: 'auto' | 'true' | 'false'
 +  auto_test_interval?: number
 +  auto_test_retry_count?: number
 +  auto_test_retry_threshold?: number
@@ -12265,6 +12371,37 @@ index 825850f..a6c6376 100644
      // eslint-disable-next-line no-console
      console.error('Failed to load messages:', error)
    }
+diff --git a/web/default/src/features/system-settings/api.ts b/web/default/src/features/system-settings/api.ts
+index 86f4179..2ee461d 100644
+--- a/web/default/src/features/system-settings/api.ts
++++ b/web/default/src/features/system-settings/api.ts
+@@ -21,6 +21,8 @@ import type {
+   ConfirmPaymentComplianceResponse,
+   DeleteLogsResponse,
+   FetchUpstreamRatiosRequest,
++  OfficialPriceSyncStatusResponse,
++  OfficialPriceSyncTriggerResponse,
+   SystemOptionsResponse,
+   UpdateOptionRequest,
+   UpdateOptionResponse,
+@@ -74,3 +76,17 @@ export async function fetchUpstreamRatios(request: FetchUpstreamRatiosRequest) {
+   )
+   return res.data
+ }
++
++export async function getOfficialPriceSyncStatus() {
++  const res = await api.get<OfficialPriceSyncStatusResponse>(
++    '/api/pricing/official-sync/status'
++  )
++  return res.data
++}
++
++export async function triggerOfficialPriceSync() {
++  const res = await api.post<OfficialPriceSyncTriggerResponse>(
++    '/api/pricing/official-sync/trigger'
++  )
++  return res.data
++}
 diff --git a/web/default/src/features/system-settings/content/appearance-settings.tsx b/web/default/src/features/system-settings/content/appearance-settings.tsx
 new file mode 100644
 index 0000000..aca296d
@@ -13668,11 +13805,150 @@ index 0000000..bf5eca3
 +    </Form>
 +  )
 +}
+diff --git a/web/default/src/features/system-settings/models/official-price-sync-panel.tsx b/web/default/src/features/system-settings/models/official-price-sync-panel.tsx
+new file mode 100644
+index 0000000..1aa9f13
+--- /dev/null
++++ b/web/default/src/features/system-settings/models/official-price-sync-panel.tsx
+@@ -0,0 +1,133 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { Clock, Cloud, RefreshCcw } from 'lucide-react'
++import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
++import { StatusBadge } from '@/components/status-badge'
++import { Button } from '@/components/ui/button'
++import {
++  getOfficialPriceSyncStatus,
++  triggerOfficialPriceSync,
++} from '../api'
++
++function formatLastRun(timestamp?: number): string {
++  if (!timestamp) return 'Never'
++  return new Intl.DateTimeFormat(undefined, {
++    year: 'numeric',
++    month: '2-digit',
++    day: '2-digit',
++    hour: '2-digit',
++    minute: '2-digit',
++  }).format(new Date(timestamp * 1000))
++}
++
++export function OfficialPriceSyncPanel() {
++  const { t } = useTranslation()
++  const queryClient = useQueryClient()
++
++  const { data, isLoading } = useQuery({
++    queryKey: ['official-price-sync-status'],
++    queryFn: getOfficialPriceSyncStatus,
++  })
++
++  const status = data?.data
++
++  const syncMutation = useMutation({
++    mutationFn: triggerOfficialPriceSync,
++    onSuccess: (result) => {
++      if (!result.success) {
++        toast.error(result.message || t('Official price sync failed'))
++        return
++      }
++      toast.success(
++        t('Official prices synced: {{count}} models', {
++          count:
++            result.data.updated_models ?? result.data.status.last_models_num,
++        })
++      )
++      queryClient.invalidateQueries({
++        queryKey: ['official-price-sync-status'],
++      })
++      queryClient.invalidateQueries({ queryKey: ['system-options'] })
++    },
++    onError: (error: Error) => {
++      toast.error(error.message || t('Official price sync failed'))
++    },
++  })
++
++  const isBusy = isLoading || syncMutation.isPending
++  const sourceUrl = status?.source_url || 'https://models.dev/api.json'
++
++  return (
++    <div className='rounded-lg border bg-background p-4'>
++      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
++        <div className='space-y-3'>
++          <div className='flex flex-wrap items-center gap-2'>
++            <Cloud className='text-muted-foreground h-4 w-4' />
++            <span className='font-medium'>{t('Official models.dev sync')}</span>
++            <StatusBadge
++              label={
++                status?.last_ok
++                  ? t('Last sync ok')
++                  : status?.last_run_unix
++                    ? t('Last sync failed')
++                    : t('Not synced')
++              }
++              variant={
++                status?.last_ok
++                  ? 'success'
++                  : status?.last_run_unix
++                    ? 'danger'
++                    : 'neutral'
++              }
++              size='sm'
++              copyable={false}
++            />
++          </div>
++          <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-2 text-sm'>
++            <span className='flex items-center gap-1.5'>
++              <Clock className='h-3.5 w-3.5' />
++              {t('Last run')}: {formatLastRun(status?.last_run_unix)}
++            </span>
++            <span>
++              {t('Models')}: {status?.last_models_num ?? 0}
++            </span>
++            <span className='font-mono text-xs'>{sourceUrl}</span>
++          </div>
++          {status?.last_error && (
++            <div className='text-destructive text-sm'>{status.last_error}</div>
++          )}
++        </div>
++        <Button
++          onClick={() => syncMutation.mutate()}
++          disabled={isBusy}
++          className='w-full lg:w-auto'
++        >
++          {syncMutation.isPending ? (
++            <span className='mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
++          ) : (
++            <RefreshCcw className='mr-2 h-4 w-4' />
++          )}
++          {t('Sync official prices')}
++        </Button>
++      </div>
++    </div>
++  )
++}
 diff --git a/web/default/src/features/system-settings/models/section-registry.tsx b/web/default/src/features/system-settings/models/section-registry.tsx
-index 2fe3d8e..3c75911 100644
+index 2fe3d8e..8fca863 100644
 --- a/web/default/src/features/system-settings/models/section-registry.tsx
 +++ b/web/default/src/features/system-settings/models/section-registry.tsx
-@@ -21,9 +21,11 @@ import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment
+@@ -21,9 +21,12 @@ import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment
  import type { ModelSettings } from '../types'
  import { createSectionRegistry } from '../utils/section-registry'
  import { ClaudeSettingsCard } from './claude-settings-card'
@@ -13680,11 +13956,44 @@ index 2fe3d8e..3c75911 100644
  import { GeminiSettingsCard } from './gemini-settings-card'
  import { GlobalSettingsCard } from './global-settings-card'
  import { GrokSettingsCard } from './grok-settings-card'
++import { RatioSettingsCard } from './ratio-settings-card'
 +import { UserAgentSettingsSection } from './user-agent-settings-section'
  
  function formatJsonForEditor(value: string, fallback: string) {
    const raw = (value ?? '').toString().trim()
-@@ -120,6 +122,16 @@ const MODELS_SECTIONS = [
+@@ -35,6 +38,31 @@ function formatJsonForEditor(value: string, fallback: string) {
+   }
+ }
+ 
++const getModelDefaults = (settings: ModelSettings) => ({
++  ModelPrice: settings.ModelPrice,
++  ModelRatio: settings.ModelRatio,
++  CacheRatio: settings.CacheRatio,
++  CreateCacheRatio: settings.CreateCacheRatio,
++  CompletionRatio: settings.CompletionRatio,
++  ImageRatio: settings.ImageRatio,
++  AudioRatio: settings.AudioRatio,
++  AudioCompletionRatio: settings.AudioCompletionRatio,
++  ExposeRatioEnabled: settings.ExposeRatioEnabled,
++  BillingMode: settings['billing_setting.billing_mode'],
++  BillingExpr: settings['billing_setting.billing_expr'],
++})
++
++const getGroupDefaults = (settings: ModelSettings) => ({
++  TopupGroupRatio: settings.TopupGroupRatio,
++  GroupRatio: settings.GroupRatio,
++  UserUsableGroups: settings.UserUsableGroups,
++  GroupGroupRatio: settings.GroupGroupRatio,
++  AutoGroups: settings.AutoGroups,
++  DefaultUseAutoGroup: settings.DefaultUseAutoGroup,
++  GroupSpecialUsableGroup:
++    settings['group_ratio_setting.group_special_usable_group'],
++})
++
+ const MODELS_SECTIONS = [
+   {
+     id: 'global',
+@@ -120,6 +148,29 @@ const MODELS_SECTIONS = [
        />
      ),
    },
@@ -13698,9 +14007,43 @@ index 2fe3d8e..3c75911 100644
 +    titleKey: 'Client Identity',
 +    build: () => <ClientIdentitySettingsCard />,
 +  },
++  {
++    id: 'model-pricing',
++    titleKey: 'Model Pricing',
++    build: (settings: ModelSettings) => (
++      <RatioSettingsCard
++        titleKey='Model Pricing'
++        modelDefaults={getModelDefaults(settings)}
++        groupDefaults={getGroupDefaults(settings)}
++        toolPricesDefault={settings['tool_price_setting.prices']}
++        visibleTabs={['models', 'tool-prices', 'upstream-sync']}
++      />
++    ),
++  },
    {
      id: 'channel-affinity',
      titleKey: 'Channel Affinity',
+diff --git a/web/default/src/features/system-settings/models/upstream-ratio-sync.tsx b/web/default/src/features/system-settings/models/upstream-ratio-sync.tsx
+index 38bafa8..9da2479 100644
+--- a/web/default/src/features/system-settings/models/upstream-ratio-sync.tsx
++++ b/web/default/src/features/system-settings/models/upstream-ratio-sync.tsx
+@@ -54,6 +54,7 @@ import {
+   type ResolutionsMap,
+ } from './upstream-ratio-sync-helpers'
+ import { UpstreamRatioSyncTable } from './upstream-ratio-sync-table'
++import { OfficialPriceSyncPanel } from './official-price-sync-panel'
+ 
+ // ---------------------------------------------------------------------------
+ // Types
+@@ -518,6 +519,8 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
+ 
+   return (
+     <div className='space-y-4'>
++      <OfficialPriceSyncPanel />
++
+       <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+         <div className='flex flex-col gap-2 sm:flex-row'>
+           <Button onClick={handleOpenChannelDialog} disabled={isLoading}>
 diff --git a/web/default/src/features/system-settings/models/user-agent-settings-section.tsx b/web/default/src/features/system-settings/models/user-agent-settings-section.tsx
 new file mode 100644
 index 0000000..86d3672
@@ -14638,6 +14981,40 @@ index 0000000..d13eb55
 +    </SettingsSection>
 +  )
 +}
+diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
+index 2122268..808348a 100644
+--- a/web/default/src/features/system-settings/types.ts
++++ b/web/default/src/features/system-settings/types.ts
+@@ -375,6 +375,29 @@ export type FetchUpstreamRatiosRequest = {
+   timeout: number
+ }
+ 
++export type OfficialPriceSyncStatus = {
++  last_run_unix: number
++  last_ok: boolean
++  last_error: string
++  last_models_num: number
++  source_url: string
++}
++
++export type OfficialPriceSyncStatusResponse = {
++  success: boolean
++  message: string
++  data: OfficialPriceSyncStatus
++}
++
++export type OfficialPriceSyncTriggerResponse = {
++  success: boolean
++  message: string
++  data: {
++    updated_models?: number
++    status: OfficialPriceSyncStatus
++  }
++}
++
+ export type TestResult = {
+   name: string
+   status: 'success' | 'error'
 diff --git a/web/default/src/features/usage-logs/components/usage-logs-mobile-card.tsx b/web/default/src/features/usage-logs/components/usage-logs-mobile-card.tsx
 index 4a6eb0e..374371c 100644
 --- a/web/default/src/features/usage-logs/components/usage-logs-mobile-card.tsx

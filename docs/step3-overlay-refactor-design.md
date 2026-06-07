@@ -33,7 +33,7 @@
 | 官方价格同步 | controller + `pkg/compat/pricesync` wrapper | 默认自动任务已关闭 |
 | SQLite 调优 | `pkg/compat/sqlite` + 启动调用 | 小模块 |
 | SSE pool | `pkg/compat/ssepool` + relay/helper | 部分迁移 |
-| 后台重设计 | 前端多处 dashboard/theme/command palette | 原型化，不是完整 Phase3 |
+| 后台重设计 | 前端多处 dashboard/theme/command palette，模型定价入口补到 Models & Routing | 局部增强，不是完整 Phase3 |
 
 ## 后续重构优先级
 

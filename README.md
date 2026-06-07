@@ -31,6 +31,7 @@
 - Claude Messages / Claude Code 兼容：
   - Claude attribution 与部分工具调用历史兼容修补。
   - Claude thinking 请求优先选择支持 thinking 的渠道。
+  - 渠道 thinking 支持开关是三态：自动推断、强制支持、强制不支持；未配置时按渠道类型推断。
   - 无 thinking 兼容渠道时，发送前清洗 `thinking` / `redacted_thinking` block 和 request `thinking` 参数。
 
 ### 后台功能
@@ -55,10 +56,11 @@
   - 每渠道可设置启用、间隔分钟、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
   - 支持跨天窗口，例如 `23:00-07:00`。
 - 官方价格同步：
+  - 入口：`系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync`
   - 来源固定为 `https://models.dev/api.json`。
   - 后端只接收白名单官方 provider，并过滤带 `/` 的聚合商/转售商模型别名，例如 `openai/gpt-*`、`siliconflow/deepseek-*`。
   - 后台“上游价格同步”只暴露 `models.dev` 预设，不再列出生产渠道或 OpenRouter/custom 入口。
-  - 自动后台同步默认关闭；需要自动跑时显式设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
+  - 后台有官方同步状态和手动同步按钮；自动后台同步默认关闭，需要自动跑时显式设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
 - 统计看板：
   - 支持 `1d`、`7d`、`30d`、`1y`、`all`。
   - 管理员可看渠道、模型、用户维度统计。
@@ -75,6 +77,7 @@
 - 当前代码不是 README 旧版描述的 `pkg/compat/` 全量 hook 化架构；仍有不少兼容逻辑直接落在上游目录中。
 - 没有承诺 7MB 镜像体积。实际 release tar 大约几十 MB，取决于 upstream 构建产物。
 - 没有完整 metrics 面板；统计看板基于现有 NewAPI 日志表查询。
+- 后台视觉与导航是局部增强：包含主题切换、命令面板、统计页和部分设置页整理，不是完整 Phase3 管理后台重写。
 - 官方价格同步不是“所有模型官网逐一抓取”。当前实现以 `models.dev` 的官方 provider 元数据为源，并做 provider 白名单与 slash alias 过滤；若 `models.dev` 本身缺失某个官方模型，需要后续补映射或手工维护。
 - 生产 compose 目前需要 `user: "0:0"`，因为服务器挂载的 `logs` / `data` 目录权限按 root 跑最稳。移除 root override 前必须先验证挂载目录权限。
 

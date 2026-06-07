@@ -40,8 +40,13 @@
 - 定时渠道测试单位修正：
   - 每渠道 `auto_test_interval` 的语义是分钟，和全局 AutoTestChannelMinutes 及后台表单一致。
   - 跨天窗口仍按 `23:00-07:00` 这种格式支持。
+- Claude thinking 支持开关修正：
+  - 后端字段保持 `*bool`，nil 表示自动推断。
+  - 前端改为三态：自动推断、强制支持、强制不支持；不会再把未配置渠道保存成 `false`。
 - 官方价格同步自动任务默认关闭；保留手动 trigger API。需要自动同步时设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
 - 官方价格同步补成 official-only：
+  - `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` 增加官方同步状态和手动同步按钮。
+  - 模型价格页也挂到 `系统设置 -> 模型相关` 下，旧的 `计费与支付 -> Model Pricing` 入口暂时保留，避免破坏原导航。
   - `GetSyncableChannels` 只返回 `models.dev` 预设，不再把生产渠道、OpenRouter 或 custom endpoint 暴露给后台同步入口。
   - `models.dev` 转换只接收官方 provider 白名单。
   - 即使在官方 provider bucket 中，也跳过带 `/` 的模型名，避免导入 `openai/gpt-*`、`siliconflow/deepseek-*` 等聚合商/转售商别名。
