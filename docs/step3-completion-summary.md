@@ -57,6 +57,8 @@
   - `models.dev` 转换只接收官方 provider 白名单。
   - 即使在官方 provider bucket 中，也跳过带 `/` 的模型名，避免导入 `openai/gpt-*`、`siliconflow/deepseek-*` 等聚合商/转售商别名。
   - 前端同步弹窗只读展示固定 endpoint，不再允许切换到普通渠道接口。
+- SQLite 调优补齐：
+  - 主库 SQLite 和独立日志 SQLite 都会应用 WAL、`synchronous=NORMAL`、`busy_timeout=120000` 和保守连接池。
 
 ## 维护建议
 

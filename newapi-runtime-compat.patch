@@ -2856,10 +2856,10 @@ index 03740d2..8909b7d 100644
  		return GetChannelById(id, true)
 diff --git a/model/client_identity.go b/model/client_identity.go
 new file mode 100644
-index 0000000..a3679d6
+index 0000000..6a6f6d9
 --- /dev/null
 +++ b/model/client_identity.go
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,304 @@
 +package model
 +
 +import (
@@ -2897,7 +2897,7 @@ index 0000000..a3679d6
 +	Enabled             bool   `json:"enabled"`
 +	Mode                string `json:"mode"` // force_global, disabled
 +	DeviceID            string `json:"device_id"`
-+	SessionIDMode       string `json:"session_id_mode"` // preserve_or_fill, force_global, disabled
++	SessionIDMode       string `json:"session_id_mode"` // force_global, disabled
 +	FixedSessionID      string `json:"fixed_session_id"`
 +	SyncSessionHeader   bool   `json:"sync_session_header"`
 +	RotateEnabled       bool   `json:"rotate_enabled"`
@@ -2924,9 +2924,8 @@ index 0000000..a3679d6
 +	IdentityModeForceGlobal = "force_global"
 +	IdentityModeDisabled    = "disabled"
 +
-+	SessionIDModePreserveOrFill = "preserve_or_fill"
-+	SessionIDModeForceGlobal    = "force_global"
-+	SessionIDModeDisabled       = "disabled"
++	SessionIDModeForceGlobal = "force_global"
++	SessionIDModeDisabled    = "disabled"
 +
 +	RotateUnitWeek  = "week"
 +	RotateUnitMonth = "month"
@@ -3166,7 +3165,7 @@ index 0000000..a3679d6
 +	return next.Unix()
 +}
 diff --git a/model/main.go b/model/main.go
-index 9083ee5..aaea5dc 100644
+index 9083ee5..45f32e2 100644
 --- a/model/main.go
 +++ b/model/main.go
 @@ -10,6 +10,7 @@ import (
@@ -3194,7 +3193,24 @@ index 9083ee5..aaea5dc 100644
  		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
  
  		if !common.IsMasterNode {
-@@ -281,6 +288,7 @@ func migrateDB() error {
+@@ -231,8 +238,14 @@ func InitLogDB() (err error) {
+ 		if err != nil {
+ 			return err
+ 		}
+-		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
+-		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
++		if common.LogSqlType == common.DatabaseTypeSQLite {
++			if err := compatsqlite.TunePragmas(LOG_DB); err != nil {
++				return err
++			}
++		} else {
++			sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
++			sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
++		}
+ 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+ 
+ 		if !common.IsMasterNode {
+@@ -281,6 +294,7 @@ func migrateDB() error {
  		&CustomOAuthProvider{},
  		&UserOAuthBinding{},
  		&PerfMetric{},
@@ -3202,7 +3218,7 @@ index 9083ee5..aaea5dc 100644
  	)
  	if err != nil {
  		return err
-@@ -330,6 +338,7 @@ func migrateDBFast() error {
+@@ -330,6 +344,7 @@ func migrateDBFast() error {
  		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
  		{&UserOAuthBinding{}, "UserOAuthBinding"},
  		{&PerfMetric{}, "PerfMetric"},
