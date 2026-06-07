@@ -97,6 +97,7 @@
 | 模型/渠道/用户统计 | `Dashboard -> Model Call Analytics`、`Dashboard -> Channel Analytics`、`Dashboard -> User Analytics` |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页的 `Logs` / `View logs` 动作会跳到 `Usage Logs -> common`，并自动带入模型、渠道或用户过滤条件 |
+| 站点基础信息 | `系统设置 -> 站点设置 -> System Information`，可配置系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策，并支持 JSON 导入/导出 |
 | 顶部文档地址 | `系统设置 -> 站点设置 -> Header navigation -> Documentation URL` |
 | 侧边栏模块 | `系统设置 -> 站点设置 -> Sidebar modules`，可配置显示/隐藏、顶层分组排序和分组内模块排序，并可从 Operations Center 直达 |
 | 全局默认外观 | `系统设置 -> 内容/外观 -> Appearance`，可配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出 |
