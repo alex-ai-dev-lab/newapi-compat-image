@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..9c7109c
+index 0000000..30a45d4
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,733 @@
+@@ -0,0 +1,767 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10947,6 +10947,8 @@ index 0000000..9c7109c
 +          'client identity',
 +          'dashboard defaults',
 +          'appearance',
++          'system information',
++          'site info',
 +          'header',
 +          'sidebar',
 +          'import',
@@ -11226,6 +11228,38 @@ index 0000000..9c7109c
 +          navigate({
 +            to: '/system-settings/content/$section',
 +            params: { section: 'appearance' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-system-information',
++        label: 'System Information',
++        description:
++          'Configure and import/export site identity, homepage copy, agreement, and privacy policy',
++        icon: FileText,
++        keywords: [
++          'system',
++          'information',
++          'site',
++          'site info',
++          'logo',
++          'footer',
++          'about',
++          'homepage',
++          'agreement',
++          'privacy',
++          'policy',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/site/$section',
++            params: { section: 'system-info' },
 +          })
 +          close()
 +        },
@@ -25699,10 +25733,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..c442b72
+index 0000000..4c30699
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,922 @@
+@@ -0,0 +1,943 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -25900,6 +25934,19 @@ index 0000000..c442b72
 +    link: { kind: 'system-settings', area: 'content', section: 'appearance' },
 +  },
 +  {
++    title: 'System information',
++    description:
++      'Edit and import/export site identity, homepage content, agreements, and policy copy.',
++    icon: FileText,
++    status: 'Site identity',
++    cta: 'Edit site info',
++    link: {
++      kind: 'system-settings',
++      area: 'site',
++      section: 'system-info',
++    },
++  },
++  {
 +    title: 'Header navigation',
 +    description:
 +      'Edit and import/export top navigation modules and the documentation URL.',
@@ -26049,6 +26096,14 @@ index 0000000..c442b72
 +          kind: 'system-settings',
 +          area: 'content',
 +          section: 'appearance',
++        },
++      },
++      {
++        label: 'System information',
++        link: {
++          kind: 'system-settings',
++          area: 'site',
++          section: 'system-info',
 +        },
 +      },
 +      {
