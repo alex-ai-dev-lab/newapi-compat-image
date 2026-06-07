@@ -42,18 +42,21 @@ Auth 配置页增量：`系统设置 -> 认证/Auth -> Basic Authentication`、`
 
 Custom OAuth 列表资源增量：`系统设置 -> 认证/Auth -> Custom OAuth` 已补充 provider 列表 JSON 导入/导出。导出会将每个 provider 的 `client_secret` 写成 `__SECRET_REDACTED__`；导入按 `slug` upsert，slug 已存在则更新该 provider 并在脱敏占位符时保留当前密钥，slug 不存在则创建新 provider；导入不会删除生产中已有但导入文件缺失的 provider，避免误删登录入口。
 
+Request Limits 安全配置增量：`系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 已补充 JSON 导入/导出。Rate Limiting 导出/导入模型请求限流开关、周期、总请求数、成功请求数和分组限流 JSON；Sensitive Words 导出/导入敏感词扫描开关、Prompt 扫描开关和敏感词列表；SSRF Protection 导出/导入 SSRF 总开关、私网 IP 放行、域名/IP 黑白名单模式、域名/IP 列表、端口列表和域名解析后 IP 过滤开关。导入仍只更新当前表单，必须点保存才写入后台；Operations Center 的 Safety 配置地图和命令面板已新增 Rate Limiting、Sensitive Words、SSRF Protection 直达入口，可通过 `rate limit`、`sensitive`、`ssrf`、`json`、`import`、`export` 等关键词找到。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
 |---|---|
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/System Information/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`、`Rate Limiting`、`Sensitive Words`、`SSRF Protection`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
 | 模型价格/官方同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
+| 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
 | 渠道定时测试配置 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持开关 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |

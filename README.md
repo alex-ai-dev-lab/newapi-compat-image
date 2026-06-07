@@ -91,6 +91,7 @@
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
+| 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
 | 渠道测试调度 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，可配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
