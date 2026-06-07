@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..e4391cd
+index 0000000..80b52ef
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,819 @@
+@@ -0,0 +1,843 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11280,6 +11280,30 @@ index 0000000..e4391cd
 +          navigate({
 +            to: '/system-settings/content/$section',
 +            params: { section: 'api-info' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-faq',
++        label: 'FAQ',
++        description: 'Configure and import/export frequently asked questions',
++        icon: FileText,
++        keywords: [
++          'faq',
++          'question',
++          'answer',
++          'content',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/content/$section',
++            params: { section: 'faq' },
 +          })
 +          close()
 +        },
@@ -22054,6 +22078,213 @@ index e21f6eb..f40a026 100644
      </SettingsSection>
    )
  }
+diff --git a/web/default/src/features/system-settings/content/faq-section.tsx b/web/default/src/features/system-settings/content/faq-section.tsx
+index 4ca07c4..51a73ca 100644
+--- a/web/default/src/features/system-settings/content/faq-section.tsx
++++ b/web/default/src/features/system-settings/content/faq-section.tsx
+@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
+ import * as z from 'zod'
+ import { useForm } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
+-import { Plus, Edit, Trash2, Save } from 'lucide-react'
++import { Plus, Edit, Trash2, Save, Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import {
+@@ -90,6 +90,18 @@ const faqSchema = z.object({
+ 
+ type FAQFormValues = z.infer<typeof faqSchema>
+ 
++type FAQImportExportPayload = {
++  FAQ?: {
++    enabled?: boolean
++    items?: unknown
++  }
++  enabled?: boolean
++  items?: unknown
++  faq?: unknown
++  'console_setting.faq_enabled'?: boolean
++  'console_setting.faq'?: unknown
++}
++
+ export function FAQSection({ enabled, data }: FAQSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
+@@ -98,6 +110,8 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+   const [hasChanges, setHasChanges] = useState(false)
+   const [selectedIds, setSelectedIds] = useState<number[]>([])
+   const [showDialog, setShowDialog] = useState(false)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+   const [editingFaq, setEditingFaq] = useState<FAQ | null>(null)
+   const [deleteTarget, setDeleteTarget] = useState<'single' | 'batch'>('single')
+@@ -130,6 +144,26 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+     setIsEnabled(enabled)
+   }, [enabled])
+ 
++  const normalizeFAQList = (value: unknown): FAQ[] => {
++    const raw = typeof value === 'string' ? JSON.parse(value || '[]') : value
++    if (!Array.isArray(raw)) {
++      throw new Error('FAQ items must be an array')
++    }
++
++    return raw.map((item, idx) => {
++      const parsed = faqSchema.parse(item)
++      return {
++        id:
++          typeof item === 'object' &&
++          item !== null &&
++          typeof (item as { id?: unknown }).id === 'number'
++            ? (item as { id: number }).id
++            : idx + 1,
++        ...parsed,
++      }
++    })
++  }
++
+   const handleToggleEnabled = async (checked: boolean) => {
+     try {
+       await updateOption.mutateAsync({
+@@ -220,6 +254,12 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+         key: 'console_setting.faq',
+         value: JSON.stringify(faqList),
+       })
++      if (isEnabled !== enabled) {
++        await updateOption.mutateAsync({
++          key: 'console_setting.faq_enabled',
++          value: isEnabled,
++        })
++      }
+       setHasChanges(false)
+       toast.success(t('FAQ saved successfully'))
+     } catch {
+@@ -227,6 +267,79 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+     }
+   }
+ 
++  const exportConfig = async () => {
++    const payload = {
++      FAQ: {
++        enabled: isEnabled,
++        items: faqList,
++      },
++      'console_setting.faq_enabled': isEnabled,
++      'console_setting.faq': faqList,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-faq.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('FAQ JSON exported and copied'))
++    } catch {
++      toast.success(t('FAQ JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          FAQ: {
++            enabled: isEnabled,
++            items: faqList,
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as FAQImportExportPayload
++      const source = raw.FAQ ?? raw
++      const importedItems =
++        source.items ?? raw.faq ?? raw['console_setting.faq']
++      const importedEnabled =
++        typeof source.enabled === 'boolean'
++          ? source.enabled
++          : raw['console_setting.faq_enabled']
++
++      if (importedItems === undefined) {
++        throw new Error('Missing FAQ items')
++      }
++
++      const nextFAQList = normalizeFAQList(importedItems)
++      setFaqList(nextFAQList)
++      setSelectedIds([])
++      if (typeof importedEnabled === 'boolean') {
++        setIsEnabled(importedEnabled)
++      }
++      setHasChanges(true)
++      setImportOpen(false)
++      toast.success(t('FAQ imported. Click Save Settings to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : t('Invalid FAQ JSON')
++      )
++    }
++  }
++
+   const toggleSelectAll = (checked: boolean) => {
+     setSelectedIds(checked ? faqList.map((item) => item.id) : [])
+   }
+@@ -265,6 +378,14 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+               <Save className='mr-2 h-4 w-4' />
+               {updateOption.isPending ? t('Saving...') : t('Save Settings')}
+             </Button>
++            <Button onClick={exportConfig} size='sm' variant='outline'>
++              <Download className='mr-2 h-4 w-4' />
++              {t('Export JSON')}
++            </Button>
++            <Button onClick={openImportDialog} size='sm' variant='outline'>
++              <Upload className='mr-2 h-4 w-4' />
++              {t('Import JSON')}
++            </Button>
+           </div>
+           <SettingsSwitchField
+             checked={isEnabled}
+@@ -423,6 +544,30 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
+         </DialogContent>
+       </Dialog>
+ 
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import FAQ JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported FAQ JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
++
+       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+         <AlertDialogContent>
+           <AlertDialogHeader>
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
 index 147a11d..3377d9d 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
@@ -26206,10 +26437,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..ec17adc
+index 0000000..1782442
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,960 @@
+@@ -0,0 +1,968 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -26586,6 +26817,14 @@ index 0000000..ec17adc
 +          kind: 'system-settings',
 +          area: 'content',
 +          section: 'api-info',
++        },
++      },
++      {
++        label: 'FAQ',
++        link: {
++          kind: 'system-settings',
++          area: 'content',
++          section: 'faq',
 +        },
 +      },
 +      {

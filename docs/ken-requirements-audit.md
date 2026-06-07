@@ -28,13 +28,15 @@
 
 本轮 API 地址模块增量：`系统设置 -> 内容/外观 -> API Addresses` 已补充 JSON 导入/导出，导出会保存 `console_setting.api_info_enabled` 和 `console_setting.api_info`；导入支持 `ApiAddresses` 包装格式、`apiInfo` 别名和原 option key，导入后只更新当前页面状态，仍需管理员点 `Save Settings` 才写入后台；Operations Center 的配置地图和命令面板也新增 API Addresses 入口，可通过 `api address`、`api info`、`endpoint`、`json`、`import`、`export` 等关键词找到。这是内容模块迁移能力的局部补强，不代表全部内容模块都已支持导入/导出。
 
+本轮 FAQ 模块增量：`系统设置 -> 内容/外观 -> FAQ` 已补充 JSON 导入/导出，导出会保存 `console_setting.faq_enabled` 和 `console_setting.faq`；导入支持 `FAQ` 包装格式、`faq` 别名和原 option key，导入后只更新当前页面状态，仍需管理员点 `Save Settings` 才写入后台；Operations Center 的配置地图和命令面板也新增 FAQ 入口，可通过 `faq`、`question`、`answer`、`json`、`import`、`export` 等关键词找到。这是内容模块迁移能力的局部补强，不代表全部内容模块都已支持导入/导出。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
 |---|---|
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/System Information/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`System Information`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
@@ -46,6 +48,7 @@
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
 | 控制台公告 | `系统设置 -> 内容/外观 -> Announcements`，配置公告列表和启用状态，并支持 JSON 导入/导出 |
 | API 地址展示 | `系统设置 -> 内容/外观 -> API Addresses`，配置控制台 API 地址卡片和启用状态，并支持 JSON 导入/导出 |
+| FAQ | `系统设置 -> 内容/外观 -> FAQ`，配置常见问题列表和启用状态，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页 `Logs` / `View logs` 动作，或命令面板 `Usage Logs`，进入 `Usage Logs -> common` |
 | 主题/外观 | `系统设置 -> 内容/外观 -> Appearance` 配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出；顶部主题切换保存用户本地偏好 |
 | 站点基础信息 | `系统设置 -> 站点设置 -> System Information`，配置系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策，并支持 JSON 导入/导出 |
