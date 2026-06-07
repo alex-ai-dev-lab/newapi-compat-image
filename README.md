@@ -41,6 +41,7 @@
   - 优先级：渠道自定义 UA > 渠道选择 UA > 模型大类全局 UA > 系统默认 UA
   - 模型大类：`openai`、`claude`、`grok`、`gemini`、`other`
   - 支持启用/禁用、排序、导入/导出、默认 UA。
+  - 新增、编辑、删除后会立即刷新 relay 热路径缓存。
 - Client Identity 管理：
   - 入口：`系统设置 -> 模型相关 -> Client Identity`
   - Codex：强制写入 `client_metadata.x-codex-installation-id`

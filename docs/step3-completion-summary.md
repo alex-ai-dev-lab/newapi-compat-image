@@ -28,6 +28,9 @@
   - Generic: 任意 JSON body 字段或 header 字段
 - Generic header 不再只写入入站请求；relay 层会把 identity header patch 明确应用到上游请求。
 - Client Identity 后台补齐 Generic 字段配置 UI。
+- User-Agent 管理修正：
+  - 新增、编辑、删除 UA 后立即刷新 relay 热路径缓存，不再最多等待 5 分钟才生效。
+  - 覆盖测试：`TestInitUserAgentCacheRefreshesImmediately`。
 - 统计看板修复：
   - API 返回值正确解包。
   - 用户统计页不再是空白占位。
