@@ -160,6 +160,20 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
+2026-06-08 System Settings navigation snapshot 刷新批次部署验证：
+
+- Patch repo commit `f9fd2a2` (`Refresh system navigation snapshot patch`) built successfully by Actions run `27117337143` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27117337143`).
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; server-downloaded tar checksum was `27ee25f5f932fcbc2d1bbed8f51bdaf277b98a936e3272548797a960fa05c1a3`.
+- Previous production image was backed up as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-131944`.
+- Loaded production image ID is `sha256:5c3db2a995e406e1e77b2330966bb3dbe289dc2d3fb46926706a6df922395443`; previous image ID was `sha256:3a56556bec85e70f573ed558feafb0b5f78dd83928891064c653be798b57ab33`.
+- Compose still contains `user: "0:0"`, container `ConfigUser=0:0`, and container state is running/healthy.
+- Public HTTP 200: `/api/status`, `/system-settings`, `/system-settings/operations/overview`, `/system-settings/site/settings-navigation`, `/system-settings/site/sidebar-modules`, `/system-settings/site/header-navigation`, `/system-settings/models/user-agents`, `/system-settings/models/client-identity`, and `/system-settings/security/upstream-error-rules`.
+- `/api/status` exposes `SystemSettingsNavigation` with length `932`, `SidebarSectionOrder=chat,console,personal,admin`, Dashboard defaults `dashboard_default_time_range=7d`, `dashboard_auto_refresh=true`, `dashboard_refresh_interval=5`, and `HeaderNavModules` length `147`.
+- SQLite quick pragma check: `journal_mode=wal`, `busy_timeout=5000`, `synchronous=2`, `wal_autocheckpoint=1000`.
+- Recent 20-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`; `codex_access_restricted` count was also `0`.
+- Recent 20-minute production logs showed `client identity applied` count `11`.
+- Homepage variant was checked with local headless Chrome: rendered DOM contains `One`, `endpoint`, `Every`, and `model`; screenshot saved locally at `D:\Code\newapi\homepage-after-f9fd2a2.png` and DOM dump at `D:\Code\newapi\homepage-after-f9fd2a2-dom.html`.
+
 2026-06-08 Client Identity / Upstream Error Rules JSON 迁移批次部署验证：
 
 - Patch repo commit `d6f068d` (`Add identity and error rule import export`) built successfully by Actions run `27113981263`.
