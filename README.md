@@ -50,11 +50,13 @@
   - Claude：强制写入 `metadata.user_id.device_id`、`metadata.user_id.session_id`，并同步 `X-Claude-Code-Session-Id`
   - Generic：可配置任意 JSON body 字段或 header 字段，适配后续其他厂商。
   - 支持手动生成、立即轮换、按周/月/年自动轮换。
+  - 支持 JSON 导入/导出；导入只回填当前页面表单，仍需点击保存后写入后台。
 - 上游错误归一化：
   - 仅归一化错误响应。
   - 客户端看到固定错误信息。
   - DB 规则只能选择固定内置消息或管理员写入的 `custom_message`；不会透传上游错误正文。
   - 后台日志保留上游错误预览，但做脱敏。
+  - 支持规则 JSON 导出和追加导入；导入不会覆盖或删除现有规则，也不会导入上游正文透传/跳过监控这类不安全开关。
 - 定时渠道测试：
   - 每渠道可设置启用、间隔分钟、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
   - 支持跨天窗口，例如 `23:00-07:00`。
@@ -88,11 +90,11 @@
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`、`Global Model Configuration`、`Claude Settings`、`Gemini Settings`、`Grok Settings`、`Channel Affinity`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
-| Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
+| Client Identity | `系统设置 -> 模型相关 -> Client Identity`，支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
 | 模型价格/倍率迁移 | `系统设置 -> 模型相关 -> Model Pricing` 支持模型价格、倍率、分组倍率、工具价格 JSON 导入/导出；官方价格同步动作不参与导入/导出 |
 | 模型运行配置迁移 | `系统设置 -> 模型相关 -> Global Model Configuration`、`Claude`、`Gemini`、`Grok`、`Channel Affinity` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
-| 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
+| 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules`，支持规则 JSON 导出和追加导入；导入不会删除或覆盖现有规则 |
 | 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
 | 计费配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`、`Payment Gateway` 支持 JSON 导入/导出；Payment Gateway 导出的 Epay/Stripe/Creem/Waffo/Waffo Pancake 密钥默认脱敏，导入脱敏占位符时保留当前密钥；导入仅更新当前表单，需保存后写入后台 |
 | 渠道测试调度 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
