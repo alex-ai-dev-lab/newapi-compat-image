@@ -1124,7 +1124,7 @@ index 0000000..b8974dd
 +	assert.Nil(t, compatStreamRetryError(info))
 +}
 diff --git a/controller/misc.go b/controller/misc.go
-index eada490..dc04b37 100644
+index eada490..69a1ee8 100644
 --- a/controller/misc.go
 +++ b/controller/misc.go
 @@ -47,6 +47,7 @@ func GetStatus(c *gin.Context) {
@@ -1135,7 +1135,7 @@ index eada490..dc04b37 100644
  
  	data := gin.H{
  		"version":                     common.Version,
-@@ -61,36 +62,60 @@ func GetStatus(c *gin.Context) {
+@@ -61,36 +62,65 @@ func GetStatus(c *gin.Context) {
  		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
  		"telegram_oauth":              common.TelegramOAuthEnabled,
  		"telegram_bot_name":           common.TelegramBotName,
@@ -1152,13 +1152,18 @@ index eada490..dc04b37 100644
 -		"quota_per_unit":              common.QuotaPerUnit,
 +		"theme":                       themeSetting.Frontend,
 +		"theme_customization": gin.H{
-+			"preset":                themeSetting.CustomizationPreset,
-+			"font":                  themeSetting.CustomizationFont,
-+			"radius":                themeSetting.CustomizationRadius,
-+			"scale":                 themeSetting.CustomizationScale,
-+			"content_layout":        themeSetting.ContentLayout,
-+			"custom_accent_enabled": themeSetting.CustomAccentEnabled,
-+			"custom_accent_color":   themeSetting.CustomAccentColor,
++			"preset":                  themeSetting.CustomizationPreset,
++			"font":                    themeSetting.CustomizationFont,
++			"radius":                  themeSetting.CustomizationRadius,
++			"scale":                   themeSetting.CustomizationScale,
++			"content_layout":          themeSetting.ContentLayout,
++			"custom_accent_enabled":   themeSetting.CustomAccentEnabled,
++			"custom_accent_color":     themeSetting.CustomAccentColor,
++			"custom_palette_enabled":  themeSetting.CustomPaletteEnabled,
++			"custom_background_color": themeSetting.CustomBackgroundColor,
++			"custom_surface_color":    themeSetting.CustomSurfaceColor,
++			"custom_sidebar_color":    themeSetting.CustomSidebarColor,
++			"custom_chart_color":      themeSetting.CustomChartColor,
 +		},
 +		"system_name":        common.SystemName,
 +		"logo":               common.Logo,
@@ -1225,7 +1230,7 @@ index eada490..dc04b37 100644
  
  		"usd_exchange_rate": operation_setting.USDExchangeRate,
  		"price":             operation_setting.Price,
-@@ -103,8 +128,10 @@ func GetStatus(c *gin.Context) {
+@@ -103,8 +133,10 @@ func GetStatus(c *gin.Context) {
  		"faq_enabled":           cs.FAQEnabled,
  
  		// 模块管理配置
@@ -1614,7 +1619,7 @@ index 0000000..67f1d2f
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 +}
 diff --git a/controller/option.go b/controller/option.go
-index b5fdfdc..7894792 100644
+index b5fdfdc..a78ac57 100644
 --- a/controller/option.go
 +++ b/controller/option.go
 @@ -1,6 +1,7 @@
@@ -1753,7 +1758,7 @@ index b5fdfdc..7894792 100644
  func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
  	if strings.TrimSpace(raw) == "" {
  		return
-@@ -223,6 +345,166 @@ func UpdateOption(c *gin.Context) {
+@@ -223,6 +345,182 @@ func UpdateOption(c *gin.Context) {
  			})
  			return
  		}
@@ -1810,6 +1815,22 @@ index b5fdfdc..7894792 100644
 +			c.JSON(http.StatusOK, gin.H{
 +				"success": false,
 +				"message": "无效的自定义强调色，请使用 #RRGGBB 格式",
++			})
++			return
++		}
++	case "theme.custom_palette_enabled":
++		if !isOneOfOptionValue(option.Value.(string), "true", "false") {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的自定义界面调色板开关",
++			})
++			return
++		}
++	case "theme.custom_background_color", "theme.custom_surface_color", "theme.custom_sidebar_color", "theme.custom_chart_color":
++		if !isHexColorOptionValue(option.Value.(string)) {
++			c.JSON(http.StatusOK, gin.H{
++				"success": false,
++				"message": "无效的自定义界面颜色，请使用 #RRGGBB 格式",
 +			})
 +			return
 +		}
@@ -10522,34 +10543,44 @@ index 0000000..177f66b
 +	return &upstreamErrorNormalizeSetting
 +}
 diff --git a/setting/system_setting/theme.go b/setting/system_setting/theme.go
-index 44dfc14..64be9eb 100644
+index 44dfc14..40c2fc5 100644
 --- a/setting/system_setting/theme.go
 +++ b/setting/system_setting/theme.go
-@@ -6,11 +6,25 @@ import (
+@@ -6,11 +6,35 @@ import (
  )
  
  type ThemeSettings struct {
 -	Frontend string `json:"frontend"`
-+	Frontend            string `json:"frontend"`
-+	CustomizationPreset string `json:"customization_preset"`
-+	CustomizationFont   string `json:"customization_font"`
-+	CustomizationRadius string `json:"customization_radius"`
-+	CustomizationScale  string `json:"customization_scale"`
-+	ContentLayout       string `json:"content_layout"`
-+	CustomAccentEnabled bool   `json:"custom_accent_enabled"`
-+	CustomAccentColor   string `json:"custom_accent_color"`
++	Frontend              string `json:"frontend"`
++	CustomizationPreset   string `json:"customization_preset"`
++	CustomizationFont     string `json:"customization_font"`
++	CustomizationRadius   string `json:"customization_radius"`
++	CustomizationScale    string `json:"customization_scale"`
++	ContentLayout         string `json:"content_layout"`
++	CustomAccentEnabled   bool   `json:"custom_accent_enabled"`
++	CustomAccentColor     string `json:"custom_accent_color"`
++	CustomPaletteEnabled  bool   `json:"custom_palette_enabled"`
++	CustomBackgroundColor string `json:"custom_background_color"`
++	CustomSurfaceColor    string `json:"custom_surface_color"`
++	CustomSidebarColor    string `json:"custom_sidebar_color"`
++	CustomChartColor      string `json:"custom_chart_color"`
  }
  
  var themeSettings = ThemeSettings{
 -	Frontend: "classic",
-+	Frontend:            "classic",
-+	CustomizationPreset: "default",
-+	CustomizationFont:   "default",
-+	CustomizationRadius: "default",
-+	CustomizationScale:  "default",
-+	ContentLayout:       "full",
-+	CustomAccentEnabled: false,
-+	CustomAccentColor:   "#2563eb",
++	Frontend:              "classic",
++	CustomizationPreset:   "default",
++	CustomizationFont:     "default",
++	CustomizationRadius:   "default",
++	CustomizationScale:    "default",
++	ContentLayout:         "full",
++	CustomAccentEnabled:   false,
++	CustomAccentColor:     "#2563eb",
++	CustomPaletteEnabled:  false,
++	CustomBackgroundColor: "#ffffff",
++	CustomSurfaceColor:    "#f8fafc",
++	CustomSidebarColor:    "#f8fafc",
++	CustomChartColor:      "#14b8a6",
  }
  
  func init() {
@@ -10817,10 +10848,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..996827c
+index 0000000..b2f9f81
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,1556 @@
+@@ -0,0 +1,1562 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11924,7 +11955,8 @@ index 0000000..996827c
 +      {
 +        id: 'settings-appearance',
 +        label: 'Appearance',
-+        description: 'Customize and import/export global appearance defaults',
++        description:
++          'Customize and import/export theme, font, layout, and interface palette defaults',
 +        icon: Palette,
 +        keywords: [
 +          'theme',
@@ -11932,6 +11964,11 @@ index 0000000..996827c
 +          'light',
 +          'appearance',
 +          'color',
++          'palette',
++          'accent',
++          'surface',
++          'sidebar',
++          'chart',
 +          'font',
 +          'radius',
 +          'density',
@@ -12721,7 +12758,7 @@ index b30caab..1287f62 100644
      <SearchContext.Provider value={{ open, setOpen }}>
        {children}
 diff --git a/web/default/src/context/theme-customization-provider.tsx b/web/default/src/context/theme-customization-provider.tsx
-index 0bead8f..52b22ca 100644
+index 0bead8f..0f4ed82 100644
 --- a/web/default/src/context/theme-customization-provider.tsx
 +++ b/web/default/src/context/theme-customization-provider.tsx
 @@ -24,6 +24,7 @@ import {
@@ -12732,7 +12769,7 @@ index 0bead8f..52b22ca 100644
  import { getCookie, removeCookie, setCookie } from '@/lib/cookies'
  import {
    CONTENT_LAYOUT_VALUES,
-@@ -64,6 +65,36 @@ function applyAttribute(name: string, value: string | null) {
+@@ -64,6 +65,62 @@ function applyAttribute(name: string, value: string | null) {
    }
  }
  
@@ -12766,10 +12803,36 @@ index 0bead8f..52b22ca 100644
 +  '--sidebar-ring',
 +] as const
 +
++const CUSTOM_PALETTE_VARIABLES = [
++  '--background',
++  '--foreground',
++  '--card',
++  '--card-foreground',
++  '--popover',
++  '--popover-foreground',
++  '--secondary',
++  '--secondary-foreground',
++  '--muted',
++  '--muted-foreground',
++  '--accent',
++  '--accent-foreground',
++  '--border',
++  '--input',
++  '--sidebar',
++  '--sidebar-foreground',
++  '--sidebar-accent',
++  '--sidebar-accent-foreground',
++  '--sidebar-border',
++  '--chart-2',
++  '--chart-3',
++  '--chart-4',
++  '--chart-5',
++] as const
++
  type ThemeCustomizationContextType = {
    defaults: ThemeCustomization
    customization: ThemeCustomization
-@@ -96,42 +127,55 @@ const ThemeCustomizationContext =
+@@ -96,42 +153,55 @@ const ThemeCustomizationContext =
  export function ThemeCustomizationProvider(props: {
    children: React.ReactNode
  }) {
@@ -12830,7 +12893,7 @@ index 0bead8f..52b22ca 100644
    // Mirror state to the <body> via data-* attributes so theme-presets.css can
    // override CSS variables at the right cascade layer.
    useEffect(() => {
-@@ -169,63 +213,105 @@ export function ThemeCustomizationProvider(props: {
+@@ -169,63 +239,197 @@ export function ThemeCustomizationProvider(props: {
      applyAttribute('data-theme-content-layout', contentLayout)
    }, [contentLayout])
  
@@ -12840,6 +12903,33 @@ index 0bead8f..52b22ca 100644
 -      removeCookie(THEME_COOKIE_KEYS.preset)
 -    } else {
 -      setCookie(THEME_COOKIE_KEYS.preset, value, COOKIE_MAX_AGE)
+-    }
+-  }, [])
+-
+-  const setFont = useCallback((value: ThemeFont) => {
+-    _setFont(value)
+-    if (value === DEFAULT_THEME_CUSTOMIZATION.font) {
+-      removeCookie(THEME_COOKIE_KEYS.font)
+-    } else {
+-      setCookie(THEME_COOKIE_KEYS.font, value, COOKIE_MAX_AGE)
+-    }
+-  }, [])
+-
+-  const setRadius = useCallback((value: ThemeRadius) => {
+-    _setRadius(value)
+-    if (value === DEFAULT_THEME_CUSTOMIZATION.radius) {
+-      removeCookie(THEME_COOKIE_KEYS.radius)
+-    } else {
+-      setCookie(THEME_COOKIE_KEYS.radius, value, COOKIE_MAX_AGE)
+-    }
+-  }, [])
+-
+-  const setScale = useCallback((value: ThemeScale) => {
+-    _setScale(value)
+-    if (value === DEFAULT_THEME_CUSTOMIZATION.scale) {
+-      removeCookie(THEME_COOKIE_KEYS.scale)
+-    } else {
+-      setCookie(THEME_COOKIE_KEYS.scale, value, COOKIE_MAX_AGE)
 +  useEffect(() => {
 +    if (
 +      !defaults.customAccentEnabled ||
@@ -12849,15 +12939,14 @@ index 0bead8f..52b22ca 100644
 +      return
      }
 -  }, [])
- 
--  const setFont = useCallback((value: ThemeFont) => {
--    _setFont(value)
--    if (value === DEFAULT_THEME_CUSTOMIZATION.font) {
--      removeCookie(THEME_COOKIE_KEYS.font)
+-
+-  const setContentLayout = useCallback((value: ContentLayout) => {
+-    _setContentLayout(value)
+-    if (value === DEFAULT_THEME_CUSTOMIZATION.contentLayout) {
+-      removeCookie(THEME_COOKIE_KEYS.contentLayout)
 -    } else {
--      setCookie(THEME_COOKIE_KEYS.font, value, COOKIE_MAX_AGE)
--    }
--  }, [])
+-      setCookie(THEME_COOKIE_KEYS.contentLayout, value, COOKIE_MAX_AGE)
++
 +    const foreground = getReadableForeground(defaults.customAccentColor)
 +    applyCssVariable('--primary', defaults.customAccentColor)
 +    applyCssVariable('--primary-foreground', foreground)
@@ -12867,15 +12956,95 @@ index 0bead8f..52b22ca 100644
 +    applyCssVariable('--sidebar-primary-foreground', foreground)
 +    applyCssVariable('--sidebar-ring', defaults.customAccentColor)
 +  }, [defaults.customAccentEnabled, defaults.customAccentColor])
- 
--  const setRadius = useCallback((value: ThemeRadius) => {
--    _setRadius(value)
--    if (value === DEFAULT_THEME_CUSTOMIZATION.radius) {
--      removeCookie(THEME_COOKIE_KEYS.radius)
--    } else {
--      setCookie(THEME_COOKIE_KEYS.radius, value, COOKIE_MAX_AGE)
--    }
++
++  useEffect(() => {
++    const colors = [
++      defaults.customBackgroundColor,
++      defaults.customSurfaceColor,
++      defaults.customSidebarColor,
++      defaults.customChartColor,
++    ]
++    const valid =
++      defaults.customPaletteEnabled &&
++      colors.every((color) => /^#[0-9a-fA-F]{6}$/.test(color))
++
++    if (!valid) {
++      CUSTOM_PALETTE_VARIABLES.forEach((name) => applyCssVariable(name, null))
++      return
+     }
 -  }, [])
++
++    const backgroundForeground = getReadableForeground(
++      defaults.customBackgroundColor
++    )
++    const surfaceForeground = getReadableForeground(defaults.customSurfaceColor)
++    const sidebarForeground = getReadableForeground(defaults.customSidebarColor)
++    const mutedForeground =
++      surfaceForeground === 'oklch(0.145 0 0)'
++        ? 'oklch(0.42 0 0)'
++        : 'oklch(0.78 0 0)'
++
++    applyCssVariable('--background', defaults.customBackgroundColor)
++    applyCssVariable('--foreground', backgroundForeground)
++    applyCssVariable('--card', defaults.customSurfaceColor)
++    applyCssVariable('--card-foreground', surfaceForeground)
++    applyCssVariable('--popover', defaults.customSurfaceColor)
++    applyCssVariable('--popover-foreground', surfaceForeground)
++    applyCssVariable(
++      '--secondary',
++      `color-mix(in oklab, ${defaults.customSurfaceColor} 88%, ${backgroundForeground} 12%)`
++    )
++    applyCssVariable('--secondary-foreground', surfaceForeground)
++    applyCssVariable(
++      '--muted',
++      `color-mix(in oklab, ${defaults.customSurfaceColor} 92%, ${backgroundForeground} 8%)`
++    )
++    applyCssVariable('--muted-foreground', mutedForeground)
++    applyCssVariable(
++      '--accent',
++      `color-mix(in oklab, ${defaults.customSurfaceColor} 84%, ${backgroundForeground} 16%)`
++    )
++    applyCssVariable('--accent-foreground', surfaceForeground)
++    applyCssVariable(
++      '--border',
++      `color-mix(in oklab, ${defaults.customSurfaceColor} 78%, ${backgroundForeground} 22%)`
++    )
++    applyCssVariable(
++      '--input',
++      `color-mix(in oklab, ${defaults.customSurfaceColor} 72%, ${backgroundForeground} 28%)`
++    )
++    applyCssVariable('--sidebar', defaults.customSidebarColor)
++    applyCssVariable('--sidebar-foreground', sidebarForeground)
++    applyCssVariable(
++      '--sidebar-accent',
++      `color-mix(in oklab, ${defaults.customSidebarColor} 82%, ${sidebarForeground} 18%)`
++    )
++    applyCssVariable('--sidebar-accent-foreground', sidebarForeground)
++    applyCssVariable(
++      '--sidebar-border',
++      `color-mix(in oklab, ${defaults.customSidebarColor} 76%, ${sidebarForeground} 24%)`
++    )
++    applyCssVariable('--chart-2', defaults.customChartColor)
++    applyCssVariable(
++      '--chart-3',
++      `color-mix(in oklab, ${defaults.customChartColor} 70%, ${backgroundForeground} 30%)`
++    )
++    applyCssVariable(
++      '--chart-4',
++      `color-mix(in oklab, ${defaults.customChartColor} 50%, ${defaults.customSurfaceColor} 50%)`
++    )
++    applyCssVariable(
++      '--chart-5',
++      `color-mix(in oklab, ${defaults.customChartColor} 64%, ${defaults.customBackgroundColor} 36%)`
++    )
++  }, [
++    defaults.customPaletteEnabled,
++    defaults.customBackgroundColor,
++    defaults.customSurfaceColor,
++    defaults.customSidebarColor,
++    defaults.customChartColor,
++  ])
++
 +  const setPreset = useCallback(
 +    (value: ThemePreset) => {
 +      _setPreset(value)
@@ -12887,15 +13056,7 @@ index 0bead8f..52b22ca 100644
 +    },
 +    [defaults.preset]
 +  )
- 
--  const setScale = useCallback((value: ThemeScale) => {
--    _setScale(value)
--    if (value === DEFAULT_THEME_CUSTOMIZATION.scale) {
--      removeCookie(THEME_COOKIE_KEYS.scale)
--    } else {
--      setCookie(THEME_COOKIE_KEYS.scale, value, COOKIE_MAX_AGE)
--    }
--  }, [])
++
 +  const setFont = useCallback(
 +    (value: ThemeFont) => {
 +      _setFont(value)
@@ -12907,15 +13068,7 @@ index 0bead8f..52b22ca 100644
 +    },
 +    [defaults.font]
 +  )
- 
--  const setContentLayout = useCallback((value: ContentLayout) => {
--    _setContentLayout(value)
--    if (value === DEFAULT_THEME_CUSTOMIZATION.contentLayout) {
--      removeCookie(THEME_COOKIE_KEYS.contentLayout)
--    } else {
--      setCookie(THEME_COOKIE_KEYS.contentLayout, value, COOKIE_MAX_AGE)
--    }
--  }, [])
++
 +  const setRadius = useCallback(
 +    (value: ThemeRadius) => {
 +      _setRadius(value)
@@ -12979,11 +13132,16 @@ index 0bead8f..52b22ca 100644
 +        contentLayout,
 +        customAccentEnabled: defaults.customAccentEnabled,
 +        customAccentColor: defaults.customAccentColor,
++        customPaletteEnabled: defaults.customPaletteEnabled,
++        customBackgroundColor: defaults.customBackgroundColor,
++        customSurfaceColor: defaults.customSurfaceColor,
++        customSidebarColor: defaults.customSidebarColor,
++        customChartColor: defaults.customChartColor,
 +      },
        setPreset,
        setFont,
        setRadius,
-@@ -239,6 +325,7 @@ export function ThemeCustomizationProvider(props: {
+@@ -239,6 +443,7 @@ export function ThemeCustomizationProvider(props: {
        radius,
        scale,
        contentLayout,
@@ -22925,10 +23083,10 @@ index 3616449..92b870e 100644
            <AlertDialogHeader>
 diff --git a/web/default/src/features/system-settings/content/appearance-settings.tsx b/web/default/src/features/system-settings/content/appearance-settings.tsx
 new file mode 100644
-index 0000000..6f0dc17
+index 0000000..ba948ad
 --- /dev/null
 +++ b/web/default/src/features/system-settings/content/appearance-settings.tsx
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,747 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -23039,6 +23197,23 @@ index 0000000..6f0dc17
 +      .string()
 +      .trim()
 +      .regex(/^#[0-9a-fA-F]{6}$/, 'Use #RRGGBB format'),
++    custom_palette_enabled: z.boolean(),
++    custom_background_color: z
++      .string()
++      .trim()
++      .regex(/^#[0-9a-fA-F]{6}$/, 'Use #RRGGBB format'),
++    custom_surface_color: z
++      .string()
++      .trim()
++      .regex(/^#[0-9a-fA-F]{6}$/, 'Use #RRGGBB format'),
++    custom_sidebar_color: z
++      .string()
++      .trim()
++      .regex(/^#[0-9a-fA-F]{6}$/, 'Use #RRGGBB format'),
++    custom_chart_color: z
++      .string()
++      .trim()
++      .regex(/^#[0-9a-fA-F]{6}$/, 'Use #RRGGBB format'),
 +  }),
 +})
 +
@@ -23056,11 +23231,29 @@ index 0000000..6f0dc17
 +  | 'theme.content_layout'
 +  | 'theme.custom_accent_enabled'
 +  | 'theme.custom_accent_color'
++  | 'theme.custom_palette_enabled'
++  | 'theme.custom_background_color'
++  | 'theme.custom_surface_color'
++  | 'theme.custom_sidebar_color'
++  | 'theme.custom_chart_color'
 +
 +type AppearanceSelectFieldName = Exclude<
 +  AppearanceFieldName,
-+  'theme.custom_accent_enabled' | 'theme.custom_accent_color'
++  | 'theme.custom_accent_enabled'
++  | 'theme.custom_accent_color'
++  | 'theme.custom_palette_enabled'
++  | 'theme.custom_background_color'
++  | 'theme.custom_surface_color'
++  | 'theme.custom_sidebar_color'
++  | 'theme.custom_chart_color'
 +>
++
++type AppearanceColorFieldName =
++  | 'theme.custom_accent_color'
++  | 'theme.custom_background_color'
++  | 'theme.custom_surface_color'
++  | 'theme.custom_sidebar_color'
++  | 'theme.custom_chart_color'
 +
 +type AppearanceThemeKey = keyof AppearanceFormValues['theme']
 +
@@ -23112,6 +23305,31 @@ index 0000000..6f0dc17
 +  {
 +    name: 'theme.custom_accent_color',
 +    themeKey: 'custom_accent_color',
++    normalize: String,
++  },
++  {
++    name: 'theme.custom_palette_enabled',
++    themeKey: 'custom_palette_enabled',
++    normalize: (value) => value === true || value === 'true',
++  },
++  {
++    name: 'theme.custom_background_color',
++    themeKey: 'custom_background_color',
++    normalize: String,
++  },
++  {
++    name: 'theme.custom_surface_color',
++    themeKey: 'custom_surface_color',
++    normalize: String,
++  },
++  {
++    name: 'theme.custom_sidebar_color',
++    themeKey: 'custom_sidebar_color',
++    normalize: String,
++  },
++  {
++    name: 'theme.custom_chart_color',
++    themeKey: 'custom_chart_color',
 +    normalize: String,
 +  },
 +]
@@ -23234,12 +23452,24 @@ index 0000000..6f0dc17
 +        content_layout: DEFAULT_THEME_CUSTOMIZATION.contentLayout,
 +        custom_accent_enabled: DEFAULT_THEME_CUSTOMIZATION.customAccentEnabled,
 +        custom_accent_color: DEFAULT_THEME_CUSTOMIZATION.customAccentColor,
++        custom_palette_enabled:
++          DEFAULT_THEME_CUSTOMIZATION.customPaletteEnabled,
++        custom_background_color:
++          DEFAULT_THEME_CUSTOMIZATION.customBackgroundColor,
++        custom_surface_color: DEFAULT_THEME_CUSTOMIZATION.customSurfaceColor,
++        custom_sidebar_color: DEFAULT_THEME_CUSTOMIZATION.customSidebarColor,
++        custom_chart_color: DEFAULT_THEME_CUSTOMIZATION.customChartColor,
 +      },
 +    })
 +  }
 +
 +  const customAccentEnabled = form.watch('theme.custom_accent_enabled')
 +  const customAccentColor = form.watch('theme.custom_accent_color')
++  const customPaletteEnabled = form.watch('theme.custom_palette_enabled')
++  const customBackgroundColor = form.watch('theme.custom_background_color')
++  const customSurfaceColor = form.watch('theme.custom_surface_color')
++  const customSidebarColor = form.watch('theme.custom_sidebar_color')
++  const customChartColor = form.watch('theme.custom_chart_color')
 +
 +  return (
 +    <SettingsSection title={t('Appearance')}>
@@ -23389,6 +23619,78 @@ index 0000000..6f0dc17
 +                </FormItem>
 +              )}
 +            />
++
++            <FormField
++              control={form.control}
++              name='theme.custom_palette_enabled'
++              render={({ field }) => (
++                <FormItem>
++                  <div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
++                    <div className='space-y-1'>
++                      <FormLabel>{t('Custom interface palette')}</FormLabel>
++                      <FormDescription>
++                        {t(
++                          'Override global background, surface, sidebar, and secondary chart colors.'
++                        )}
++                      </FormDescription>
++                    </div>
++                    <FormControl>
++                      <Switch
++                        checked={field.value}
++                        onCheckedChange={field.onChange}
++                      />
++                    </FormControl>
++                  </div>
++                  <FormMessage />
++                </FormItem>
++              )}
++            />
++
++            <ColorField
++              control={form.control}
++              name='theme.custom_background_color'
++              label={t('Background color')}
++              description={t('Global page background color.')}
++              disabled={!customPaletteEnabled}
++              previewValue={customBackgroundColor}
++              fallback={DEFAULT_THEME_CUSTOMIZATION.customBackgroundColor}
++            />
++
++            <ColorField
++              control={form.control}
++              name='theme.custom_surface_color'
++              label={t('Surface color')}
++              description={t(
++                'Cards, popovers, muted surfaces, borders, and inputs.'
++              )}
++              disabled={!customPaletteEnabled}
++              previewValue={customSurfaceColor}
++              fallback={DEFAULT_THEME_CUSTOMIZATION.customSurfaceColor}
++            />
++
++            <ColorField
++              control={form.control}
++              name='theme.custom_sidebar_color'
++              label={t('Sidebar color')}
++              description={t(
++                'Sidebar canvas, sidebar hover surface, and sidebar border.'
++              )}
++              disabled={!customPaletteEnabled}
++              previewValue={customSidebarColor}
++              fallback={DEFAULT_THEME_CUSTOMIZATION.customSidebarColor}
++            />
++
++            <ColorField
++              control={form.control}
++              name='theme.custom_chart_color'
++              label={t('Secondary chart color')}
++              description={t(
++                'Additional chart series color used by analytics panels.'
++              )}
++              disabled={!customPaletteEnabled}
++              previewValue={customChartColor}
++              fallback={DEFAULT_THEME_CUSTOMIZATION.customChartColor}
++            />
 +          </SettingsFormGrid>
 +
 +          <div className='flex justify-end'>
@@ -23428,6 +23730,52 @@ index 0000000..6f0dc17
 +        </DialogContent>
 +      </Dialog>
 +    </SettingsSection>
++  )
++}
++
++function ColorField(props: {
++  control: Control<AppearanceFormValues>
++  name: AppearanceColorFieldName
++  label: string
++  description: string
++  disabled: boolean
++  previewValue: string
++  fallback: string
++}) {
++  return (
++    <FormField
++      control={props.control}
++      name={props.name}
++      render={({ field }) => (
++        <FormItem>
++          <FormLabel>{props.label}</FormLabel>
++          <div className='flex gap-2'>
++            <FormControl>
++              <Input
++                {...field}
++                disabled={props.disabled}
++                placeholder={props.fallback}
++                className='font-mono'
++              />
++            </FormControl>
++            <Input
++              type='color'
++              value={
++                /^#[0-9a-fA-F]{6}$/.test(props.previewValue)
++                  ? props.previewValue
++                  : props.fallback
++              }
++              disabled={props.disabled}
++              onChange={(event) => field.onChange(event.target.value)}
++              className='w-12 shrink-0 cursor-pointer p-1'
++              aria-label={props.label}
++            />
++          </div>
++          <FormDescription>{props.description}</FormDescription>
++          <FormMessage />
++        </FormItem>
++      )}
++    />
 +  )
 +}
 +
@@ -24967,10 +25315,10 @@ index 4ca07c4..51a73ca 100644
          <AlertDialogContent>
            <AlertDialogHeader>
 diff --git a/web/default/src/features/system-settings/content/index.tsx b/web/default/src/features/system-settings/content/index.tsx
-index 147a11d..129704a 100644
+index 147a11d..d5259e6 100644
 --- a/web/default/src/features/system-settings/content/index.tsx
 +++ b/web/default/src/features/system-settings/content/index.tsx
-@@ -25,6 +25,13 @@ import {
+@@ -25,6 +25,18 @@ import {
  } from './section-registry.tsx'
  
  const defaultContentSettings: ContentSettings = {
@@ -24981,10 +25329,15 @@ index 147a11d..129704a 100644
 +  'theme.content_layout': 'full',
 +  'theme.custom_accent_enabled': false,
 +  'theme.custom_accent_color': '#2563eb',
++  'theme.custom_palette_enabled': false,
++  'theme.custom_background_color': '#ffffff',
++  'theme.custom_surface_color': '#f8fafc',
++  'theme.custom_sidebar_color': '#f8fafc',
++  'theme.custom_chart_color': '#14b8a6',
    'console_setting.api_info': '[]',
    'console_setting.announcements': '[]',
    'console_setting.faq': '[]',
-@@ -36,6 +43,21 @@ const defaultContentSettings: ContentSettings = {
+@@ -36,6 +48,21 @@ const defaultContentSettings: ContentSettings = {
    DataExportEnabled: false,
    DataExportDefaultTime: 'hour',
    DataExportInterval: 5,
@@ -25007,7 +25360,7 @@ index 147a11d..129704a 100644
    DrawingEnabled: false,
    MjNotifyEnabled: false,
 diff --git a/web/default/src/features/system-settings/content/section-registry.tsx b/web/default/src/features/system-settings/content/section-registry.tsx
-index 1de3165..7915bee 100644
+index 1de3165..0f99f12 100644
 --- a/web/default/src/features/system-settings/content/section-registry.tsx
 +++ b/web/default/src/features/system-settings/content/section-registry.tsx
 @@ -16,10 +16,42 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
@@ -25157,7 +25510,7 @@ index 1de3165..7915bee 100644
  const CONTENT_SECTIONS = [
    {
      id: 'dashboard',
-@@ -49,6 +178,98 @@ const CONTENT_SECTIONS = [
+@@ -49,6 +178,115 @@ const CONTENT_SECTIONS = [
            DataExportDefaultTime: validateDataExportDefaultTime(
              settings.DataExportDefaultTime
            ),
@@ -25251,6 +25604,23 @@ index 1de3165..7915bee 100644
 +            custom_accent_color: safeHexColorValue(
 +              settings['theme.custom_accent_color'],
 +              DEFAULT_THEME_CUSTOMIZATION.customAccentColor
++            ),
++            custom_palette_enabled: settings['theme.custom_palette_enabled'],
++            custom_background_color: safeHexColorValue(
++              settings['theme.custom_background_color'],
++              DEFAULT_THEME_CUSTOMIZATION.customBackgroundColor
++            ),
++            custom_surface_color: safeHexColorValue(
++              settings['theme.custom_surface_color'],
++              DEFAULT_THEME_CUSTOMIZATION.customSurfaceColor
++            ),
++            custom_sidebar_color: safeHexColorValue(
++              settings['theme.custom_sidebar_color'],
++              DEFAULT_THEME_CUSTOMIZATION.customSidebarColor
++            ),
++            custom_chart_color: safeHexColorValue(
++              settings['theme.custom_chart_color'],
++              DEFAULT_THEME_CUSTOMIZATION.customChartColor
 +            ),
 +          },
          }}
@@ -34750,7 +35120,7 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..ff6930c
+index 0000000..5a8972c
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
 @@ -0,0 +1,1258 @@
@@ -34954,7 +35324,7 @@ index 0000000..ff6930c
 +  {
 +    title: 'Appearance',
 +    description:
-+      'Tune and migrate global default theme, font, radius, density, content width, and accent color.',
++      'Tune and migrate global default theme, font, radius, density, content width, accent color, and interface palette.',
 +    icon: Palette,
 +    status: 'Visual system',
 +    cta: 'Open appearance',
@@ -35587,7 +35957,7 @@ index 0000000..ff6930c
 +      value: `${theme.preset} · ${theme.font}`,
 +      detail: `${theme.radius} radius · ${theme.scale} density · ${theme.contentLayout} layout · accent ${
 +        theme.customAccentEnabled ? theme.customAccentColor : 'default'
-+      }`,
++      } · palette ${theme.customPaletteEnabled ? 'custom' : 'default'}`,
 +    },
 +    {
 +      label: 'Sidebar',
@@ -37517,7 +37887,7 @@ index 6cea57a..eb912af 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..fb6059d 100644
+index 2122268..ff0f7bc 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,9 @@ export type SiteSettings = {
@@ -37530,7 +37900,7 @@ index 2122268..fb6059d 100644
  }
  
  export type AuthSettings = {
-@@ -116,6 +119,13 @@ export type AuthSettings = {
+@@ -116,6 +119,18 @@ export type AuthSettings = {
  }
  
  export type ContentSettings = {
@@ -37541,10 +37911,15 @@ index 2122268..fb6059d 100644
 +  'theme.content_layout': string
 +  'theme.custom_accent_enabled': boolean
 +  'theme.custom_accent_color': string
++  'theme.custom_palette_enabled': boolean
++  'theme.custom_background_color': string
++  'theme.custom_surface_color': string
++  'theme.custom_sidebar_color': string
++  'theme.custom_chart_color': string
    'console_setting.api_info': string
    'console_setting.announcements': string
    'console_setting.faq': string
-@@ -127,6 +137,21 @@ export type ContentSettings = {
+@@ -127,6 +142,21 @@ export type ContentSettings = {
    DataExportEnabled: boolean
    DataExportDefaultTime: string
    DataExportInterval: number
@@ -37566,7 +37941,7 @@ index 2122268..fb6059d 100644
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +400,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +405,29 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -37926,7 +38301,7 @@ index 1b430db..9056835 100644
    if (view) {
      return {
 diff --git a/web/default/src/hooks/use-system-config.ts b/web/default/src/hooks/use-system-config.ts
-index 256bd7d..ec47530 100644
+index 256bd7d..69b0857 100644
 --- a/web/default/src/hooks/use-system-config.ts
 +++ b/web/default/src/hooks/use-system-config.ts
 @@ -25,7 +25,36 @@ import {
@@ -37966,7 +38341,7 @@ index 256bd7d..ec47530 100644
  
  interface UseSystemConfigOptions {
    /** Automatically fetch config from backend (use only in root component) */
-@@ -46,6 +75,32 @@ interface StatusApiResponse {
+@@ -46,6 +75,37 @@ interface StatusApiResponse {
      usd_exchange_rate?: number
      custom_currency_symbol?: string
      custom_currency_exchange_rate?: number
@@ -37994,12 +38369,17 @@ index 256bd7d..ec47530 100644
 +      content_layout?: string
 +      custom_accent_enabled?: boolean
 +      custom_accent_color?: string
++      custom_palette_enabled?: boolean
++      custom_background_color?: string
++      custom_surface_color?: string
++      custom_sidebar_color?: string
++      custom_chart_color?: string
 +    }
 +    SystemSettingsNavigation?: string
    }
  }
  
-@@ -58,6 +113,16 @@ function toNumber(value: unknown, fallback: number): number {
+@@ -58,6 +118,16 @@ function toNumber(value: unknown, fallback: number): number {
    return fallback
  }
  
@@ -38016,7 +38396,7 @@ index 256bd7d..ec47530 100644
  /**
   * Map `/api/status` response data to our persisted system config structure
   */
-@@ -91,6 +156,110 @@ export function mapStatusDataToConfig(
+@@ -91,6 +161,134 @@ export function mapStatusDataToConfig(
      ),
    }
  
@@ -38055,6 +38435,30 @@ index 256bd7d..ec47530 100644
 +      /^#[0-9a-fA-F]{6}$/.test(data.theme_customization.custom_accent_color)
 +        ? data.theme_customization.custom_accent_color
 +        : DEFAULT_THEME_CUSTOMIZATION.customAccentColor,
++    customPaletteEnabled:
++      typeof data.theme_customization?.custom_palette_enabled === 'boolean'
++        ? data.theme_customization.custom_palette_enabled
++        : DEFAULT_THEME_CUSTOMIZATION.customPaletteEnabled,
++    customBackgroundColor:
++      typeof data.theme_customization?.custom_background_color === 'string' &&
++      /^#[0-9a-fA-F]{6}$/.test(data.theme_customization.custom_background_color)
++        ? data.theme_customization.custom_background_color
++        : DEFAULT_THEME_CUSTOMIZATION.customBackgroundColor,
++    customSurfaceColor:
++      typeof data.theme_customization?.custom_surface_color === 'string' &&
++      /^#[0-9a-fA-F]{6}$/.test(data.theme_customization.custom_surface_color)
++        ? data.theme_customization.custom_surface_color
++        : DEFAULT_THEME_CUSTOMIZATION.customSurfaceColor,
++    customSidebarColor:
++      typeof data.theme_customization?.custom_sidebar_color === 'string' &&
++      /^#[0-9a-fA-F]{6}$/.test(data.theme_customization.custom_sidebar_color)
++        ? data.theme_customization.custom_sidebar_color
++        : DEFAULT_THEME_CUSTOMIZATION.customSidebarColor,
++    customChartColor:
++      typeof data.theme_customization?.custom_chart_color === 'string' &&
++      /^#[0-9a-fA-F]{6}$/.test(data.theme_customization.custom_chart_color)
++        ? data.theme_customization.custom_chart_color
++        : DEFAULT_THEME_CUSTOMIZATION.customChartColor,
 +  }
 +
 +  const dashboardDefaults = {
@@ -38127,7 +38531,7 @@ index 256bd7d..ec47530 100644
    return {
      systemName: data.system_name || DEFAULT_SYSTEM_NAME,
      logo: data.logo || DEFAULT_LOGO,
-@@ -98,6 +267,12 @@ export function mapStatusDataToConfig(
+@@ -98,6 +296,12 @@ export function mapStatusDataToConfig(
      demoSiteEnabled: data.demo_site_enabled,
      displayTokenStatEnabled: data.display_token_stat_enabled,
      currency,
@@ -38583,24 +38987,34 @@ index 2e8611d..8ec0535 100644
        result.pricing = parseAccess(value, result.pricing)
        return
 diff --git a/web/default/src/lib/theme-customization.ts b/web/default/src/lib/theme-customization.ts
-index b668033..a376fcd 100644
+index b668033..074ef73 100644
 --- a/web/default/src/lib/theme-customization.ts
 +++ b/web/default/src/lib/theme-customization.ts
-@@ -113,6 +113,8 @@ export type ThemeCustomization = {
+@@ -113,6 +113,13 @@ export type ThemeCustomization = {
    radius: ThemeRadius
    scale: ThemeScale
    contentLayout: ContentLayout
 +  customAccentEnabled: boolean
 +  customAccentColor: string
++  customPaletteEnabled: boolean
++  customBackgroundColor: string
++  customSurfaceColor: string
++  customSidebarColor: string
++  customChartColor: string
  }
  
  export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
-@@ -121,12 +123,58 @@ export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
+@@ -121,12 +128,63 @@ export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
    radius: 'default',
    scale: 'default',
    contentLayout: 'full',
 +  customAccentEnabled: false,
 +  customAccentColor: '#2563eb',
++  customPaletteEnabled: false,
++  customBackgroundColor: '#ffffff',
++  customSurfaceColor: '#f8fafc',
++  customSidebarColor: '#f8fafc',
++  customChartColor: '#14b8a6',
  }
  
  export const THEME_PRESET_VALUES = new Set(
