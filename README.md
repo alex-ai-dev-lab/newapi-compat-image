@@ -67,7 +67,8 @@
   - 来源固定为 `https://models.dev/api.json`。
   - 后端只接收白名单官方 provider，并过滤带 `/` 的聚合商/转售商模型别名，例如 `openai/gpt-*`、`siliconflow/deepseek-*`。
   - 后台“上游价格同步”只暴露 `models.dev` 预设，不再列出生产渠道或 OpenRouter/custom 入口。
-  - 后台有官方同步状态和手动同步按钮；自动后台同步默认关闭，需要自动跑时显式设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
+  - 官方同步只新增本地缺失的模型价格，不覆盖已有模型价格；手工维护的模型和特殊上游模型会保留。
+  - 后台有官方同步状态和手动同步按钮；自动后台同步需要设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`，启用后按容器本地时区每天 07:00 执行。
 - 统计看板：
   - 支持 `1d`、`7d`、`30d`、`1y`、`all`。
   - 管理员可看渠道、模型、用户维度统计。
@@ -97,7 +98,7 @@
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`System Settings Navigation`、`Performance Settings`、`Monitoring & Alerts`、`Global Model Configuration`、`Claude Settings`、`Gemini Settings`、`Grok Settings`、`Channel Affinity`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity`，支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
-| 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
+| 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync`；仅新增缺失模型，不覆盖已有价格；自动任务启用后每天 07:00 执行 |
 | 模型价格/倍率迁移 | `系统设置 -> 模型相关 -> Model Pricing` 支持模型价格、倍率、分组倍率、工具价格 JSON 导入/导出；官方价格同步动作不参与导入/导出 |
 | 模型运行配置迁移 | `系统设置 -> 模型相关 -> Global Model Configuration`、`Claude`、`Gemini`、`Grok`、`Channel Affinity` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules`，支持规则 JSON 导出和追加导入；导入不会删除或覆盖现有规则 |
@@ -135,7 +136,7 @@
 - 没有承诺 7MB 镜像体积。实际 release tar 大约几十 MB，取决于 upstream 构建产物。
 - 没有完整 metrics 面板；统计看板基于现有 NewAPI 日志表查询。
 - 后台视觉与导航覆盖 Ken 问答里的 Phase3 可验收点：包含主题切换、全局外观/调色板配置、命令面板、统计页和设置入口整理；不是源码级整套后台全量重写。
-- 官方价格同步不是“所有模型官网逐一抓取”。当前实现以 `models.dev` 的官方 provider 元数据为源，并做 provider 白名单与 slash alias 过滤；若 `models.dev` 本身缺失某个官方模型，需要后续补映射或手工维护。
+- 官方价格同步不是“所有模型官网逐一抓取”。当前实现以 `models.dev` 的官方 provider 元数据为源，并做 provider 白名单与 slash alias 过滤；同步策略是 add-only，本地已有价格永远优先。若 `models.dev` 本身缺失某个官方模型，需要后续补映射或手工维护。
 - 生产 compose 目前需要 `user: "0:0"`，因为服务器挂载的 `logs` / `data` 目录权限按 root 跑最稳。移除 root override 前必须先验证挂载目录权限。
 
 逐项需求验收和不可宣传口径见 `docs/ken-requirements-audit.md`。Step 3 架构状态见 `docs/step3-completion-summary.md` 与 `docs/step3-overlay-refactor-design.md`。

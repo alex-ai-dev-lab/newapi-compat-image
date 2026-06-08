@@ -49,13 +49,14 @@
   - 后端字段保持 `*bool`，nil 表示自动推断。
   - 前端改为三态：自动推断、强制支持、强制不支持；不会再把未配置渠道保存成 `false`。
   - `request.thinking` 本身也会触发 thinking-compatible 渠道优先选择。
-- 官方价格同步自动任务默认关闭；保留手动 trigger API。需要自动同步时设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`。
+- 官方价格同步自动任务需要设置 `OFFICIAL_PRICE_SYNC_ENABLED=true`；启用后按容器本地时区每天 07:00 执行，仍保留手动 trigger API。
 - 官方价格同步补成 official-only：
   - `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` 增加官方同步状态和手动同步按钮。
   - 模型价格页也挂到 `系统设置 -> 模型相关` 下，旧的 `计费与支付 -> Model Pricing` 入口暂时保留，避免破坏原导航。
   - `GetSyncableChannels` 只返回 `models.dev` 预设，不再把生产渠道、OpenRouter 或 custom endpoint 暴露给后台同步入口。
   - `models.dev` 转换只接收官方 provider 白名单。
   - 即使在官方 provider bucket 中，也跳过带 `/` 的模型名，避免导入 `openai/gpt-*`、`siliconflow/deepseek-*` 等聚合商/转售商别名。
+  - 同步策略为 add-only：只新增本地缺失模型，不覆盖已有模型价格，手工维护的特殊模型继续保留。
   - 前端同步弹窗只读展示固定 endpoint，不再允许切换到普通渠道接口。
 - SQLite 调优补齐：
   - 主库 SQLite 和独立日志 SQLite 都会应用 WAL、`synchronous=NORMAL`、`busy_timeout=120000` 和保守连接池。
