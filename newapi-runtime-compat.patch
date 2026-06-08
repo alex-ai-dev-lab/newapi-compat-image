@@ -12981,7 +12981,7 @@ index b30caab..1287f62 100644
      <SearchContext.Provider value={{ open, setOpen }}>
        {children}
 diff --git a/web/default/src/context/theme-customization-provider.tsx b/web/default/src/context/theme-customization-provider.tsx
-index 0bead8f..0f4ed82 100644
+index 0bead8f..fb28be8 100644
 --- a/web/default/src/context/theme-customization-provider.tsx
 +++ b/web/default/src/context/theme-customization-provider.tsx
 @@ -24,6 +24,7 @@ import {
@@ -13020,7 +13020,6 @@ index 0bead8f..0f4ed82 100644
 +  '--primary',
 +  '--primary-foreground',
 +  '--ring',
-+  '--chart-1',
 +  '--sidebar-primary',
 +  '--sidebar-primary-foreground',
 +  '--sidebar-ring',
@@ -13046,6 +13045,7 @@ index 0bead8f..0f4ed82 100644
 +  '--sidebar-accent',
 +  '--sidebar-accent-foreground',
 +  '--sidebar-border',
++  '--chart-1',
 +  '--chart-2',
 +  '--chart-3',
 +  '--chart-4',
@@ -13116,7 +13116,7 @@ index 0bead8f..0f4ed82 100644
    // Mirror state to the <body> via data-* attributes so theme-presets.css can
    // override CSS variables at the right cascade layer.
    useEffect(() => {
-@@ -169,63 +239,197 @@ export function ThemeCustomizationProvider(props: {
+@@ -169,63 +239,200 @@ export function ThemeCustomizationProvider(props: {
      applyAttribute('data-theme-content-layout', contentLayout)
    }, [contentLayout])
  
@@ -13174,7 +13174,6 @@ index 0bead8f..0f4ed82 100644
 +    applyCssVariable('--primary', defaults.customAccentColor)
 +    applyCssVariable('--primary-foreground', foreground)
 +    applyCssVariable('--ring', defaults.customAccentColor)
-+    applyCssVariable('--chart-1', defaults.customAccentColor)
 +    applyCssVariable('--sidebar-primary', defaults.customAccentColor)
 +    applyCssVariable('--sidebar-primary-foreground', foreground)
 +    applyCssVariable('--sidebar-ring', defaults.customAccentColor)
@@ -13247,7 +13246,11 @@ index 0bead8f..0f4ed82 100644
 +      '--sidebar-border',
 +      `color-mix(in oklab, ${defaults.customSidebarColor} 76%, ${sidebarForeground} 24%)`
 +    )
-+    applyCssVariable('--chart-2', defaults.customChartColor)
++    applyCssVariable('--chart-1', defaults.customChartColor)
++    applyCssVariable(
++      '--chart-2',
++      `color-mix(in oklab, ${defaults.customChartColor} 82%, ${backgroundForeground} 18%)`
++    )
 +    applyCssVariable(
 +      '--chart-3',
 +      `color-mix(in oklab, ${defaults.customChartColor} 70%, ${backgroundForeground} 30%)`
@@ -13364,7 +13367,7 @@ index 0bead8f..0f4ed82 100644
        setPreset,
        setFont,
        setRadius,
-@@ -239,6 +443,7 @@ export function ThemeCustomizationProvider(props: {
+@@ -239,6 +446,7 @@ export function ThemeCustomizationProvider(props: {
        radius,
        scale,
        contentLayout,
