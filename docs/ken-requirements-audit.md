@@ -155,6 +155,18 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
+2026-06-08 管理后台配置迁移批次部署验证：
+
+- Patch repo commit `82af9f9` (`Complete admin config migration batch`) built successfully by Actions run `27112466557`.
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; loaded container image ID is `sha256:1deea03f3c49d9c47f617f937b2902d281ffac36e4129974daae6908c2c00207`.
+- Previous production image was backed up on the server as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-104613`.
+- Compose still has `user: "0:0"` and container `ConfigUser=0:0`.
+- Public checks returned HTTP 200 for `/api/status`, `/system-settings`, `/system-settings/operations/overview`, `/system-settings/content/appearance`, `/system-settings/models/model-pricing`, `/system-settings/models/global`, `/system-settings/models/claude`, `/system-settings/models/gemini`, `/system-settings/models/grok`, `/system-settings/models/channel-affinity`, `/system-settings/billing/payment`, `/system-settings/operations/logs`, `/system-settings/models/model-deployment`, `/system-settings/models/user-agents`, and `/system-settings/models/client-identity`.
+- `/api/status` exposes `theme_customization` with `custom_accent_enabled=false` and `custom_accent_color=#2563eb`, plus Dashboard defaults `dashboard_default_time_range=7d`, `dashboard_auto_refresh=true`, `dashboard_refresh_interval=5`.
+- SQLite quick pragma check: `journal_mode=wal`, `busy_timeout=5000`, `synchronous=2`, `wal_autocheckpoint=1000`.
+- Recent 10-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
+- Recent production logs after deploy include successful `gpt-5.5` streaming traffic and `client identity applied: provider=codex mode=force_global`. These logs did not show a channel 77 live request in the checked window, so channel 77 is not claimed as newly live-tested by this deployment.
+
 以下项目只有部署后才能宣称修复完成；2026-06-07 已补充部分生产证据：
 
 - 渠道 77：已看到生产 `gpt-5.5` 流式请求走 `use_channel=["77"]` 成功，最近日志未再出现 `codex_access_restricted`。
