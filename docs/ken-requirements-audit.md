@@ -204,6 +204,18 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 - `/api/status` currently exposes `theme_customization` with Ken's recommended palette: `custom_accent_enabled=true`, `custom_accent_color=#111827`, `custom_palette_enabled=true`, `custom_background_color=#F7F8FA`, `custom_surface_color=#FFFFFF`, `custom_sidebar_color=#F3F4F6`, and `custom_chart_color=#0EA5A4`.
 - Recent 10-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
 
+2026-06-08 Dashboard chart CSS variable syntax fix 部署验证：
+
+- Root cause after Ken's screenshot: the palette mapping fix did apply, but dashboard Recharts components still used `hsl(var(--chart-1))`, `hsl(var(--primary))`, and similar expressions. Theme variables in this codebase are complete CSS colors (`oklch(...)` or admin-provided `#RRGGBB`), so `hsl(#0EA5A4)` is invalid and SVG bars can render as black fallback.
+- Fix: dashboard chart components now pass complete variables directly (`var(--chart-1)`, `var(--primary)`, `var(--border)`, etc.) and use `color-mix(..., transparent)` for the muted hover fill. This covers model traffic ranking plus related dashboard trend/channel/user/model distribution charts.
+- Patch repo commit `251930a` (`Fix dashboard chart CSS variable colors`) built successfully by Actions run `27135058593` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27135058593`).
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; server-downloaded tar checksum was `be808304eb4cd697d73b994a5cece2ea8000c468fad5548f8572e7923c98e1cd`.
+- Previous production image was backed up as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-194554`.
+- Loaded production image ID is `sha256:8e15b0a676472ed7e088e6dc2d5ed061d00099b419dcf8c9a9de18108abbf6ad`; compose still contains `user: "0:0"`, container `ConfigUser=0:0`, and container state is running/healthy.
+- Public HTTP 200: `/api/status`, `/dashboard/models`, and `/system-settings/content/appearance`.
+- Production `/api/status` currently exposes Ken's recommended palette: `custom_accent_color=#111827`, `custom_chart_color=#0EA5A4`, `custom_background_color=#F7F8FA`, `custom_surface_color=#FFFFFF`, and `custom_sidebar_color=#F3F4F6`.
+- Production container/bundle scan found no remaining `hsl(var(--chart-1))`, `hsl(var(--primary))`, or `hsl(var(--border))` dashboard chart expressions; recent 10-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
+
 2026-06-08 System Settings navigation snapshot 刷新批次部署验证：
 
 - Patch repo commit `f9fd2a2` (`Refresh system navigation snapshot patch`) built successfully by Actions run `27117337143` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27117337143`).
