@@ -8,6 +8,10 @@
 
 当前补丁没有完成“整套后台 Phase3 全量重设计”，也没有把所有兼容逻辑迁移到 `pkg/compat/**`。这些说法不能再用于 README、Release Notes 或对外说明。
 
+本轮外观配置增量：`系统设置 -> 内容/外观 -> Appearance` 已补充后台全局强调色开关和 `#RRGGBB` 颜色值配置，并纳入 Appearance JSON 导入/导出；后端 option 校验只接受布尔开关和合法十六进制颜色；`/api/status` 下发后默认前端会在启用时覆盖 primary/ring/chart/sidebar 相关 CSS 变量，关闭或颜色非法时回到主题预设。Operations Center 的 `Defaults snapshot` 也会显示当前强调色状态。这是轻量外观可配置补强，不是完整主题引擎。
+
+本轮模型配置迁移增量：`系统设置 -> 模型相关 -> Model Pricing` 已补充模型价格、倍率、分组倍率和工具价格 JSON 导入/导出；导入只更新当前表单或工具价格编辑器，仍需管理员在对应 tab 保存，官方价格同步动作不参与导入/导出。`Global Model Configuration`、`Claude`、`Gemini`、`Grok` 和 `Channel Affinity` 已补充 JSON 导入/导出，覆盖全局 passthrough/thinking/ping、Claude headers/max tokens/thinking adapter、Gemini safety/version/imagine/thinking adapter、Grok violation deduction、Channel Affinity sticky routing 规则和容量/TTL 配置；Channel Affinity 缓存清理这类运行时动作不参与导入/导出。Operations Center 的 Runtime 配置地图和命令面板已补充这些直达入口。
+
 2026-06-07 增量：统计中心已新增管理员可见的 `Operations center`、`/dashboard/channels` 渠道分析页、`/dashboard/models` 模型运维面板和 `/dashboard/users` 用户运维面板，覆盖全站请求量、成功/失败量、错误率、首字延迟、成本、Top 风险渠道、Top 慢渠道、Top 模型、Top 消费用户，以及渠道/模型/用户维度请求、失败、成功率、首字延迟、平均用时、成本和主用渠道；Overview 趋势 payload 和图表已从单纯成功/失败线扩展为请求量、成功率、错误率、首字延迟、平均用时、成本和 token 趋势；趋势图支持 `Overview`、`Traffic`、`Reliability`、`Latency`、`Spend` 指标模式切换，单项模式会放大对应图表，并按 Overview/模型/渠道/用户页面分别记住选择；趋势图顶部新增当前窗口内的请求量、成功率、失败量、加权首字延迟、成本和 token 本地汇总，每个小图新增常驻颜色图例，空数据时显示明确空态而不是空白图表；渠道分析页已支持选择某个渠道查看该渠道下用户消费、成功率、失败率、首字延迟、平均用时和 token，并新增选中渠道的请求量、成功率、错误率、首字延迟、平均用时、成本和 token 趋势图；渠道用户消费表已支持搜索用户/ID、活跃/失败/慢首字筛选、可点击表头排序、分页和每页数量选择；模型分析页已支持选择某个模型查看请求量、成功率、错误率、首字延迟、平均用时、成本和 token 趋势图；`/dashboard/users` 主入口已切到用户运维面板，支持选择某个用户查看请求量、成功率、错误率、首字延迟、平均用时、成本和 token 趋势图，并避免非管理员直接访问时触发管理员统计请求；模型/渠道/用户明细表已增加搜索框、健康状态筛选、可点击表头排序、分页和每页数量选择，可快速只看活跃项、失败项或首字延迟偏慢项，并按请求量、成功率、失败、错误率、首字延迟、用时、tokens、成本等字段升降序定位；Overview/模型/渠道/用户统计均默认 5 秒刷新，并提供关闭开关和 5/15/30/60 秒刷新间隔选择，且各页面会通过浏览器本地存储分别记住时间范围、自动刷新开关和刷新间隔；模型表、渠道表、渠道内用户消费表和用户运维表也会分别记住搜索词、健康筛选、排序字段/方向和每页数量，并提供 `Reset view` 一键恢复默认视角，白名单外或损坏的本地存储值会回退到默认值；命令面板已补充 Overview/Model/Channel/User Analytics、Header Navigation/Docs URL、Security、Official Price Sync、Channel Test Scheduler、Claude Thinking Support 等入口，并修复旧搜索菜单和 pricing 页搜索抢占 Ctrl/Cmd+K 的快捷键冲突；统计 API 权限已收紧为管理员；后端统计查询修复了 SQLite 单连接下遍历 `Rows()` 时再发查询导致的等待/卡住风险；站点导航里的 Docs 地址已移到 `系统设置 -> 站点设置 -> Header navigation` 可直接配置，并驱动顶部导航和默认 footer 文档链接；`系统设置 -> 内容/外观` 已从浏览器本地偏好扩展为后台全局默认外观配置，可设置默认主题预设、字体、圆角、密度和内容宽度，并支持 Appearance JSON 导入/导出，用户本地 cookie 仍可覆盖全局默认。
 
 本轮后续增量：Overview、Operations center、模型运维、渠道分析、用户运维这五个统计入口的自动刷新控件已补充手动刷新按钮、刷新中状态和上次更新时间显示；模型、渠道、用户页面的手动刷新会同时刷新当前选中的趋势/明细查询；Operations center 的 Top channel、Top model、Top spend user、风险渠道和慢首字渠道项目已支持跳转到对应分析页继续钻取，并通过 `channel_id`、`model_name`、`user_id` URL 参数让目标页自动选中对应对象；Operations center 的 `Analytics` 深链会继续携带当前 `time_range`，目标模型/渠道/用户页会消费该参数以继承 1天/7天/30天/1年/全部时间窗口，用户在目标页手动切换时间范围时会清掉 URL 参数，避免后续本地时间偏好和深链状态互相抢占；Operations center 顶部新增全局 `Usage logs` 快捷入口，Top channel / Top model / Top spend user 摘要条新增 `Analytics` 和 `Logs` 两个明确动作，`Logs` 会带入对应 `channel`、`model` 或 `username` 过滤条件并继承当前时间窗口；命令面板也补充了 `Usage Logs` 直达入口，可直接打开 `Usage Logs -> common`；用户在目标页手动切换对象时会清掉对应 URL 参数，避免深链参数持续抢回选择；模型、渠道、用户明细表行已支持鼠标点击和键盘 Enter/Space 直接切换上方选中对象与趋势图，当前选中行会高亮；模型、渠道、用户选中趋势区域已新增 `View logs` 入口，可跳转到 `Usage Logs -> common` 并自动带入 `model`、`channel` 或 `username` 过滤条件，同时继承当前统计页的 1天/7天/30天/1年/全部时间窗口；这是 Phase3 统计体验的局部补强，不代表整套后台 Phase3 已完成。
@@ -38,13 +42,17 @@
 
 SMTP/Worker 密钥页增量：`系统设置 -> 运维/Operations -> SMTP Email` 和 `Worker Proxy` 已补充 JSON 导入/导出。导出会保留非敏感配置并将 `SMTPToken`、`WorkerValidKey` 写成 `__SECRET_REDACTED__`；导入遇到该占位符或缺失字段时保留当前页面里的密钥值，只有显式提供新密钥才会在保存时更新后台。Operations Center 配置地图和命令面板也新增 SMTP/Worker 入口。这是密钥页面迁移能力的保守实现，不把密钥明文写入导出文件。
 
+日志维护配置增量：`系统设置 -> 运维/Operations -> Log Maintenance` 已补充 JSON 导入/导出，覆盖 `LogConsumeEnabled` 额度消费日志写入开关。导入仍只更新当前表单，必须点保存才写入后台；历史日志清理的时间选择和删除动作不参与导入/导出，避免配置迁移文件触发破坏性日志删除。Operations Center 配置地图和命令面板新增 Log Maintenance 入口，可通过 `log`、`maintenance`、`consume`、`cleanup`、`json`、`import`、`export` 等关键词找到。
+
+模型部署配置增量：`系统设置 -> 模型相关 -> Model Deployment` 已补充 io.net 部署开关和 API key 的 JSON 导入/导出。导出会将 `apiKey` 写成 `__SECRET_REDACTED__`；导入遇到脱敏占位符、空值或缺失字段时保留当前页面里的 API key，只有显式提供新 key 才会在保存时更新后台。Operations Center 配置地图和命令面板新增 Model Deployment 入口，可通过 `model deployment`、`io.net`、`ionet`、`api key`、`json`、`import`、`export` 等关键词找到。
+
 Auth 配置页增量：`系统设置 -> 认证/Auth -> Basic Authentication`、`OAuth Integrations`、`Passkey Authentication`、`Bot Protection` 已补充 JSON 导入/导出。OAuth 导出会将 `GitHubClientSecret`、`discord.client_secret`、`oidc.client_secret`、`TelegramBotToken`、`LinuxDOClientSecret`、`WeChatServerToken` 写成 `__SECRET_REDACTED__`；Bot Protection 导出会将 `TurnstileSecretKey` 脱敏；导入脱敏占位符时保留当前密钥，只有显式提供新值才会更新。Operations Center 配置地图和命令面板也新增 Auth 入口。
 
 Custom OAuth 列表资源增量：`系统设置 -> 认证/Auth -> Custom OAuth` 已补充 provider 列表 JSON 导入/导出。导出会将每个 provider 的 `client_secret` 写成 `__SECRET_REDACTED__`；导入按 `slug` upsert，slug 已存在则更新该 provider 并在脱敏占位符时保留当前密钥，slug 不存在则创建新 provider；导入不会删除生产中已有但导入文件缺失的 provider，避免误删登录入口。
 
 Request Limits 安全配置增量：`系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 已补充 JSON 导入/导出。Rate Limiting 导出/导入模型请求限流开关、周期、总请求数、成功请求数和分组限流 JSON；Sensitive Words 导出/导入敏感词扫描开关、Prompt 扫描开关和敏感词列表；SSRF Protection 导出/导入 SSRF 总开关、私网 IP 放行、域名/IP 黑白名单模式、域名/IP 列表、端口列表和域名解析后 IP 过滤开关。导入仍只更新当前表单，必须点保存才写入后台；Operations Center 的 Safety 配置地图和命令面板已新增 Rate Limiting、Sensitive Words、SSRF Protection 直达入口，可通过 `rate limit`、`sensitive`、`ssrf`、`json`、`import`、`export` 等关键词找到。
 
-Billing basics 增量：`系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards` 已补充 JSON 导入/导出。Quota Settings 导出/导入新用户额度、预消耗额度、邀请奖励、充值链接、文档链接和免费模型预消耗开关；Currency & Display 导出/导入额度单位、美元汇率、展示币种、币种符号/自定义汇率和 token 统计开关；Check-in Rewards 导出/导入签到开关、最小/最大奖励额度。导入仍只更新当前表单，必须点保存才写入后台；Operations Center 新增 Billing 配置地图，命令面板新增 Quota Settings、Currency Display、Check-in Rewards 直达入口，可通过 `billing`、`quota`、`currency`、`checkin`、`json`、`import`、`export` 等关键词找到。本轮没有覆盖 Payment Gateway 的 Stripe/Creem/Waffo/Epay 密钥导入导出，后续需要单独按密钥脱敏规则处理。
+Billing 配置增量：`系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`、`Payment Gateway` 已补充 JSON 导入/导出。Quota Settings 导出/导入新用户额度、预消耗额度、邀请奖励、充值链接、文档链接和免费模型预消耗开关；Currency & Display 导出/导入额度单位、美元汇率、展示币种、币种符号/自定义汇率和 token 统计开关；Check-in Rewards 导出/导入签到开关、最小/最大奖励额度；Payment Gateway 导出/导入 Epay、Stripe、Creem、Waffo 和 Waffo Pancake 的非密钥配置、Waffo 支付方式、Waffo Pancake 店铺/商品绑定。Payment Gateway 导出的 `EpayKey`、`StripeApiSecret`、`StripeWebhookSecret`、`CreemApiKey`、`CreemWebhookSecret`、`WaffoApiKey`、`WaffoPrivateKey`、`WaffoSandboxApiKey`、`WaffoSandboxPrivateKey`、`WaffoPancakePrivateKey` 默认写成 `__SECRET_REDACTED__`；导入脱敏占位符、空值或缺失密钥时保留当前页面值，只有显式提供新密钥才会在保存时更新。导入仍只更新当前表单，必须点保存才写入后台；Payment Gateway 的合规确认状态不参与导入/导出。Operations Center 新增 Billing 配置地图，命令面板新增 Quota Settings、Currency Display、Payment Gateway、Check-in Rewards 直达入口，可通过 `billing`、`quota`、`currency`、`payment`、`gateway`、`stripe`、`waffo`、`json`、`import`、`export` 等关键词找到。
 
 ## 功能入口速查
 
@@ -52,20 +60,24 @@ Billing basics 增量：`系统设置 -> 计费/Billing -> Quota Settings`、`Cu
 |---|---|
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图、Dashboard/外观/System Information/侧边栏/Header navigation 顺序/官方价格/错误安全当前快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`、`Rate Limiting`、`Sensitive Words`、`SSRF Protection`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`、`Rate Limiting`、`Sensitive Words`、`SSRF Protection`、`Global Model Configuration`、`Claude Settings`、`Gemini Settings`、`Grok Settings`、`Channel Affinity`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations`，含官方价格、UA、Client Identity、模型/渠道统计、渠道测试调度、上游错误归一化等快捷入口 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | 客户端标识符 | `系统设置 -> 模型相关 -> Client Identity` |
 | 模型价格/官方同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
+| 模型价格/倍率迁移 | `系统设置 -> 模型相关 -> Model Pricing`，支持模型价格、倍率、分组倍率和工具价格 JSON 导入/导出；官方价格同步动作不参与导入/导出 |
+| 模型运行配置迁移 | `系统设置 -> 模型相关 -> Global Model Configuration`、`Claude`、`Gemini`、`Grok`、`Channel Affinity`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
 | 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
-| 计费基础配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
+| 计费配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`、`Payment Gateway`，支持 JSON 导入/导出；Payment Gateway 密钥默认脱敏，导入脱敏占位符时保留当前密钥；导入后需点保存才写入后台 |
 | 渠道定时测试配置 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持开关 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
 | 监控与告警 | `系统设置 -> 运维/Operations -> Monitoring & Alerts`，配置全局渠道测试、自动禁用/恢复、失败关键词、禁用/重试状态码、额度提醒，并支持 JSON 导入/导出 |
 | 性能设置 | `系统设置 -> 运维/Operations -> Performance`，配置磁盘缓存、资源阈值和性能指标采集，并支持 JSON 导入/导出 |
+| 日志维护 | `系统设置 -> 运维/Operations -> Log Maintenance`，配置额度消费日志写入，并支持 JSON 导入/导出；历史日志清理不参与导入/导出 |
 | SMTP/Worker | `系统设置 -> 运维/Operations -> SMTP Email` 与 `Worker Proxy`，配置邮件发送和 worker 转发，并支持默认脱敏的 JSON 导入/导出 |
+| 模型部署 | `系统设置 -> 模型相关 -> Model Deployment`，配置 io.net 部署开关和 API key，并支持默认脱敏的 JSON 导入/导出 |
 | 认证配置 | `系统设置 -> 认证/Auth -> Basic Authentication`、`OAuth Integrations`、`Passkey Authentication`、`Bot Protection`、`Custom OAuth`，支持 JSON 导入/导出；OAuth/Turnstile/Custom OAuth 密钥默认脱敏 |
 | 统计看板 | `Dashboard -> Overview` 的管理员 `Operations center`；`Dashboard -> Model Call Analytics` 的管理员模型运维面板和原消费图表；`Dashboard -> Channel Analytics` 的渠道分析和渠道用户消费表；`Dashboard -> User Analytics` 的用户运维面板和消费图表 |
 | 统计默认视图 | `系统设置 -> 内容/外观 -> Data Dashboard`，可配置默认时间范围、自动刷新、刷新间隔、表格页大小、健康筛选、趋势模式、Dashboard 分区可见性、旧图表默认项和健康判定阈值，并支持 JSON 导入/导出 |
@@ -76,7 +88,7 @@ Billing basics 增量：`系统设置 -> 计费/Billing -> Quota Settings`、`Cu
 | Chat Presets | `系统设置 -> 内容/外观 -> Chat Presets`，配置聊天客户端预设，并支持 JSON 导入/导出 |
 | Drawing | `系统设置 -> 内容/外观 -> Drawing`，配置绘图/Midjourney 相关开关，并支持 JSON 导入/导出 |
 | 原始调用日志 | 统计页 `Logs` / `View logs` 动作，或命令面板 `Usage Logs`，进入 `Usage Logs -> common` |
-| 主题/外观 | `系统设置 -> 内容/外观 -> Appearance` 配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出；顶部主题切换保存用户本地偏好 |
+| 主题/外观 | `系统设置 -> 内容/外观 -> Appearance` 配置全局默认主题/字体/圆角/密度/内容宽度/强调色，并支持 JSON 导入/导出；顶部主题切换保存用户本地偏好 |
 | 站点基础信息 | `系统设置 -> 站点设置 -> System Information`，配置系统名、服务地址、Logo、Footer、About、首页内容、用户协议和隐私政策，并支持 JSON 导入/导出 |
 | 系统公告 | `系统设置 -> 站点设置 -> System Notice`，配置站点全局公告，并支持 JSON 导入/导出 |
 | 顶部导航与页脚文档地址 | `系统设置 -> 站点设置 -> Header navigation`，可配置顶部模块开关、模型广场/排行榜登录要求、顶栏模块顺序、Documentation URL，并支持 JSON 导入/导出 |
