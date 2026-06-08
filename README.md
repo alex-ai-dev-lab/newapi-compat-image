@@ -29,6 +29,8 @@
 - Codex / OpenAI Responses 兼容：
   - Codex channel `/backend-api/codex/responses` 支持。
   - 部分 Responses 请求可做参数清理、stream 聚合、chat fallback。
+  - `/v1/responses` 会清理历史 `reasoning` item 上游不接受的非空 `content` 数组，保留普通 message `content`，避免严格上游返回 `array_above_max_length`。
+  - Responses 请求和渠道测试只会选择支持 OpenAI Responses 的渠道类型，避免误入 Anthropic adaptor 后返回 `not implemented`。
   - encrypted reasoning 相关 affinity / scrub fallback 保留在 runtime patch 中。
 - Claude Messages / Claude Code 兼容：
   - Claude attribution 与部分工具调用历史兼容修补。
@@ -72,9 +74,12 @@
   - 首字延迟覆盖总览、渠道、模型、用户维度；来源为日志 `other.frt`，查询对损坏 JSON 做了防护。
   - 后台可配置默认时间范围、自动刷新开关和 5/15/30/60 秒刷新间隔；用户浏览器本地偏好仍优先。
 - 站点导航与模块：
+  - 默认前端和 classic 前端都会在 Docker 构建阶段生成并嵌入二进制；classic 主题不会因为应用 compat 镜像而丢失首页/UI 资源。
   - 顶部文档地址可在 `系统设置 -> 站点设置 -> Header navigation` 配置。
   - 侧边栏模块可在 `系统设置 -> 站点设置 -> Sidebar modules` 配置全局显示/隐藏，并支持顶层分组和分组内模块上移/下移排序。
   - 系统设置内部导航可在 `系统设置 -> 站点设置 -> System settings navigation` 配置大区显隐/排序、子项显隐/排序，并支持 JSON 导入/导出。
+  - 默认前端的持久化系统配置会对 Dashboard 默认项做深合并，旧浏览器本地存储缺少新字段时不会导致 `/dashboard/models` 崩溃。
+  - 新增后台入口的中文文案已覆盖 Client Identity、上游错误规则、数据看板、运维中心、导航配置和 JSON 导入/导出弹窗。
 
 ### 数据库与运行参数
 

@@ -206,7 +206,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..d6afc6e 100644
+index 037b849..18bd1d5 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -26,7 +26,6 @@ import (
@@ -217,26 +217,32 @@ index 037b849..d6afc6e 100644
  	"github.com/QuantumNous/new-api/setting/ratio_setting"
  	"github.com/QuantumNous/new-api/types"
  
-@@ -51,12 +50,53 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
- 	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+@@ -48,15 +47,58 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
+ 	if normalized != "" {
+ 		return normalized
+ 	}
+-	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
++
++	modelName = strings.TrimSpace(modelName)
++	lowerModel := strings.ToLower(modelName)
++	if strings.HasSuffix(lowerModel, ratio_setting.CompactModelSuffix) {
  		return string(constant.EndpointTypeOpenAIResponseCompact)
  	}
 -	if channel != nil && channel.Type == constant.ChannelTypeCodex {
++	if common.IsOpenAIResponseOnlyModel(lowerModel) || strings.Contains(lowerModel, "codex") {
+ 		return string(constant.EndpointTypeOpenAIResponse)
+ 	}
 +	if channel != nil {
 +		if channel.Type == constant.ChannelTypeCodex {
++			return string(constant.EndpointTypeOpenAIResponse)
++		}
++		if service.ShouldChatCompletionsUseResponsesForChannel(channel.Id, channel.Type, channel.GetBaseURL(), modelName) {
 +			return string(constant.EndpointTypeOpenAIResponse)
 +		}
 +		if channel.Type == constant.ChannelTypeAnthropic {
 +			return string(constant.EndpointTypeAnthropic)
 +		}
-+		if service.ShouldChatCompletionsUseResponsesForChannel(channel.Id, channel.Type, channel.GetBaseURL(), modelName) {
-+			return string(constant.EndpointTypeOpenAIResponse)
-+		}
 +	}
-+	lowerModel := strings.ToLower(strings.TrimSpace(modelName))
-+	if common.IsOpenAIResponseOnlyModel(lowerModel) || strings.Contains(lowerModel, "codex") {
- 		return string(constant.EndpointTypeOpenAIResponse)
- 	}
  	return normalized
  }
  
@@ -272,7 +278,7 @@ index 037b849..d6afc6e 100644
  func resolveChannelTestUserID(c *gin.Context) (int, error) {
  	if c != nil {
  		if userID := c.GetInt("id"); userID > 0 {
-@@ -111,6 +151,10 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -111,6 +153,10 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  
  	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
  
@@ -283,7 +289,34 @@ index 037b849..d6afc6e 100644
  	requestPath := "/v1/chat/completions"
  
  	// 如果指定了端点类型，使用指定的端点类型
-@@ -441,8 +485,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -347,6 +393,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+ 	case relayconstant.RelayModeResponses:
+ 		// Response 请求 - request 已经是正确的类型
+ 		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
++			service.SanitizeResponsesReasoningContent(responseReq)
+ 			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *responseReq)
+ 		} else {
+ 			return testResult{
+@@ -359,13 +406,16 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+ 		// Response compaction request - convert to OpenAIResponsesRequest before adapting
+ 		switch req := request.(type) {
+ 		case *dto.OpenAIResponsesCompactionRequest:
+-			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
++			responseReq := dto.OpenAIResponsesRequest{
+ 				Model:              req.Model,
+ 				Input:              req.Input,
+ 				Instructions:       req.Instructions,
+ 				PreviousResponseID: req.PreviousResponseID,
+-			})
++			}
++			service.SanitizeResponsesReasoningContent(&responseReq)
++			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, responseReq)
+ 		case *dto.OpenAIResponsesRequest:
++			service.SanitizeResponsesReasoningContent(req)
+ 			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *req)
+ 		default:
+ 			return testResult{
+@@ -441,8 +491,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  		}
  	}
  	var httpResp *http.Response
@@ -296,7 +329,7 @@ index 037b849..d6afc6e 100644
  		if httpResp.StatusCode != http.StatusOK {
  			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
  			common.SysError(fmt.Sprintf(
-@@ -470,16 +518,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -470,16 +524,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: respErr,
  		}
  	}
@@ -314,7 +347,7 @@ index 037b849..d6afc6e 100644
  	if err != nil {
  		return testResult{
  			context:     c,
-@@ -487,7 +527,20 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -487,7 +533,20 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
  		}
  	}
@@ -336,7 +369,7 @@ index 037b849..d6afc6e 100644
  		return testResult{
  			context:     c,
  			localErr:    bodyErr,
-@@ -664,7 +717,20 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
+@@ -664,7 +723,20 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
  }
  
  func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
@@ -358,7 +391,7 @@ index 037b849..d6afc6e 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -923,7 +989,12 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +995,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -372,7 +405,7 @@ index 037b849..d6afc6e 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-@@ -989,22 +1060,8 @@ func AutomaticallyTestChannels() {
+@@ -989,22 +1066,8 @@ func AutomaticallyTestChannels() {
  		return
  	}
  	autoTestChannelsOnce.Do(func() {
@@ -399,7 +432,7 @@ index 037b849..d6afc6e 100644
  	})
  }
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
-index 0254080..f45af71 100644
+index 0254080..0ae65a7 100644
 --- a/controller/channel_test_internal_test.go
 +++ b/controller/channel_test_internal_test.go
 @@ -5,7 +5,9 @@ import (
@@ -412,7 +445,7 @@ index 0254080..f45af71 100644
  	"github.com/QuantumNous/new-api/pkg/billingexpr"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/types"
-@@ -80,3 +82,25 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
+@@ -80,3 +82,43 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
  	require.NoError(t, err)
  	require.Equal(t, 2, userID)
  }
@@ -425,6 +458,24 @@ index 0254080..f45af71 100644
 +	}
 +
 +	require.Equal(t, string(constant.EndpointTypeOpenAIResponse), normalizeChannelTestEndpoint(channel, "gpt-5.5", ""))
++}
++
++func TestNormalizeChannelTestEndpointUsesResponsesBeforeAnthropicForCodexModel(t *testing.T) {
++	channel := &model.Channel{
++		Id:   88,
++		Type: constant.ChannelTypeAnthropic,
++	}
++
++	require.Equal(t, string(constant.EndpointTypeOpenAIResponse), normalizeChannelTestEndpoint(channel, "codex-mini-latest", ""))
++}
++
++func TestNormalizeChannelTestEndpointKeepsAnthropicForClaudeModel(t *testing.T) {
++	channel := &model.Channel{
++		Id:   89,
++		Type: constant.ChannelTypeAnthropic,
++	}
++
++	require.Equal(t, string(constant.EndpointTypeAnthropic), normalizeChannelTestEndpoint(channel, "claude-sonnet-4-20250514", ""))
 +}
 +
 +func TestShouldUseStreamForChannelTestUsesStreamingTextEndpoints(t *testing.T) {
@@ -2056,7 +2107,7 @@ index 1f57bcc..30dd6da 100644
  	c.JSON(http.StatusOK, gin.H{
  		"success": true,
 diff --git a/controller/relay.go b/controller/relay.go
-index 1d14dcc..e68a002 100644
+index 1d14dcc..4df8198 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -15,6 +15,7 @@ import (
@@ -2106,7 +2157,7 @@ index 1d14dcc..e68a002 100644
  	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
  	needCountToken := constant.CountToken
  	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
-@@ -179,27 +191,54 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -179,27 +191,55 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  	}()
  
  	retryParam := &service.RetryParam{
@@ -2121,6 +2172,7 @@ index 1d14dcc..e68a002 100644
 +		ExcludedChannelIds:               make(map[int]bool),
 +		PreferredChannelId:               relayInfo.EncryptedReasoningAffinityChannelId,
 +		RequireClaudeThinkingSupport:     relayInfo.ClaudeThinkingPreferSupportedChannel,
++		RequireOpenAIResponsesSupport:    relayFormat == types.RelayFormatOpenAIResponses || relayFormat == types.RelayFormatOpenAIResponsesCompaction,
  	}
  	relayInfo.RetryIndex = 0
  	relayInfo.LastError = nil
@@ -2167,7 +2219,7 @@ index 1d14dcc..e68a002 100644
  			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
  				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
  			} else {
-@@ -220,8 +259,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -220,8 +260,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  			newAPIError = relayHandler(c, relayInfo)
  		}
  
@@ -2184,7 +2236,7 @@ index 1d14dcc..e68a002 100644
  			return
  		}
  
-@@ -230,9 +277,27 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+@@ -230,9 +278,27 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
  
  		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  
@@ -2213,7 +2265,7 @@ index 1d14dcc..e68a002 100644
  	}
  
  	useChannel := c.GetStringSlice("use_channel")
-@@ -289,6 +354,165 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
+@@ -289,6 +355,165 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
  	return meta
  }
  
@@ -2379,7 +2431,7 @@ index 1d14dcc..e68a002 100644
  func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
  	if info.ChannelMeta == nil {
  		autoBan := c.GetBool("auto_ban")
-@@ -325,7 +549,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -325,7 +550,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if openaiErr == nil {
  		return false
  	}
@@ -2388,7 +2440,7 @@ index 1d14dcc..e68a002 100644
  		return false
  	}
  	if types.IsChannelError(openaiErr) {
-@@ -347,12 +571,243 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,12 +572,243 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -3154,7 +3206,7 @@ index b6a1ab9..0cd8d3f 100644
  	UpstreamModelUpdateAutoSyncEnabled    bool          `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
  	UpstreamModelUpdateLastCheckTime      int64         `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
 diff --git a/main.go b/main.go
-index 3361b8c..c433947 100644
+index 3361b8c..28c4cf4 100644
 --- a/main.go
 +++ b/main.go
 @@ -2,6 +2,7 @@ package main
@@ -3177,24 +3229,7 @@ index 3361b8c..c433947 100644
  	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
  	"github.com/QuantumNous/new-api/relay"
  	"github.com/QuantumNous/new-api/router"
-@@ -41,11 +47,12 @@ var buildFS embed.FS
- //go:embed web/default/dist/index.html
- var indexPage []byte
- 
--//go:embed web/classic/dist
--var classicBuildFS embed.FS
-+// Classic UI is optional - comment out if not present
-+// //go:embed web/classic/dist
-+// var classicBuildFS embed.FS
- 
--//go:embed web/classic/dist/index.html
--var classicIndexPage []byte
-+// //go:embed web/classic/dist/index.html
-+// var classicIndexPage []byte
- 
- func main() {
- 	startTime := time.Now()
-@@ -97,6 +104,9 @@ func main() {
+@@ -97,6 +103,9 @@ func main() {
  		go model.SyncChannelCache(common.SyncFrequency)
  	}
  
@@ -3204,7 +3239,7 @@ index 3361b8c..c433947 100644
  	// 热更新配置
  	go model.SyncOptions(common.SyncFrequency)
  
-@@ -119,6 +129,12 @@ func main() {
+@@ -119,6 +128,12 @@ func main() {
  	// Subscription quota reset task (daily/weekly/monthly/custom)
  	service.StartSubscriptionQuotaResetTask()
  
@@ -3217,7 +3252,7 @@ index 3361b8c..c433947 100644
  	// Wire task polling adaptor factory (breaks service -> relay import cycle)
  	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
  		a := relay.GetTaskAdaptor(platform)
-@@ -129,7 +145,7 @@ func main() {
+@@ -129,7 +144,7 @@ func main() {
  	}
  
  	// Channel upstream model update check task
@@ -3226,36 +3261,7 @@ index 3361b8c..c433947 100644
  
  	if common.IsMasterNode && constant.UpdateTask {
  		gopool.Go(func() {
-@@ -193,8 +209,8 @@ func main() {
- 	router.SetRouter(server, router.ThemeAssets{
- 		DefaultBuildFS:   buildFS,
- 		DefaultIndexPage: indexPage,
--		ClassicBuildFS:   classicBuildFS,
--		ClassicIndexPage: classicIndexPage,
-+		// ClassicBuildFS:   classicBuildFS,
-+		// ClassicIndexPage: classicIndexPage,
- 	})
- 	var port = os.Getenv("PORT")
- 	if port == "" {
-@@ -228,7 +244,7 @@ func InjectUmamiAnalytics() {
- 	analyticsInject := []byte(analyticsInjectBuilder.String())
- 	placeholder := []byte("<!--umami-->\n")
- 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
--	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
-+	// classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
- }
- 
- func InjectGoogleAnalytics() {
-@@ -252,7 +268,7 @@ func InjectGoogleAnalytics() {
- 	analyticsInject := []byte(analyticsInjectBuilder.String())
- 	placeholder := []byte("<!--Google Analytics-->\n")
- 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
--	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
-+	// classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
- }
- 
- func InitResources() error {
-@@ -309,6 +325,20 @@ func InitResources() error {
+@@ -309,6 +324,20 @@ func InitResources() error {
  
  	perfmetrics.Init()
  
@@ -8365,16 +8371,22 @@ index 2581b28..b2272f0 100644
  	textRequest := &dto.GeneralOpenAIRequest{}
  	err := common.UnmarshalBodyReusable(c, textRequest)
 diff --git a/relay/responses_handler.go b/relay/responses_handler.go
-index 010c38b..1c49412 100644
+index 010c38b..3949ea4 100644
 --- a/relay/responses_handler.go
 +++ b/relay/responses_handler.go
-@@ -60,6 +60,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
+@@ -60,6 +60,17 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
  		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
  	}
  
 +	if info.ChannelType == appconstant.ChannelTypeCodex && !info.IsStream && info.RelayMode != relayconstant.RelayModeResponsesCompact {
 +		request.Stream = common.GetPointer(true)
 +		c.Set("responses_upstream_stream", true)
++	}
++	if result := service.SanitizeResponsesReasoningContent(request); result.Changed {
++		logger.LogInfo(c, fmt.Sprintf(
++			"responses reasoning content sanitized: removed_reasoning_content=%d",
++			result.RemovedReasoningContent,
++		))
 +	}
 +
  	err = helper.ModelMappedHelper(c, info, request)
@@ -8501,10 +8513,10 @@ index 856e2cd..9dc7755 100644
  	}
  	return true
 diff --git a/service/channel_select.go b/service/channel_select.go
-index a3710ef..0781907 100644
+index a3710ef..6f92638 100644
 --- a/service/channel_select.go
 +++ b/service/channel_select.go
-@@ -12,11 +12,14 @@ import (
+@@ -12,11 +12,15 @@ import (
  )
  
  type RetryParam struct {
@@ -8521,10 +8533,11 @@ index a3710ef..0781907 100644
 +	ExcludedChannelIds map[int]bool
 +	PreferredChannelId int
 +	RequireClaudeThinkingSupport bool
++	RequireOpenAIResponsesSupport bool
  }
  
  func (p *RetryParam) GetRetry() int {
-@@ -86,11 +89,33 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+@@ -86,11 +90,33 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
  	selectGroup := param.TokenGroup
  	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
  
@@ -8558,7 +8571,7 @@ index a3710ef..0781907 100644
  
  		// startGroupIndex: the group index to start searching from
  		// startGroupIndex: 开始搜索的分组索引
-@@ -115,7 +140,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+@@ -115,7 +141,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
  			}
  			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
  
@@ -8567,7 +8580,7 @@ index a3710ef..0781907 100644
  			if channel == nil {
  				// Current group has no available channel for this model, try next group
  				// 当前分组没有该模型的可用渠道，尝试下一个分组
-@@ -153,10 +178,45 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
+@@ -153,10 +179,48 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string,
  			break
  		}
  	} else {
@@ -8587,6 +8600,9 @@ index a3710ef..0781907 100644
 +	if param.RequireClaudeThinkingSupport && !ChannelSupportsClaudeThinking(channel) {
 +		return false
 +	}
++	if param.RequireOpenAIResponsesSupport && !ChannelSupportsOpenAIResponses(channel) {
++		return false
++	}
 +	return true
 +}
 +
@@ -8594,7 +8610,7 @@ index a3710ef..0781907 100644
 +	if param == nil {
 +		return nil, errors.New("retry param is nil")
 +	}
-+	if !param.RequireClaudeThinkingSupport {
++	if !param.RequireClaudeThinkingSupport && !param.RequireOpenAIResponsesSupport {
 +		return model.GetRandomSatisfiedChannelExcluding(group, param.ModelName, retry, param.ExcludedChannelIds)
 +	}
 +	excluded := param.ExcludedChannelIds
@@ -10448,6 +10464,213 @@ index 0000000..f7c65a8
 +		t.Fatal("regular OpenAI chat channel should not be forced into Responses mode")
 +	}
 +}
+diff --git a/service/responses_channel_compat.go b/service/responses_channel_compat.go
+new file mode 100644
+index 0000000..522ea9f
+--- /dev/null
++++ b/service/responses_channel_compat.go
+@@ -0,0 +1,24 @@
++package service
++
++import (
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++)
++
++func ChannelSupportsOpenAIResponses(channel *model.Channel) bool {
++	if channel == nil {
++		return false
++	}
++	switch channel.Type {
++	case constant.ChannelTypeOpenAI,
++		constant.ChannelTypeAzure,
++		constant.ChannelTypeAli,
++		constant.ChannelTypeCodex,
++		constant.ChannelCloudflare,
++		constant.ChannelTypePerplexity,
++		constant.ChannelTypeVolcEngine,
++		constant.ChannelTypeXai:
++		return true
++	}
++	return false
++}
+diff --git a/service/responses_channel_compat_test.go b/service/responses_channel_compat_test.go
+new file mode 100644
+index 0000000..4bc3542
+--- /dev/null
++++ b/service/responses_channel_compat_test.go
+@@ -0,0 +1,28 @@
++package service
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/stretchr/testify/require"
++)
++
++func TestChannelMatchesRetryRequirementsRequiresOpenAIResponsesSupport(t *testing.T) {
++	param := &RetryParam{RequireOpenAIResponsesSupport: true}
++
++	require.False(t, channelMatchesRetryRequirements(param, &model.Channel{
++		Type: constant.ChannelTypeAnthropic,
++	}))
++	require.True(t, channelMatchesRetryRequirements(param, &model.Channel{
++		Type: constant.ChannelTypeOpenAI,
++	}))
++	require.True(t, channelMatchesRetryRequirements(param, &model.Channel{
++		Type: constant.ChannelTypeCodex,
++	}))
++	require.False(t, channelMatchesRetryRequirements(param, &model.Channel{
++		Type:    constant.ChannelTypeAnthropic,
++		BaseURL: common.GetPointer("https://example.test/codex"),
++	}))
++}
+diff --git a/service/responses_reasoning_compat.go b/service/responses_reasoning_compat.go
+new file mode 100644
+index 0000000..8765b90
+--- /dev/null
++++ b/service/responses_reasoning_compat.go
+@@ -0,0 +1,84 @@
++package service
++
++import (
++	"encoding/json"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++)
++
++type ResponsesReasoningContentSanitizeResult struct {
++	Changed                 bool
++	RemovedReasoningContent int
++}
++
++func SanitizeResponsesReasoningContent(req *dto.OpenAIResponsesRequest) ResponsesReasoningContentSanitizeResult {
++	if req == nil || len(req.Input) == 0 {
++		return ResponsesReasoningContentSanitizeResult{}
++	}
++	nextInput, removed, changed := sanitizeResponsesReasoningContentJSON(req.Input)
++	if !changed {
++		return ResponsesReasoningContentSanitizeResult{}
++	}
++	req.Input = nextInput
++	return ResponsesReasoningContentSanitizeResult{
++		Changed:                 true,
++		RemovedReasoningContent: removed,
++	}
++}
++
++func sanitizeResponsesReasoningContentJSON(raw json.RawMessage) (json.RawMessage, int, bool) {
++	var v any
++	if err := common.Unmarshal(raw, &v); err != nil {
++		return raw, 0, false
++	}
++	next, removed, changed := sanitizeResponsesReasoningContentValue(v, false)
++	if !changed {
++		return raw, 0, false
++	}
++	data, err := common.Marshal(next)
++	if err != nil {
++		return raw, 0, false
++	}
++	return data, removed, true
++}
++
++func sanitizeResponsesReasoningContentValue(v any, parentIsReasoning bool) (any, int, bool) {
++	switch t := v.(type) {
++	case []any:
++		next := make([]any, 0, len(t))
++		removed := 0
++		changed := false
++		for _, item := range t {
++			cleaned, itemRemoved, itemChanged := sanitizeResponsesReasoningContentValue(item, false)
++			removed += itemRemoved
++			changed = changed || itemChanged
++			next = append(next, cleaned)
++		}
++		return next, removed, changed
++	case map[string]any:
++		isReasoning := parentIsReasoning
++		if typ, _ := t["type"].(string); typ == "reasoning" {
++			isReasoning = true
++		}
++		next := make(map[string]any, len(t))
++		removed := 0
++		changed := false
++		for key, value := range t {
++			if isReasoning && key == "content" {
++				if items, ok := value.([]any); ok && len(items) > 0 {
++					removed++
++					changed = true
++					continue
++				}
++			}
++			cleaned, itemRemoved, itemChanged := sanitizeResponsesReasoningContentValue(value, isReasoning)
++			removed += itemRemoved
++			changed = changed || itemChanged
++			next[key] = cleaned
++		}
++		return next, removed, changed
++	default:
++		return v, 0, false
++	}
++}
+diff --git a/service/responses_reasoning_compat_test.go b/service/responses_reasoning_compat_test.go
+new file mode 100644
+index 0000000..bd53a63
+--- /dev/null
++++ b/service/responses_reasoning_compat_test.go
+@@ -0,0 +1,47 @@
++package service
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/tidwall/gjson"
++)
++
++func TestSanitizeResponsesReasoningContentRemovesOnlyReasoningContent(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Input: common.StringToByteSlice(`[
++			{"type":"reasoning","id":"rs_1","summary":[],"content":[{"type":"summary_text","text":"probe summary"}]},
++			{"type":"message","role":"user","content":[{"type":"input_text","text":"keep me"}]},
++			{"type":"reasoning","id":"rs_2","summary":[],"content":[]}
++		]`),
++	}
++
++	result := SanitizeResponsesReasoningContent(req)
++
++	require.True(t, result.Changed)
++	assert.Equal(t, 1, result.RemovedReasoningContent)
++	assert.False(t, gjson.GetBytes(req.Input, `0.content`).Exists())
++	assert.Equal(t, "keep me", gjson.GetBytes(req.Input, `1.content.0.text`).String())
++	assert.True(t, gjson.GetBytes(req.Input, `2.content`).Exists())
++	assert.Len(t, gjson.GetBytes(req.Input, `2.content`).Array(), 0)
++}
++
++func TestSanitizeResponsesReasoningContentKeepsCleanRequest(t *testing.T) {
++	req := &dto.OpenAIResponsesRequest{
++		Input: common.StringToByteSlice(`[
++			{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},
++			{"type":"reasoning","id":"rs_1","summary":[]}
++		]`),
++	}
++
++	result := SanitizeResponsesReasoningContent(req)
++
++	require.False(t, result.Changed)
++	assert.JSONEq(t, `[
++		{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},
++		{"type":"reasoning","id":"rs_1","summary":[]}
++	]`, string(req.Input))
++}
 diff --git a/setting/operation_setting/encrypted_reasoning_fallback_setting.go b/setting/operation_setting/encrypted_reasoning_fallback_setting.go
 new file mode 100644
 index 0000000..04b4b17
@@ -10848,7 +11071,7 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..b2f9f81
+index 0000000..dd25f2a
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
 @@ -0,0 +1,1562 @@
@@ -10940,11 +11163,11 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'analytics-overview',
-+        label: 'Overview Analytics',
-+        description: 'Open operations overview and health signals',
++        label: '运维总览',
++        description: '打开运维总览与健康信号',
 +        icon: BarChart3,
 +        keywords: ['overview', 'analytics', 'operations', 'health', 'stats'],
-+        section: 'Analytics',
++        section: '分析',
 +        action: () => {
 +          navigate({
 +            to: '/dashboard/$section',
@@ -10955,11 +11178,11 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'analytics-models',
-+        label: 'Model Analytics',
-+        description: 'Inspect model traffic, reliability, latency, and cost',
++        label: '模型分析',
++        description: '查看模型流量、可靠性、延迟和成本',
 +        icon: LineChart,
 +        keywords: ['model', 'analytics', 'latency', 'cost', 'success rate'],
-+        section: 'Analytics',
++        section: '分析',
 +        action: () => {
 +          navigate({
 +            to: '/dashboard/$section',
@@ -10970,9 +11193,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'analytics-channels',
-+        label: 'Channel Analytics',
++        label: '渠道分析',
 +        description:
-+          'Inspect channel reliability, first-token latency, and users',
++          '查看渠道可靠性、首 token 延迟和用户构成',
 +        icon: Radio,
 +        keywords: [
 +          'channel',
@@ -10981,7 +11204,7 @@ index 0000000..b2f9f81
 +          'first token',
 +          'user spend',
 +        ],
-+        section: 'Analytics',
++        section: '分析',
 +        action: () => {
 +          navigate({
 +            to: '/dashboard/$section',
@@ -10993,11 +11216,11 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'analytics-users',
-+        label: 'User Analytics',
-+        description: 'Inspect user spend, reliability, latency, and trends',
++        label: '用户分析',
++        description: '查看用户消费、可靠性、延迟和趋势',
 +        icon: Users,
 +        keywords: ['user', 'analytics', 'spend', 'cost', 'latency', 'trend'],
-+        section: 'Analytics',
++        section: '分析',
 +        action: () => {
 +          navigate({
 +            to: '/dashboard/$section',
@@ -11103,9 +11326,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-operations-center',
-+        label: 'Operations Center',
++        label: '运维中心',
 +        description:
-+          'Open the compatibility and admin operations control surface',
++          '打开兼容能力与后台运维控制台',
 +        icon: LayoutDashboard,
 +        keywords: [
 +          'operations',
@@ -11125,7 +11348,7 @@ index 0000000..b2f9f81
 +          'sqlite',
 +          'error rules',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/operations/$section',
@@ -11154,9 +11377,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-model-operations',
-+        label: 'Model Operations',
++        label: '模型运维',
 +        description:
-+          'Jump to pricing, UA, identity, routing, and analytics shortcuts',
++          '跳转到定价、UA、标识、路由和分析快捷入口',
 +        icon: LineChart,
 +        keywords: [
 +          'model',
@@ -11166,7 +11389,7 @@ index 0000000..b2f9f81
 +          'analytics',
 +          'routing',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/models/$section',
@@ -11178,11 +11401,11 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-user-agents',
-+        label: 'User-Agent Management',
-+        description: 'Manage global and channel User-Agent profiles',
++        label: 'User-Agent 管理',
++        description: '管理全局和渠道 User-Agent 配置',
 +        icon: Globe,
 +        keywords: ['ua', 'user-agent', 'codex', 'claude', 'gpt', 'model'],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/models/$section',
@@ -11195,9 +11418,9 @@ index 0000000..b2f9f81
 +      // Settings - Client Identity
 +      {
 +        id: 'settings-client-identity',
-+        label: 'Client Identity',
++        label: '客户端标识',
 +        description:
-+          'Manage and import/export device and installation identifiers',
++          '管理并导入/导出设备标识和安装标识',
 +        icon: Shield,
 +        keywords: [
 +          'identity',
@@ -11209,7 +11432,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/models/$section',
@@ -11787,11 +12010,11 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-claude-thinking',
-+        label: 'Claude Thinking Support',
-+        description: 'Open channels to configure Claude thinking compatibility',
++        label: 'Claude Thinking 兼容',
++        description: '打开渠道配置 Claude thinking 兼容能力',
 +        icon: Zap,
 +        keywords: ['claude', 'thinking', 'signature', 'anthropic', 'fallback'],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({ to: '/channels' })
 +          close()
@@ -11800,9 +12023,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-upstream-error-rules',
-+        label: 'Upstream Error Rules',
++        label: '上游错误规则',
 +        description:
-+          'Normalize and import/export unsafe upstream error message rules',
++          '规范化并导入/导出不安全上游错误提示规则',
 +        icon: AlertTriangle,
 +        keywords: [
 +          'error',
@@ -11814,7 +12037,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/security/$section',
@@ -11826,8 +12049,8 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-rate-limiting',
-+        label: 'Rate Limiting',
-+        description: 'Configure and import/export model request limits',
++        label: '速率限制',
++        description: '配置并导入/导出模型请求限制',
 +        icon: Timer,
 +        keywords: [
 +          'rate',
@@ -11839,7 +12062,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/security/$section',
@@ -11851,8 +12074,8 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-sensitive-words',
-+        label: 'Sensitive Words',
-+        description: 'Configure and import/export blocked keyword checks',
++        label: '敏感词',
++        description: '配置并导入/导出关键词拦截检查',
 +        icon: Shield,
 +        keywords: [
 +          'sensitive',
@@ -11865,7 +12088,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/security/$section',
@@ -11877,9 +12100,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-ssrf-protection',
-+        label: 'SSRF Protection',
++        label: 'SSRF 防护',
 +        description:
-+          'Configure and import/export fetch domain, IP, and port rules',
++          '配置并导入/导出抓取域名、IP 和端口规则',
 +        icon: Shield,
 +        keywords: [
 +          'ssrf',
@@ -11893,7 +12116,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/security/$section',
@@ -11905,8 +12128,8 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-security',
-+        label: 'Security Settings',
-+        description: 'Open security and upstream protection settings',
++        label: '安全设置',
++        description: '打开安全和上游保护设置',
 +        icon: Shield,
 +        keywords: [
 +          'security',
@@ -11915,7 +12138,7 @@ index 0000000..b2f9f81
 +          'ssrf',
 +          'rate limit',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/security/$section',
@@ -11928,8 +12151,8 @@ index 0000000..b2f9f81
 +      // Settings - Appearance
 +      {
 +        id: 'settings-dashboard-defaults',
-+        label: 'Dashboard Defaults',
-+        description: 'Configure and import/export dashboard defaults as JSON',
++        label: '数据看板默认值',
++        description: '配置并以 JSON 导入/导出数据看板默认值',
 +        icon: LayoutDashboard,
 +        keywords: [
 +          'dashboard',
@@ -11942,7 +12165,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/content/$section',
@@ -11954,9 +12177,9 @@ index 0000000..b2f9f81
 +      },
 +      {
 +        id: 'settings-appearance',
-+        label: 'Appearance',
++        label: '外观设置',
 +        description:
-+          'Customize and import/export theme, font, layout, and interface palette defaults',
++          '自定义并导入/导出主题、字体、布局和界面调色板默认值',
 +        icon: Palette,
 +        keywords: [
 +          'theme',
@@ -11977,7 +12200,7 @@ index 0000000..b2f9f81
 +          'import',
 +          'export',
 +        ],
-+        section: 'Settings',
++        section: '设置',
 +        action: () => {
 +          navigate({
 +            to: '/system-settings/content/$section',
@@ -17816,10 +18039,10 @@ index 8277754..8086eae 100644
  
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..8c50541
+index 0000000..c7c9274
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
-@@ -0,0 +1,1107 @@
+@@ -0,0 +1,1105 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -18301,7 +18524,7 @@ index 0000000..8c50541
 +    return (
 +      <Alert variant='destructive'>
 +        <AlertDescription>
-+          Failed to load model operations analytics. Please try again later.
++          加载模型运维分析失败，请稍后重试。
 +        </AlertDescription>
 +      </Alert>
 +    )
@@ -18311,10 +18534,9 @@ index 0000000..8c50541
 +    <section className='space-y-4'>
 +      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +        <div>
-+          <h3 className='text-base font-semibold'>Model operations</h3>
++          <h3 className='text-base font-semibold'>模型运维</h3>
 +          <p className='text-muted-foreground text-sm'>
-+            Model request volume, reliability, first-token latency, and spend
-+            for the selected window.
++            当前时间窗口内的模型请求量、可靠性、首 token 延迟和消费。
 +          </p>
 +        </div>
 +        <div className='flex flex-wrap items-center gap-3'>
@@ -18339,19 +18561,19 @@ index 0000000..8c50541
 +      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-5'>
 +        <MetricCard
 +          icon={Boxes}
-+          label='Active models'
++          label='活跃模型'
 +          value={formatCount(summary.activeModels)}
 +          loading={isLoading}
 +        />
 +        <MetricCard
 +          icon={Activity}
-+          label='Requests'
++          label='请求数'
 +          value={formatCount(summary.totalRequests)}
 +          loading={isLoading}
 +        />
 +        <MetricCard
 +          icon={AlertTriangle}
-+          label='Failures'
++          label='失败数'
 +          value={formatCount(summary.failedRequests)}
 +          loading={isLoading}
 +          valueClassName={
@@ -18360,13 +18582,13 @@ index 0000000..8c50541
 +        />
 +        <MetricCard
 +          icon={Timer}
-+          label='Avg first token'
++          label='平均首 token'
 +          value={formatMs(summary.avgFirstToken)}
 +          loading={isLoading}
 +        />
 +        <MetricCard
 +          icon={CircleDollarSign}
-+          label='Cost'
++          label='成本'
 +          value={formatUsd(summary.totalCost)}
 +          loading={isLoading}
 +        />
@@ -18375,14 +18597,14 @@ index 0000000..8c50541
 +      <div className='grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(22rem,0.7fr)]'>
 +        <Card className='rounded-lg shadow-none'>
 +          <CardHeader className='border-b pb-3'>
-+            <CardTitle className='text-sm'>Top model traffic</CardTitle>
++            <CardTitle className='text-sm'>模型流量排行</CardTitle>
 +          </CardHeader>
 +          <CardContent className='pt-4'>
 +            {isLoading ? (
 +              <Skeleton className='h-80 w-full rounded-lg' />
 +            ) : trafficChart.length === 0 ? (
 +              <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
-+                No model traffic in this period
++                当前时间段没有模型流量
 +              </div>
 +            ) : (
 +              <ResponsiveContainer width='100%' height={320}>
@@ -18426,20 +18648,20 @@ index 0000000..8c50541
 +
 +        <div className='grid gap-4'>
 +          <RankList
-+            title='Risk models'
++            title='风险模型'
 +            rows={riskModels}
 +            loading={isLoading}
-+            empty='No model failures in this period'
-+            metric={(row) => `${row.error_rate.toFixed(2)}% error`}
++            empty='当前时间段没有模型失败'
++            metric={(row) => `错误率 ${row.error_rate.toFixed(2)}%`}
 +            metricClassName={(row) =>
 +              riskClass(row.error_rate, healthThresholds)
 +            }
 +          />
 +          <RankList
-+            title='Slow first token'
++            title='首 token 较慢'
 +            rows={slowestModels}
 +            loading={isLoading}
-+            empty='No first-token latency data'
++            empty='暂无首 token 延迟数据'
 +            metric={(row) => formatMs(row.avg_first_token)}
 +          />
 +        </div>
@@ -18448,10 +18670,9 @@ index 0000000..8c50541
 +      <section className='space-y-3'>
 +        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 +          <div>
-+            <h3 className='text-sm font-semibold'>Selected model trend</h3>
++            <h3 className='text-sm font-semibold'>选中模型趋势</h3>
 +            <p className='text-muted-foreground mt-1 text-xs'>
-+              Inspect request volume, reliability, first-token latency, cost,
-+              and tokens for one model.
++              查看单个模型的请求量、可靠性、首 token 延迟、成本和 token 用量。
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -18473,7 +18694,7 @@ index 0000000..8c50541
 +              }
 +            >
 +              <FileText data-icon='inline-start' />
-+              View logs
++              查看日志
 +            </Button>
 +            <Select
 +              value={selectedModelName ?? undefined}
@@ -18481,7 +18702,7 @@ index 0000000..8c50541
 +              disabled={rows.length === 0 || isLoading}
 +            >
 +              <SelectTrigger className='w-full sm:w-[22rem]'>
-+                <SelectValue placeholder='Select model' />
++                <SelectValue placeholder='选择模型' />
 +              </SelectTrigger>
 +              <SelectContent>
 +                {rows.map((model) => (
@@ -18496,7 +18717,7 @@ index 0000000..8c50541
 +        {modelTrendError ? (
 +          <Alert variant='destructive'>
 +            <AlertDescription>
-+              Failed to load selected model trend. Please try again later.
++              加载选中模型趋势失败，请稍后重试。
 +            </AlertDescription>
 +          </Alert>
 +        ) : modelTrendLoading ? (
@@ -18510,13 +18731,13 @@ index 0000000..8c50541
 +        ) : selectedModel ? (
 +          <TrendChart
 +            data={modelTrend ?? []}
-+            title={`${selectedModel.model_name} trend`}
-+            description='Requests, reliability, first-token latency, cost, and token volume for the selected model.'
++            title={`${selectedModel.model_name} 趋势`}
++            description='选中模型的请求量、可靠性、首 token 延迟、成本和 token 用量。'
 +            storageKey='dashboard:model-analytics:trend'
 +          />
 +        ) : (
 +          <div className='text-muted-foreground rounded-lg border py-10 text-center text-sm'>
-+            Select a model to inspect its operational trend
++            选择一个模型查看运维趋势
 +          </div>
 +        )}
 +      </section>
@@ -18524,10 +18745,10 @@ index 0000000..8c50541
 +      <Card className='rounded-lg shadow-none'>
 +        <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
 +          <div>
-+            <CardTitle className='text-sm'>Model detail</CardTitle>
++            <CardTitle className='text-sm'>模型明细</CardTitle>
 +            <p className='text-muted-foreground mt-1 text-xs'>
-+              Showing {formatCount(filteredRows.length)} of{' '}
-+              {formatCount(rows.length)} models.
++              当前显示 {formatCount(filteredRows.length)} /{' '}
++              {formatCount(rows.length)} 个模型。
 +            </p>
 +          </div>
 +          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -18536,7 +18757,7 @@ index 0000000..8c50541
 +              <Input
 +                value={modelQuery}
 +                onChange={(event) => setModelQuery(event.target.value)}
-+                placeholder='Search model'
++                placeholder='搜索模型'
 +                className='pl-8'
 +              />
 +            </div>
@@ -18550,10 +18771,10 @@ index 0000000..8c50541
 +                <SelectValue />
 +              </SelectTrigger>
 +              <SelectContent>
-+                <SelectItem value='all'>All models</SelectItem>
-+                <SelectItem value='active'>Active only</SelectItem>
-+                <SelectItem value='risk'>Has failures</SelectItem>
-+                <SelectItem value='slow'>Slow first token</SelectItem>
++                <SelectItem value='all'>全部模型</SelectItem>
++                <SelectItem value='active'>仅活跃模型</SelectItem>
++                <SelectItem value='risk'>有失败记录</SelectItem>
++                <SelectItem value='slow'>首 token 较慢</SelectItem>
 +              </SelectContent>
 +            </Select>
 +            <Button
@@ -18564,7 +18785,7 @@ index 0000000..8c50541
 +              disabled={!modelViewDirty}
 +            >
 +              <RotateCcw className='size-4' />
-+              Reset view
++              重置视图
 +            </Button>
 +          </div>
 +        </CardHeader>
@@ -18575,7 +18796,7 @@ index 0000000..8c50541
 +                <TableRow>
 +                  <TableHead>
 +                    <SortableHeader
-+                      label='Model'
++                      label='模型'
 +                      active={modelSort.key === 'model'}
 +                      direction={modelSort.direction}
 +                      onClick={() =>
@@ -18585,7 +18806,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Requests'
++                      label='请求数'
 +                      align='right'
 +                      active={modelSort.key === 'requests'}
 +                      direction={modelSort.direction}
@@ -18596,7 +18817,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Failures'
++                      label='失败数'
 +                      align='right'
 +                      active={modelSort.key === 'failures'}
 +                      direction={modelSort.direction}
@@ -18607,7 +18828,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Success'
++                      label='成功率'
 +                      align='right'
 +                      active={modelSort.key === 'success'}
 +                      direction={modelSort.direction}
@@ -18618,7 +18839,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='First token'
++                      label='首 token'
 +                      align='right'
 +                      active={modelSort.key === 'first_token'}
 +                      direction={modelSort.direction}
@@ -18629,7 +18850,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Use time'
++                      label='耗时'
 +                      align='right'
 +                      active={modelSort.key === 'use_time'}
 +                      direction={modelSort.direction}
@@ -18640,7 +18861,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Tokens'
++                      label='Token'
 +                      align='right'
 +                      active={modelSort.key === 'tokens'}
 +                      direction={modelSort.direction}
@@ -18651,7 +18872,7 @@ index 0000000..8c50541
 +                  </TableHead>
 +                  <TableHead className='text-right'>
 +                    <SortableHeader
-+                      label='Cost'
++                      label='成本'
 +                      align='right'
 +                      active={modelSort.key === 'cost'}
 +                      direction={modelSort.direction}
@@ -18677,7 +18898,7 @@ index 0000000..8c50541
 +                      colSpan={8}
 +                      className='text-muted-foreground h-24 text-center text-sm'
 +                    >
-+                      No model data for this period
++                      当前时间段没有模型数据
 +                    </TableCell>
 +                  </TableRow>
 +                ) : filteredRows.length === 0 ? (
@@ -18686,7 +18907,7 @@ index 0000000..8c50541
 +                      colSpan={8}
 +                      className='text-muted-foreground h-24 text-center text-sm'
 +                    >
-+                      No models match the current filters
++                      没有模型匹配当前筛选条件
 +                    </TableCell>
 +                  </TableRow>
 +                ) : (
@@ -18700,7 +18921,7 @@ index 0000000..8c50541
 +                      }
 +                      tabIndex={0}
 +                      role='button'
-+                      aria-label={`Inspect trend for ${model.model_name}`}
++                      aria-label={`查看 ${model.model_name} 的趋势`}
 +                      className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
 +                      onClick={() => selectModel(model.model_name)}
 +                      onKeyDown={(event) => {
@@ -18760,9 +18981,9 @@ index 0000000..8c50541
 +          {!isLoading && filteredRows.length > 0 ? (
 +            <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
 +              <div className='text-muted-foreground text-xs'>
-+                Showing {formatCount(modelPageStart)}-
-+                {formatCount(modelPageEnd)} of {formatCount(sortedRows.length)}{' '}
-+                models
++                当前显示 {formatCount(modelPageStart)}-
++                {formatCount(modelPageEnd)} / {formatCount(sortedRows.length)}{' '}
++                个模型
 +              </div>
 +              <div className='flex flex-wrap items-center gap-2'>
 +                <Select
@@ -18775,7 +18996,7 @@ index 0000000..8c50541
 +                  <SelectContent>
 +                    {PAGE_SIZE_OPTIONS.map((size) => (
 +                      <SelectItem key={size} value={String(size)}>
-+                        {size} / page
++                        {size} / 页
 +                      </SelectItem>
 +                    ))}
 +                  </SelectContent>
@@ -18909,7 +19130,7 @@ index 0000000..8c50541
 +              <div className='min-w-0'>
 +                <p className='truncate font-medium'>{row.model_name}</p>
 +                <p className='text-muted-foreground text-xs'>
-+                  {formatCount(row.total_requests)} requests
++                  {formatCount(row.total_requests)} 次请求
 +                </p>
 +              </div>
 +              <span
@@ -30880,10 +31101,10 @@ index 0000000..b90b14c
 +}
 diff --git a/web/default/src/features/system-settings/models/client-identity-settings-card.tsx b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
 new file mode 100644
-index 0000000..d4b1f7f
+index 0000000..afdfcbd
 --- /dev/null
 +++ b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
-@@ -0,0 +1,1246 @@
+@@ -0,0 +1,1241 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -31200,7 +31421,7 @@ index 0000000..d4b1f7f
 +    link.download = 'newapi-client-identity.json'
 +    link.click()
 +    URL.revokeObjectURL(url)
-+    toast.success('Client identity exported')
++    toast.success('客户端标识配置已导出')
 +  }
 +
 +  const openImportDialog = () => {
@@ -31215,19 +31436,19 @@ index 0000000..d4b1f7f
 +      form.reset(normalized)
 +      setImportOpen(false)
 +      toast.success(
-+        'Client identity imported. Click Save Settings to apply it.'
++        '客户端标识配置已导入，点击“保存设置”后生效。'
 +      )
 +    } catch {
-+      toast.error('Invalid client identity JSON')
++      toast.error('客户端标识 JSON 无效')
 +    }
 +  }
 +
 +  const onSubmit = async (data: ClientIdentitySetting) => {
 +    try {
 +      await updateMutation.mutateAsync(data)
-+      toast.success('Client identity settings saved successfully')
++      toast.success('客户端标识设置已保存')
 +    } catch (error: any) {
-+      toast.error(error.message || 'Failed to save settings')
++      toast.error(error.message || '保存设置失败')
 +    }
 +  }
 +
@@ -31235,18 +31456,18 @@ index 0000000..d4b1f7f
 +    try {
 +      const newId = await generateCodexMutation.mutateAsync()
 +      form.setValue('codex.installation_id', newId)
-+      toast.success('New Codex installation ID generated')
++      toast.success('已生成新的 Codex 安装 ID')
 +    } catch (error: any) {
-+      toast.error(error.message || 'Failed to generate ID')
++      toast.error(error.message || '生成 ID 失败')
 +    }
 +  }
 +
 +  const handleRotateCodex = async () => {
 +    try {
 +      await rotateCodexMutation.mutateAsync()
-+      toast.success('Codex installation ID rotated successfully')
++      toast.success('Codex 安装 ID 已轮换')
 +    } catch (error: any) {
-+      toast.error(error.message || 'Failed to rotate ID')
++      toast.error(error.message || '轮换 ID 失败')
 +    }
 +  }
 +
@@ -31254,18 +31475,18 @@ index 0000000..d4b1f7f
 +    try {
 +      const newId = await generateClaudeMutation.mutateAsync()
 +      form.setValue('claude.device_id', newId)
-+      toast.success('New Claude device ID generated')
++      toast.success('已生成新的 Claude 设备 ID')
 +    } catch (error: any) {
-+      toast.error(error.message || 'Failed to generate ID')
++      toast.error(error.message || '生成 ID 失败')
 +    }
 +  }
 +
 +  const handleRotateClaude = async () => {
 +    try {
 +      await rotateClaudeMutation.mutateAsync()
-+      toast.success('Claude device ID rotated successfully')
++      toast.success('Claude 设备 ID 已轮换')
 +    } catch (error: any) {
-+      toast.error(error.message || 'Failed to rotate ID')
++      toast.error(error.message || '轮换 ID 失败')
 +    }
 +  }
 +
@@ -31292,13 +31513,13 @@ index 0000000..d4b1f7f
 +  }
 +
 +  const formatTimestamp = (timestamp: number) => {
-+    if (!timestamp) return 'Not scheduled'
++    if (!timestamp) return '未计划'
 +    return new Date(timestamp * 1000).toLocaleString()
 +  }
 +
 +  if (isLoading) {
 +    return (
-+      <div className='flex items-center justify-center py-8'>Loading...</div>
++      <div className='flex items-center justify-center py-8'>加载中...</div>
 +    )
 +  }
 +
@@ -31308,30 +31529,29 @@ index 0000000..d4b1f7f
 +        <div className='flex flex-wrap justify-end gap-2'>
 +          <Button type='button' variant='outline' onClick={exportConfig}>
 +            <Download className='mr-2 h-4 w-4' />
-+            Export JSON
++            导出 JSON
 +          </Button>
 +          <Button type='button' variant='outline' onClick={openImportDialog}>
 +            <Upload className='mr-2 h-4 w-4' />
-+            Import JSON
++            导入 JSON
 +          </Button>
 +        </div>
 +
 +        <Alert>
 +          <Info className='h-4 w-4' />
 +          <AlertDescription>
-+            Client Identity Management allows NewAPI to inject or replace
-+            device/installation identifiers in requests to upstream providers.
-+            This ensures stable identifiers and prevents 403 errors from
-+            providers that require them (e.g., Codex RawChat channel).
++            客户端标识管理用于在转发给上游服务商前注入或替换设备/安装标识，
++            让 Codex、Claude 等要求固定标识的渠道保持稳定，避免因缺少标识触发
++            403 等鉴权限制。
 +          </AlertDescription>
 +        </Alert>
 +
 +        {/* Global Settings */}
 +        <Card>
 +          <CardHeader>
-+            <CardTitle>Global Settings</CardTitle>
++            <CardTitle>全局设置</CardTitle>
 +            <CardDescription>
-+              Master switch for client identity management
++              控制客户端标识注入的总开关
 +            </CardDescription>
 +          </CardHeader>
 +          <CardContent className='space-y-4'>
@@ -31341,10 +31561,9 @@ index 0000000..d4b1f7f
 +              render={({ field }) => (
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
-+                    <FormLabel>Enable Client Identity Management</FormLabel>
++                    <FormLabel>启用客户端标识管理</FormLabel>
 +                    <FormDescription>
-+                      When enabled, NewAPI will inject identifiers into matching
-+                      requests
++                      启用后，NewAPI 会在匹配的请求中写入配置好的标识符。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31363,11 +31582,11 @@ index 0000000..d4b1f7f
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
 +                    <FormLabel>
-+                      Apply to all OpenAI Responses requests
++                      应用于所有 OpenAI Responses 请求
 +                    </FormLabel>
 +                    <FormDescription>
-+                      Force Codex installation ID on every /v1/responses
-+                      request, even when the User-Agent is not Codex.
++                      对每个 /v1/responses 请求强制写入 Codex 安装 ID，
++                      即使 User-Agent 不是 Codex。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31385,10 +31604,9 @@ index 0000000..d4b1f7f
 +              render={({ field }) => (
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
-+                    <FormLabel>Apply to all Claude Messages requests</FormLabel>
++                    <FormLabel>应用于所有 Claude Messages 请求</FormLabel>
 +                    <FormDescription>
-+                      Force Claude device/session IDs on every /v1/messages
-+                      request.
++                      对每个 /v1/messages 请求强制写入 Claude 设备 ID 和会话 ID。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31408,7 +31626,7 @@ index 0000000..d4b1f7f
 +          <CardHeader>
 +            <CardTitle>Codex (OpenAI Responses API)</CardTitle>
 +            <CardDescription>
-+              Manages{' '}
++              管理{' '}
 +              <code className='text-xs'>
 +                client_metadata.x-codex-installation-id
 +              </code>
@@ -31421,9 +31639,9 @@ index 0000000..d4b1f7f
 +              render={({ field }) => (
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
-+                    <FormLabel>Enable Codex Identity</FormLabel>
++                    <FormLabel>启用 Codex 标识</FormLabel>
 +                    <FormDescription>
-+                      Inject installation ID for /v1/responses requests
++                      为 /v1/responses 请求注入安装 ID。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31441,7 +31659,7 @@ index 0000000..d4b1f7f
 +              name='codex.mode'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Injection Mode</FormLabel>
++                  <FormLabel>注入模式</FormLabel>
 +                  <Select onValueChange={field.onChange} value={field.value}>
 +                    <FormControl>
 +                      <SelectTrigger>
@@ -31450,13 +31668,13 @@ index 0000000..d4b1f7f
 +                    </FormControl>
 +                    <SelectContent>
 +                      <SelectItem value='force_global'>
-+                        Force Global (Replace All)
++                        强制全局值（替换全部）
 +                      </SelectItem>
-+                      <SelectItem value='disabled'>Disabled</SelectItem>
++                      <SelectItem value='disabled'>禁用</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                  <FormDescription>
-+                    Force Global: Always replace with NewAPI's configured ID
++                    强制全局值：始终替换为 NewAPI 后台配置的 ID。
 +                  </FormDescription>
 +                </FormItem>
 +              )}
@@ -31467,12 +31685,12 @@ index 0000000..d4b1f7f
 +              name='codex.installation_id'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Installation ID</FormLabel>
++                  <FormLabel>安装 ID</FormLabel>
 +                  <div className='flex gap-2'>
 +                    <FormControl>
 +                      <Input
 +                        {...field}
-+                        placeholder='UUID will be auto-generated'
++                        placeholder='留空时自动生成 UUID'
 +                      />
 +                    </FormControl>
 +                    <Button
@@ -31490,20 +31708,20 @@ index 0000000..d4b1f7f
 +                      size='icon'
 +                      onClick={handleRotateCodex}
 +                      disabled={rotateCodexMutation.isPending}
-+                      title='Rotate Now'
++                      title='立即轮换'
 +                    >
 +                      <RefreshCw className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
-+                    The UUID injected into Codex requests
++                    注入到 Codex 请求中的 UUID。
 +                  </FormDescription>
 +                </FormItem>
 +              )}
 +            />
 +
 +            <div className='space-y-4 border-t pt-4'>
-+              <h4 className='text-sm font-medium'>Automatic Rotation</h4>
++              <h4 className='text-sm font-medium'>自动轮换</h4>
 +
 +              <FormField
 +                control={form.control}
@@ -31511,9 +31729,9 @@ index 0000000..d4b1f7f
 +                render={({ field }) => (
 +                  <FormItem className='flex items-center justify-between'>
 +                    <div className='space-y-0.5'>
-+                      <FormLabel>Enable Rotation</FormLabel>
++                      <FormLabel>启用轮换</FormLabel>
 +                      <FormDescription>
-+                        Automatically generate new ID on schedule
++                        按计划自动生成新的 ID。
 +                      </FormDescription>
 +                    </div>
 +                    <FormControl>
@@ -31532,7 +31750,7 @@ index 0000000..d4b1f7f
 +                  name='codex.rotate_interval_value'
 +                  render={({ field }) => (
 +                    <FormItem>
-+                      <FormLabel>Interval Value</FormLabel>
++                      <FormLabel>间隔数值</FormLabel>
 +                      <FormControl>
 +                        <Input
 +                          type='number'
@@ -31552,7 +31770,7 @@ index 0000000..d4b1f7f
 +                  name='codex.rotate_interval_unit'
 +                  render={({ field }) => (
 +                    <FormItem>
-+                      <FormLabel>Interval Unit</FormLabel>
++                      <FormLabel>间隔单位</FormLabel>
 +                      <Select
 +                        onValueChange={field.onChange}
 +                        value={field.value}
@@ -31563,9 +31781,9 @@ index 0000000..d4b1f7f
 +                          </SelectTrigger>
 +                        </FormControl>
 +                        <SelectContent>
-+                          <SelectItem value='week'>Week(s)</SelectItem>
-+                          <SelectItem value='month'>Month(s)</SelectItem>
-+                          <SelectItem value='year'>Year(s)</SelectItem>
++                          <SelectItem value='week'>周</SelectItem>
++                          <SelectItem value='month'>月</SelectItem>
++                          <SelectItem value='year'>年</SelectItem>
 +                        </SelectContent>
 +                      </Select>
 +                    </FormItem>
@@ -31577,7 +31795,7 @@ index 0000000..d4b1f7f
 +                <div className='text-muted-foreground flex items-center gap-2 text-sm'>
 +                  <Clock className='h-4 w-4' />
 +                  <span>
-+                    Next rotation:{' '}
++                    下次轮换：{' '}
 +                    {formatTimestamp(form.watch('codex.next_rotate_at'))}
 +                  </span>
 +                </div>
@@ -31591,7 +31809,7 @@ index 0000000..d4b1f7f
 +          <CardHeader>
 +            <CardTitle>Claude Code / Claude CLI</CardTitle>
 +            <CardDescription>
-+              Manages{' '}
++              管理{' '}
 +              <code className='text-xs'>metadata.user_id.device_id</code>
 +            </CardDescription>
 +          </CardHeader>
@@ -31602,9 +31820,9 @@ index 0000000..d4b1f7f
 +              render={({ field }) => (
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
-+                    <FormLabel>Enable Claude Identity</FormLabel>
++                    <FormLabel>启用 Claude 标识</FormLabel>
 +                    <FormDescription>
-+                      Inject device ID for /v1/messages requests
++                      为 /v1/messages 请求注入设备 ID。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31622,7 +31840,7 @@ index 0000000..d4b1f7f
 +              name='claude.mode'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Injection Mode</FormLabel>
++                  <FormLabel>注入模式</FormLabel>
 +                  <Select onValueChange={field.onChange} value={field.value}>
 +                    <FormControl>
 +                      <SelectTrigger>
@@ -31631,9 +31849,9 @@ index 0000000..d4b1f7f
 +                    </FormControl>
 +                    <SelectContent>
 +                      <SelectItem value='force_global'>
-+                        Force Global (Replace All)
++                        强制全局值（替换全部）
 +                      </SelectItem>
-+                      <SelectItem value='disabled'>Disabled</SelectItem>
++                      <SelectItem value='disabled'>禁用</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                </FormItem>
@@ -31645,12 +31863,12 @@ index 0000000..d4b1f7f
 +              name='claude.device_id'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Device ID</FormLabel>
++                  <FormLabel>设备 ID</FormLabel>
 +                  <div className='flex gap-2'>
 +                    <FormControl>
 +                      <Input
 +                        {...field}
-+                        placeholder='UUID will be auto-generated'
++                        placeholder='留空时自动生成 UUID'
 +                      />
 +                    </FormControl>
 +                    <Button
@@ -31668,13 +31886,13 @@ index 0000000..d4b1f7f
 +                      size='icon'
 +                      onClick={handleRotateClaude}
 +                      disabled={rotateClaudeMutation.isPending}
-+                      title='Rotate Now'
++                      title='立即轮换'
 +                    >
 +                      <RefreshCw className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
-+                    The UUID injected into Claude Code requests
++                    注入到 Claude Code 请求中的 UUID。
 +                  </FormDescription>
 +                </FormItem>
 +              )}
@@ -31685,7 +31903,7 @@ index 0000000..d4b1f7f
 +              name='claude.session_id_mode'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Session ID Mode</FormLabel>
++                  <FormLabel>会话 ID 模式</FormLabel>
 +                  <Select onValueChange={field.onChange} value={field.value}>
 +                    <FormControl>
 +                      <SelectTrigger>
@@ -31693,13 +31911,12 @@ index 0000000..d4b1f7f
 +                      </SelectTrigger>
 +                    </FormControl>
 +                    <SelectContent>
-+                      <SelectItem value='force_global'>Force Global</SelectItem>
-+                      <SelectItem value='disabled'>Disabled</SelectItem>
++                      <SelectItem value='force_global'>强制全局值</SelectItem>
++                      <SelectItem value='disabled'>禁用</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                  <FormDescription>
-+                    Force Global replaces request session IDs with NewAPI's
-+                    configured value.
++                    强制全局值会把请求中的 session_id 替换为 NewAPI 后台配置值。
 +                  </FormDescription>
 +                </FormItem>
 +              )}
@@ -31709,12 +31926,12 @@ index 0000000..d4b1f7f
 +              name='claude.fixed_session_id'
 +              render={({ field }) => (
 +                <FormItem>
-+                  <FormLabel>Fixed Session ID</FormLabel>
++                  <FormLabel>固定会话 ID</FormLabel>
 +                  <div className='flex gap-2'>
 +                    <FormControl>
 +                      <Input
 +                        {...field}
-+                        placeholder='UUID will be auto-generated'
++                        placeholder='留空时自动生成 UUID'
 +                      />
 +                    </FormControl>
 +                    <Button
@@ -31728,14 +31945,14 @@ index 0000000..d4b1f7f
 +                          { shouldDirty: true }
 +                        )
 +                      }
-+                      title='Generate session ID'
++                      title='生成会话 ID'
 +                    >
 +                      <Shuffle className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
-+                    Written to metadata.user_id.session_id and the Claude
-+                    session header when force mode is enabled.
++                    启用强制模式后，会写入 metadata.user_id.session_id，并同步到
++                    Claude 会话请求头。
 +                  </FormDescription>
 +                </FormItem>
 +              )}
@@ -31746,10 +31963,9 @@ index 0000000..d4b1f7f
 +              render={({ field }) => (
 +                <FormItem className='flex items-center justify-between'>
 +                  <div className='space-y-0.5'>
-+                    <FormLabel>Sync X-Claude-Code-Session-Id</FormLabel>
++                    <FormLabel>同步 X-Claude-Code-Session-Id</FormLabel>
 +                    <FormDescription>
-+                      Keep the Claude session header aligned with the fixed
-+                      session ID.
++                      让 Claude 会话请求头与固定会话 ID 保持一致。
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
@@ -31763,7 +31979,7 @@ index 0000000..d4b1f7f
 +            />
 +
 +            <div className='space-y-4 border-t pt-4'>
-+              <h4 className='text-sm font-medium'>Automatic Rotation</h4>
++              <h4 className='text-sm font-medium'>自动轮换</h4>
 +
 +              <FormField
 +                control={form.control}
@@ -31771,9 +31987,9 @@ index 0000000..d4b1f7f
 +                render={({ field }) => (
 +                  <FormItem className='flex items-center justify-between'>
 +                    <div className='space-y-0.5'>
-+                      <FormLabel>Enable Rotation</FormLabel>
++                      <FormLabel>启用轮换</FormLabel>
 +                      <FormDescription>
-+                        Automatically generate new device ID on schedule
++                        按计划自动生成新的设备 ID。
 +                      </FormDescription>
 +                    </div>
 +                    <FormControl>
@@ -31792,7 +32008,7 @@ index 0000000..d4b1f7f
 +                  name='claude.rotate_interval_value'
 +                  render={({ field }) => (
 +                    <FormItem>
-+                      <FormLabel>Interval Value</FormLabel>
++                      <FormLabel>间隔数值</FormLabel>
 +                      <FormControl>
 +                        <Input
 +                          type='number'
@@ -31812,7 +32028,7 @@ index 0000000..d4b1f7f
 +                  name='claude.rotate_interval_unit'
 +                  render={({ field }) => (
 +                    <FormItem>
-+                      <FormLabel>Interval Unit</FormLabel>
++                      <FormLabel>间隔单位</FormLabel>
 +                      <Select
 +                        onValueChange={field.onChange}
 +                        value={field.value}
@@ -31823,9 +32039,9 @@ index 0000000..d4b1f7f
 +                          </SelectTrigger>
 +                        </FormControl>
 +                        <SelectContent>
-+                          <SelectItem value='week'>Week(s)</SelectItem>
-+                          <SelectItem value='month'>Month(s)</SelectItem>
-+                          <SelectItem value='year'>Year(s)</SelectItem>
++                          <SelectItem value='week'>周</SelectItem>
++                          <SelectItem value='month'>月</SelectItem>
++                          <SelectItem value='year'>年</SelectItem>
 +                        </SelectContent>
 +                      </Select>
 +                    </FormItem>
@@ -31837,7 +32053,7 @@ index 0000000..d4b1f7f
 +                <div className='text-muted-foreground flex items-center gap-2 text-sm'>
 +                  <Clock className='h-4 w-4' />
 +                  <span>
-+                    Next rotation:{' '}
++                    下次轮换：{' '}
 +                    {formatTimestamp(form.watch('claude.next_rotate_at'))}
 +                  </span>
 +                </div>
@@ -31851,9 +32067,9 @@ index 0000000..d4b1f7f
 +          <CardHeader>
 +            <div className='flex items-center justify-between gap-4'>
 +              <div>
-+                <CardTitle>Generic Provider Fields</CardTitle>
++                <CardTitle>通用服务商字段</CardTitle>
 +                <CardDescription>
-+                  Force custom header or JSON body fields for other providers.
++                  为其他服务商强制写入自定义请求头或 JSON 请求体字段。
 +                </CardDescription>
 +              </div>
 +              <Button
@@ -31862,14 +32078,14 @@ index 0000000..d4b1f7f
 +                onClick={handleAddGeneric}
 +              >
 +                <Plus className='mr-2 h-4 w-4' />
-+                Add Field
++                添加字段
 +              </Button>
 +            </div>
 +          </CardHeader>
 +          <CardContent className='space-y-4'>
 +            {genericFields.length === 0 && (
 +              <div className='text-muted-foreground rounded-md border border-dashed p-6 text-center text-sm'>
-+                No generic identity fields configured.
++                尚未配置通用标识字段。
 +              </div>
 +            )}
 +            {genericFields.map((field, index) => (
@@ -31886,7 +32102,7 @@ index 0000000..d4b1f7f
 +                            onCheckedChange={field.onChange}
 +                          />
 +                        </FormControl>
-+                        <FormLabel className='font-medium'>Enabled</FormLabel>
++                        <FormLabel className='font-medium'>启用</FormLabel>
 +                      </FormItem>
 +                    )}
 +                  />
@@ -31895,7 +32111,7 @@ index 0000000..d4b1f7f
 +                    variant='ghost'
 +                    size='icon'
 +                    onClick={() => removeGeneric(index)}
-+                    title='Remove field'
++                    title='移除字段'
 +                  >
 +                    <Trash2 className='h-4 w-4' />
 +                  </Button>
@@ -31907,7 +32123,7 @@ index 0000000..d4b1f7f
 +                    name={`generic.${index}.name`}
 +                    render={({ field }) => (
 +                      <FormItem>
-+                        <FormLabel>Provider Name</FormLabel>
++                        <FormLabel>服务商名称</FormLabel>
 +                        <FormControl>
 +                          <Input
 +                            {...field}
@@ -31922,7 +32138,7 @@ index 0000000..d4b1f7f
 +                    name={`generic.${index}.mode`}
 +                    render={({ field }) => (
 +                      <FormItem>
-+                        <FormLabel>Mode</FormLabel>
++                        <FormLabel>模式</FormLabel>
 +                        <Select
 +                          onValueChange={field.onChange}
 +                          value={field.value}
@@ -31934,9 +32150,9 @@ index 0000000..d4b1f7f
 +                          </FormControl>
 +                          <SelectContent>
 +                            <SelectItem value='force_global'>
-+                              Force Global
++                              强制全局值
 +                            </SelectItem>
-+                            <SelectItem value='disabled'>Disabled</SelectItem>
++                            <SelectItem value='disabled'>禁用</SelectItem>
 +                          </SelectContent>
 +                        </Select>
 +                      </FormItem>
@@ -31950,7 +32166,7 @@ index 0000000..d4b1f7f
 +                    name={`generic.${index}.path_type`}
 +                    render={({ field }) => (
 +                      <FormItem>
-+                        <FormLabel>Target</FormLabel>
++                        <FormLabel>写入位置</FormLabel>
 +                        <Select
 +                          onValueChange={field.onChange}
 +                          value={field.value}
@@ -31961,8 +32177,8 @@ index 0000000..d4b1f7f
 +                            </SelectTrigger>
 +                          </FormControl>
 +                          <SelectContent>
-+                            <SelectItem value='body_json'>JSON Body</SelectItem>
-+                            <SelectItem value='header'>Header</SelectItem>
++                            <SelectItem value='body_json'>JSON 请求体</SelectItem>
++                            <SelectItem value='header'>请求头</SelectItem>
 +                          </SelectContent>
 +                        </Select>
 +                      </FormItem>
@@ -31973,7 +32189,7 @@ index 0000000..d4b1f7f
 +                    name={`generic.${index}.field_path`}
 +                    render={({ field }) => (
 +                      <FormItem>
-+                        <FormLabel>Field Path</FormLabel>
++                        <FormLabel>字段路径</FormLabel>
 +                        <FormControl>
 +                          <Input
 +                            {...field}
@@ -31981,7 +32197,7 @@ index 0000000..d4b1f7f
 +                          />
 +                        </FormControl>
 +                        <FormDescription>
-+                          Dot path for JSON body, exact name for headers.
++                          JSON 请求体使用点分路径；请求头使用完整请求头名称。
 +                        </FormDescription>
 +                      </FormItem>
 +                    )}
@@ -31993,17 +32209,17 @@ index 0000000..d4b1f7f
 +                  name={`generic.${index}.field_value`}
 +                  render={({ field }) => (
 +                    <FormItem>
-+                      <FormLabel>Field Value</FormLabel>
++                      <FormLabel>字段值</FormLabel>
 +                      <div className='flex gap-2'>
 +                        <FormControl>
-+                          <Input {...field} placeholder='UUID or fixed value' />
++                          <Input {...field} placeholder='UUID 或固定值' />
 +                        </FormControl>
 +                        <Button
 +                          type='button'
 +                          variant='outline'
 +                          size='icon'
 +                          onClick={() => handleGenerateGeneric(index)}
-+                          title='Generate value'
++                          title='生成字段值'
 +                        >
 +                          <Shuffle className='h-4 w-4' />
 +                        </Button>
@@ -32019,9 +32235,9 @@ index 0000000..d4b1f7f
 +                    render={({ field }) => (
 +                      <FormItem className='flex items-center justify-between'>
 +                        <div className='space-y-0.5'>
-+                          <FormLabel>Enable Rotation</FormLabel>
++                          <FormLabel>启用轮换</FormLabel>
 +                          <FormDescription>
-+                            Rotate this field value on the configured schedule.
++                            按配置的周期轮换该字段值。
 +                          </FormDescription>
 +                        </div>
 +                        <FormControl>
@@ -32039,7 +32255,7 @@ index 0000000..d4b1f7f
 +                      name={`generic.${index}.rotate_interval_value`}
 +                      render={({ field }) => (
 +                        <FormItem>
-+                          <FormLabel>Interval Value</FormLabel>
++                          <FormLabel>间隔数值</FormLabel>
 +                          <FormControl>
 +                            <Input
 +                              type='number'
@@ -32058,7 +32274,7 @@ index 0000000..d4b1f7f
 +                      name={`generic.${index}.rotate_interval_unit`}
 +                      render={({ field }) => (
 +                        <FormItem>
-+                          <FormLabel>Interval Unit</FormLabel>
++                          <FormLabel>间隔单位</FormLabel>
 +                          <Select
 +                            onValueChange={field.onChange}
 +                            value={field.value}
@@ -32069,9 +32285,9 @@ index 0000000..d4b1f7f
 +                              </SelectTrigger>
 +                            </FormControl>
 +                            <SelectContent>
-+                              <SelectItem value='week'>Week(s)</SelectItem>
-+                              <SelectItem value='month'>Month(s)</SelectItem>
-+                              <SelectItem value='year'>Year(s)</SelectItem>
++                              <SelectItem value='week'>周</SelectItem>
++                              <SelectItem value='month'>月</SelectItem>
++                              <SelectItem value='year'>年</SelectItem>
 +                            </SelectContent>
 +                          </Select>
 +                        </FormItem>
@@ -32082,7 +32298,7 @@ index 0000000..d4b1f7f
 +                    <div className='text-muted-foreground flex items-center gap-2 text-sm'>
 +                      <Clock className='h-4 w-4' />
 +                      <span>
-+                        Next rotation:{' '}
++                        下次轮换：{' '}
 +                        {formatTimestamp(
 +                          form.watch(`generic.${index}.next_rotate_at`)
 +                        )}
@@ -32097,14 +32313,14 @@ index 0000000..d4b1f7f
 +
 +        <div className='flex justify-end'>
 +          <Button type='submit' disabled={updateMutation.isPending}>
-+            {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
++            {updateMutation.isPending ? '保存中...' : '保存设置'}
 +          </Button>
 +        </div>
 +      </form>
 +      <Dialog open={importOpen} onOpenChange={setImportOpen}>
 +        <DialogContent className='sm:max-w-2xl'>
 +          <DialogHeader>
-+            <DialogTitle>Import client identity</DialogTitle>
++            <DialogTitle>导入客户端标识配置</DialogTitle>
 +          </DialogHeader>
 +          <Textarea
 +            rows={14}
@@ -32119,10 +32335,10 @@ index 0000000..d4b1f7f
 +              variant='outline'
 +              onClick={() => setImportOpen(false)}
 +            >
-+              Cancel
++              取消
 +            </Button>
 +            <Button type='button' onClick={importConfig}>
-+              Import
++              导入
 +            </Button>
 +          </DialogFooter>
 +        </DialogContent>
@@ -34427,10 +34643,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..5a8972c
+index 0000000..b245985
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1258 @@
+@@ -0,0 +1,1284 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -34555,30 +34771,30 @@ index 0000000..5a8972c
 +
 +const PRIMARY_ACTIONS: OperationsAction[] = [
 +  {
-+    title: 'Model operations',
++    title: '模型运维中心',
 +    description:
-+      'Pricing, User-Agent profiles, Client Identity, Claude thinking, model routing, and model health in one place.',
++      '集中查看定价、User-Agent、客户端标识、Claude thinking、模型路由与模型健康状态。',
 +    icon: LayoutDashboard,
-+    status: 'Model control',
-+    cta: 'Open center',
++    status: '模型控制',
++    cta: '打开中心',
 +    link: { kind: 'system-settings', area: 'models', section: 'overview' },
 +  },
 +  {
-+    title: 'User-Agent management',
++    title: 'User-Agent 管理',
 +    description:
-+      'Manage default, model-category, selected, and per-channel User-Agent rules without touching channel code.',
++      '管理默认、模型类别、指定配置和单渠道 User-Agent 规则，无需改渠道代码。',
 +    icon: Globe,
-+    status: 'Hot path',
-+    cta: 'Manage UA',
++    status: '热路径',
++    cta: '管理 UA',
 +    link: { kind: 'system-settings', area: 'models', section: 'user-agents' },
 +  },
 +  {
-+    title: 'Client Identity',
++    title: '客户端标识',
 +    description:
-+      'Force Codex, Claude, and custom provider identifiers, rotate them, and migrate the config as JSON.',
++      '强制写入 Codex、Claude 和自定义服务商标识，支持轮换与 JSON 迁移。',
 +    icon: Fingerprint,
-+    status: 'Forced IDs',
-+    cta: 'Manage IDs',
++    status: '强制标识',
++    cta: '管理标识',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'models',
@@ -34586,30 +34802,30 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'Official pricing',
++    title: '官方价格同步',
 +    description:
-+      'Sync official-only prices from models.dev while keeping reseller and aggregator aliases out.',
++      '从 models.dev 同步官方价格，并过滤转售商和聚合商别名。',
 +    icon: BadgeDollarSign,
-+    status: 'Official-only',
-+    cta: 'Open pricing',
++    status: '仅官方',
++    cta: '打开定价',
 +    link: { kind: 'system-settings', area: 'models', section: 'model-pricing' },
 +  },
 +  {
-+    title: 'Operations analytics',
++    title: '运维数据分析',
 +    description:
-+      'Review request volume, success rate, first-token latency, cost, and risk signals across models and channels.',
++      '查看模型和渠道维度的请求量、成功率、首 token 延迟、成本和风险信号。',
 +    icon: Activity,
-+    status: 'Admin stats',
-+    cta: 'Open analytics',
++    status: '管理员统计',
++    cta: '打开分析',
 +    link: { kind: 'dashboard', section: 'overview' },
 +  },
 +  {
-+    title: 'Upstream error rules',
++    title: '上游错误规则',
 +    description:
-+      'Normalize unsafe upstream error bodies, preserve masked log previews, and import/export custom rules.',
++      '规范化不安全的上游错误响应，日志保留脱敏预览，并支持规则导入/导出。',
 +    icon: ShieldAlert,
-+    status: 'Anti-poison',
-+    cta: 'Open rules',
++    status: '防污染',
++    cta: '打开规则',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'security',
@@ -34620,30 +34836,30 @@ index 0000000..5a8972c
 +
 +const SECONDARY_ACTIONS: OperationsAction[] = [
 +  {
-+    title: 'Dashboard defaults',
++    title: '数据看板默认值',
 +    description:
-+      'Set default dashboard views and migrate dashboard defaults with JSON import/export.',
++      '设置数据看板默认视图，并通过 JSON 导入/导出迁移默认配置。',
 +    icon: Gauge,
-+    status: 'Global default',
-+    cta: 'Configure',
++    status: '全局默认',
++    cta: '配置',
 +    link: { kind: 'system-settings', area: 'content', section: 'dashboard' },
 +  },
 +  {
-+    title: 'Appearance',
++    title: '外观设置',
 +    description:
-+      'Tune and migrate global default theme, font, radius, density, content width, accent color, and interface palette.',
++      '调整并迁移全局主题、字体、圆角、密度、内容宽度、强调色和界面调色板。',
 +    icon: Palette,
-+    status: 'Visual system',
-+    cta: 'Open appearance',
++    status: '视觉系统',
++    cta: '打开外观',
 +    link: { kind: 'system-settings', area: 'content', section: 'appearance' },
 +  },
 +  {
-+    title: 'System information',
++    title: '系统信息',
 +    description:
-+      'Edit and import/export site identity, homepage content, agreements, and policy copy.',
++      '编辑并导入/导出站点标识、首页内容、用户协议与隐私政策文案。',
 +    icon: FileText,
-+    status: 'Site identity',
-+    cta: 'Edit site info',
++    status: '站点标识',
++    cta: '编辑站点',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'site',
@@ -34651,12 +34867,12 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'Header navigation',
++    title: '顶部导航',
 +    description:
-+      'Edit and import/export top navigation modules and the documentation URL.',
++      '编辑并导入/导出顶部导航模块和文档地址。',
 +    icon: ListChecks,
-+    status: 'Navigation',
-+    cta: 'Edit nav',
++    status: '导航',
++    cta: '编辑导航',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'site',
@@ -34664,12 +34880,12 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'Sidebar modules',
++    title: '侧边栏模块',
 +    description:
-+      'Control sidebar visibility and ordering, then import/export the layout as JSON.',
++      '控制侧边栏显示与排序，并将布局作为 JSON 导入/导出。',
 +    icon: LayoutDashboard,
-+    status: 'Navigation',
-+    cta: 'Edit sidebar',
++    status: '导航',
++    cta: '编辑侧边栏',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'site',
@@ -34677,12 +34893,12 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'System settings navigation',
++    title: '系统设置导航',
 +    description:
-+      'Control System Settings area visibility, area order, section visibility, section order, and JSON migration.',
++      '控制系统设置区域/分区的显示与排序，并支持 JSON 迁移。',
 +    icon: ListChecks,
-+    status: 'Navigation',
-+    cta: 'Edit settings nav',
++    status: '导航',
++    cta: '编辑设置导航',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'site',
@@ -34690,21 +34906,21 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'Channel test scheduler',
++    title: '渠道测试调度',
 +    description:
-+      'Find channels that need custom test intervals, retry attempts, disable thresholds, and cross-day windows.',
++      '定位需要自定义测试间隔、重试次数、禁用阈值和跨日窗口的渠道。',
 +    icon: Timer,
-+    status: 'Recovery',
-+    cta: 'Open channels',
++    status: '恢复',
++    cta: '打开渠道',
 +    link: { kind: 'plain', to: '/channels' },
 +  },
 +  {
-+    title: 'Performance',
++    title: '性能设置',
 +    description:
-+      'Review, tune, and migrate cache, monitor thresholds, and backend pressure controls.',
++      '查看、调优并迁移缓存、监控阈值与后端压力保护配置。',
 +    icon: ShieldCheck,
-+    status: 'Runtime',
-+    cta: 'Tune runtime',
++    status: '运行时',
++    cta: '调优运行时',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'operations',
@@ -34712,42 +34928,42 @@ index 0000000..5a8972c
 +    },
 +  },
 +  {
-+    title: 'Usage Logs',
++    title: '请求日志',
 +    description:
-+      'Jump to raw request logs when an analytics card needs a concrete request trail.',
++      '从分析卡片跳转到原始请求日志，追踪具体请求链路。',
 +    icon: FileText,
-+    status: 'Drilldown',
-+    cta: 'Open logs',
++    status: '下钻',
++    cta: '打开日志',
 +    link: { kind: 'usage-logs' },
 +  },
 +]
 +
 +const QUICK_FILTERS: OperationsAction[] = [
 +  {
-+    title: 'Channel analytics',
++    title: '渠道分析',
 +    description:
-+      'Channel reliability, first-token latency, spend, user mix, and trend windows.',
++      '查看渠道可靠性、首 token 延迟、消费、用户构成和趋势窗口。',
 +    icon: RadioTower,
-+    status: 'Channels',
-+    cta: 'View channels',
++    status: '渠道',
++    cta: '查看渠道',
 +    link: { kind: 'dashboard', section: 'channels' },
 +  },
 +  {
-+    title: 'Model analytics',
++    title: '模型分析',
 +    description:
-+      'Model success rate, cost, token volume, first-token latency, and selected model trend.',
++      '查看模型成功率、成本、token 用量、首 token 延迟和单模型趋势。',
 +    icon: Search,
-+    status: 'Models',
-+    cta: 'View models',
++    status: '模型',
++    cta: '查看模型',
 +    link: { kind: 'dashboard', section: 'models' },
 +  },
 +  {
-+    title: 'Monitoring',
++    title: '监控告警',
 +    description:
-+      'Automatic disable/enable settings, retry status codes, quota reminders, global channel tests, and JSON migration.',
++      '管理自动禁用/恢复、重试状态码、额度提醒、全局渠道测试和 JSON 迁移。',
 +    icon: BellRing,
-+    status: 'Alerts',
-+    cta: 'Open monitoring',
++    status: '告警',
++    cta: '打开监控',
 +    link: {
 +      kind: 'system-settings',
 +      area: 'operations',
@@ -34758,13 +34974,13 @@ index 0000000..5a8972c
 +
 +const CONFIG_MAP_GROUPS: ConfigMapGroup[] = [
 +  {
-+    title: 'Runtime',
++    title: '运行时',
 +    description:
-+      'Request compatibility, identity, upstream routing, JSON-migrated model settings, and tests.',
++      '请求兼容、客户端标识、上游路由、模型配置 JSON 迁移和渠道测试。',
 +    icon: ShieldCheck,
 +    items: [
 +      {
-+        label: 'User-Agent profiles',
++        label: 'User-Agent 配置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34772,7 +34988,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Client Identity',
++        label: '客户端标识',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34780,7 +34996,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Global model configuration',
++        label: '全局模型配置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34788,7 +35004,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Claude settings',
++        label: 'Claude 设置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34796,7 +35012,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Gemini settings',
++        label: 'Gemini 设置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34804,7 +35020,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Grok settings',
++        label: 'Grok 设置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34812,7 +35028,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Channel Affinity',
++        label: '渠道亲和',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
@@ -34820,27 +35036,27 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Model deployment',
++        label: '模型部署',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'models',
 +          section: 'model-deployment',
 +        },
 +      },
-+      { label: 'Channel tests', link: { kind: 'plain', to: '/channels' } },
++      { label: '渠道测试', link: { kind: 'plain', to: '/channels' } },
 +    ],
 +  },
 +  {
-+    title: 'Analytics',
-+    description: 'Operational statistics, logs, defaults, and trend views.',
++    title: '分析',
++    description: '运维统计、请求日志、默认视图和趋势分析。',
 +    icon: Activity,
 +    items: [
 +      {
-+        label: 'Operations overview',
++        label: '运维总览',
 +        link: { kind: 'dashboard', section: 'overview' },
 +      },
 +      {
-+        label: 'Dashboard defaults',
++        label: '数据看板默认值',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34848,24 +35064,24 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Log maintenance',
++        label: '日志维护',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'operations',
 +          section: 'logs',
 +        },
 +      },
-+      { label: 'Usage Logs', link: { kind: 'usage-logs' } },
++      { label: '请求日志', link: { kind: 'usage-logs' } },
 +    ],
 +  },
 +  {
-+    title: 'Appearance',
++    title: '外观',
 +    description:
-+      'Content modules, navigation, theme defaults, layout, and visible modules.',
++      '内容模块、导航、主题默认值、布局和可见模块。',
 +    icon: Palette,
 +    items: [
 +      {
-+        label: 'Appearance defaults',
++        label: '外观默认值',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34873,7 +35089,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Announcements',
++        label: '公告',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34881,7 +35097,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'API addresses',
++        label: 'API 地址',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34905,7 +35121,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Chat presets',
++        label: '聊天预设',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34913,7 +35129,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Drawing',
++        label: '绘图',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'content',
@@ -34921,7 +35137,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'System information',
++        label: '系统信息',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'site',
@@ -34929,7 +35145,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'System notice',
++        label: '系统公告',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'site',
@@ -34937,7 +35153,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Header navigation',
++        label: '顶部导航',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'site',
@@ -34945,7 +35161,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Sidebar modules',
++        label: '侧边栏模块',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'site',
@@ -34953,7 +35169,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'System settings navigation',
++        label: '系统设置导航',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'site',
@@ -34963,13 +35179,13 @@ index 0000000..5a8972c
 +    ],
 +  },
 +  {
-+    title: 'Billing',
++    title: '计费',
 +    description:
-+      'Quota, currency display, payment gateways with redacted JSON migration, check-in rewards, and ratios.',
++      '额度、货币显示、支付网关脱敏 JSON 迁移、签到奖励和倍率配置。',
 +    icon: BadgeDollarSign,
 +    items: [
 +      {
-+        label: 'Quota settings',
++        label: '额度设置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -34977,7 +35193,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Currency display',
++        label: '货币显示',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -34985,7 +35201,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Payment gateway',
++        label: '支付网关',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -34993,7 +35209,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Check-in rewards',
++        label: '签到奖励',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -35001,7 +35217,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Model pricing',
++        label: '模型定价',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -35009,7 +35225,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Group pricing',
++        label: '分组定价',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'billing',
@@ -35019,13 +35235,13 @@ index 0000000..5a8972c
 +    ],
 +  },
 +  {
-+    title: 'Safety',
++    title: '安全',
 +    description:
-+      'Client-safe errors, protection rules, monitoring, and pressure.',
++      '面向客户端的安全错误、保护规则、监控告警和压力保护。',
 +    icon: ShieldAlert,
 +    items: [
 +      {
-+        label: 'Upstream error rules',
++        label: '上游错误规则',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'security',
@@ -35033,7 +35249,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Rate limiting',
++        label: '速率限制',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'security',
@@ -35041,7 +35257,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Sensitive words',
++        label: '敏感词',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'security',
@@ -35049,7 +35265,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'SSRF protection',
++        label: 'SSRF 防护',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'security',
@@ -35057,7 +35273,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Basic authentication',
++        label: '基础认证',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'auth',
@@ -35065,7 +35281,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'OAuth integrations',
++        label: 'OAuth 集成',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'auth',
@@ -35073,7 +35289,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Passkey authentication',
++        label: 'Passkey 认证',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'auth',
@@ -35081,7 +35297,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Bot protection',
++        label: '机器人防护',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'auth',
@@ -35089,7 +35305,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Custom OAuth',
++        label: '自定义 OAuth',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'auth',
@@ -35097,7 +35313,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Monitoring & alerts',
++        label: '监控告警',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'operations',
@@ -35105,7 +35321,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'SMTP Email',
++        label: 'SMTP 邮件',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'operations',
@@ -35113,7 +35329,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Worker Proxy',
++        label: 'Worker 代理',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'operations',
@@ -35121,7 +35337,7 @@ index 0000000..5a8972c
 +        },
 +      },
 +      {
-+        label: 'Performance',
++        label: '性能设置',
 +        link: {
 +          kind: 'system-settings',
 +          area: 'operations',
@@ -35154,11 +35370,9 @@ index 0000000..5a8972c
 +      <div className='bg-card rounded-lg border px-4 py-4'>
 +        <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
 +          <div className='max-w-3xl space-y-1'>
-+            <p className='text-sm font-medium'>Operations Center</p>
++            <p className='text-sm font-medium'>运维中心</p>
 +            <p className='text-muted-foreground text-sm'>
-+              A compact control surface for the custom compatibility features,
-+              analytics workspaces, runtime safeguards, and admin appearance
-+              defaults.
++              集中管理自定义兼容能力、数据分析工作区、运行时保护和管理员外观默认值。
 +            </p>
 +          </div>
 +          <div className='flex flex-wrap gap-2'>
@@ -35245,49 +35459,49 @@ index 0000000..5a8972c
 +  const errorRuleSummary = getErrorRuleSummary(props.errorRules)
 +  const items = [
 +    {
-+      label: 'Dashboard view',
-+      value: `${formatTimeRange(dashboard.timeRange)} · ${dashboard.autoRefresh ? 'auto' : 'manual'} · ${dashboard.refreshInterval / 1000}s`,
-+      detail: `${dashboard.pageSize} rows · ${dashboard.healthFilter} health · ${dashboard.trendMode} trend · ${dashboard.visibleSections.join('/')}`,
++      label: '数据看板视图',
++      value: `${formatTimeRange(dashboard.timeRange)} · ${dashboard.autoRefresh ? '自动刷新' : '手动刷新'} · ${dashboard.refreshInterval / 1000}s`,
++      detail: `${dashboard.pageSize} 行 · ${formatHealthFilter(dashboard.healthFilter)} · ${formatTrendMode(dashboard.trendMode)} · ${dashboard.visibleSections.join('/')}`,
 +    },
 +    {
-+      label: 'Legacy charts',
++      label: '传统图表',
 +      value: `${dashboard.chartTimeRangeDays}d · ${dashboard.chartTimeGranularity}`,
-+      detail: `${dashboard.consumptionChart} consumption · ${dashboard.modelAnalyticsChart} models`,
++      detail: `${dashboard.consumptionChart} 消费图 · ${dashboard.modelAnalyticsChart} 模型图`,
 +    },
 +    {
-+      label: 'Health thresholds',
-+      value: `${dashboard.slowFirstTokenThresholdMs}ms first token`,
-+      detail: `errors ${dashboard.errorRateWarningThreshold}/${dashboard.errorRateCriticalThreshold}% · success ${dashboard.successRateDegradedThreshold}/${dashboard.successRateGoodThreshold}%`,
++      label: '健康阈值',
++      value: `首 token ${dashboard.slowFirstTokenThresholdMs}ms`,
++      detail: `错误率 ${dashboard.errorRateWarningThreshold}/${dashboard.errorRateCriticalThreshold}% · 成功率 ${dashboard.successRateDegradedThreshold}/${dashboard.successRateGoodThreshold}%`,
 +    },
 +    {
-+      label: 'Appearance',
++      label: '外观',
 +      value: `${theme.preset} · ${theme.font}`,
-+      detail: `${theme.radius} radius · ${theme.scale} density · ${theme.contentLayout} layout · accent ${
-+        theme.customAccentEnabled ? theme.customAccentColor : 'default'
-+      } · palette ${theme.customPaletteEnabled ? 'custom' : 'default'}`,
++      detail: `${theme.radius} 圆角 · ${theme.scale} 密度 · ${theme.contentLayout} 布局 · 强调色 ${
++        theme.customAccentEnabled ? theme.customAccentColor : '默认'
++      } · 调色板 ${theme.customPaletteEnabled ? '自定义' : '默认'}`,
 +    },
 +    {
-+      label: 'Sidebar',
++      label: '侧边栏',
 +      value: sidebarSummary.value,
 +      detail: sidebarSummary.detail,
 +    },
 +    {
-+      label: 'Header navigation',
++      label: '顶部导航',
 +      value: headerSummary.value,
 +      detail: headerSummary.detail,
 +    },
 +    {
-+      label: 'System settings nav',
++      label: '系统设置导航',
 +      value: systemSettingsSummary.value,
 +      detail: systemSettingsSummary.detail,
 +    },
 +    {
-+      label: 'Official pricing',
++      label: '官方定价',
 +      value: priceSummary.value,
 +      detail: priceSummary.detail,
 +    },
 +    {
-+      label: 'Error safety',
++      label: '错误安全',
 +      value: errorRuleSummary.value,
 +      detail: errorRuleSummary.detail,
 +    },
@@ -35296,10 +35510,9 @@ index 0000000..5a8972c
 +  return (
 +    <Card className='rounded-lg shadow-none'>
 +      <CardHeader className='border-b pb-3'>
-+        <CardTitle className='text-sm'>Defaults snapshot</CardTitle>
++        <CardTitle className='text-sm'>默认值快照</CardTitle>
 +        <CardDescription>
-+          Current global defaults sent by `/api/status`; browser-local user
-+          choices may still override them.
++          当前由 `/api/status` 下发的全局默认值；用户浏览器本地偏好仍可覆盖这些值。
 +        </CardDescription>
 +      </CardHeader>
 +      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-3'>
@@ -35333,8 +35546,8 @@ index 0000000..5a8972c
 +  })
 +
 +  return {
-+    value: `${enabledAreas.length}/${areaOrder.length} areas visible`,
-+    detail: `${enabledSections}/${totalSections} sections visible · ${areaOrder.join(' / ')}`,
++    value: `${enabledAreas.length}/${areaOrder.length} 个区域可见`,
++    detail: `${enabledSections}/${totalSections} 个分区可见 · ${areaOrder.join(' / ')}`,
 +  }
 +}
 +
@@ -35356,34 +35569,34 @@ index 0000000..5a8972c
 +    parsed.pricing.requireAuth ? 'models' : '',
 +    parsed.rankings.requireAuth ? 'rankings' : '',
 +  ].filter(Boolean)
-+  const normalizedDocsLink = docsLink?.trim() || 'default docs link'
++  const normalizedDocsLink = docsLink?.trim() || '默认文档地址'
 +  const order = normalizeHeaderNavOrder(parsed.order)
 +    .map(formatHeaderModule)
 +    .join(' / ')
 +
 +  return {
-+    value: `${enabledModules.length}/${modules.length} modules visible`,
++    value: `${enabledModules.length}/${modules.length} 个模块可见`,
 +    detail:
 +      gatedModules.length > 0
-+        ? `${order} · ${gatedModules.join('/')} require login · ${normalizedDocsLink}`
-+        : `${order} · public modules · ${normalizedDocsLink}`,
++        ? `${order} · ${gatedModules.map(formatHeaderModule).join('/')} 需要登录 · ${normalizedDocsLink}`
++        : `${order} · 公开模块 · ${normalizedDocsLink}`,
 +  }
 +}
 +
 +function formatHeaderModule(value: string) {
 +  switch (value) {
 +    case 'home':
-+      return 'Home'
++      return '首页'
 +    case 'console':
-+      return 'Console'
++      return '控制台'
 +    case 'pricing':
-+      return 'Models'
++      return '模型广场'
 +    case 'rankings':
-+      return 'Rankings'
++      return '排行榜'
 +    case 'docs':
-+      return 'Docs'
++      return '文档'
 +    case 'about':
-+      return 'About'
++      return '关于'
 +    default:
 +      return value
 +  }
@@ -35393,7 +35606,7 @@ index 0000000..5a8972c
 +  if (!status) {
 +    return {
 +      value: 'Status loading',
-+      detail: 'official-only models.dev sync status',
++      detail: '正在读取 models.dev 官方价格同步状态',
 +    }
 +  }
 +
@@ -35401,29 +35614,29 @@ index 0000000..5a8972c
 +  const lastRun = formatTimestamp(status.last_run_unix)
 +  if (!status.last_run_unix) {
 +    return {
-+      value: 'Never synced',
++      value: '尚未同步',
 +      detail: source,
 +    }
 +  }
 +
 +  return {
-+    value: status.last_ok ? 'Last sync ok' : 'Last sync failed',
-+    detail: `${status.last_models_num ?? 0} models · ${lastRun} · ${source}`,
++    value: status.last_ok ? '上次同步成功' : '上次同步失败',
++    detail: `${status.last_models_num ?? 0} 个模型 · ${lastRun} · ${source}`,
 +  }
 +}
 +
 +function getErrorRuleSummary(rules: ErrorRule[]) {
 +  if (rules.length === 0) {
 +    return {
-+      value: 'Built-in fixed errors',
-+      detail: 'no custom rules configured',
++      value: '使用内置固定错误',
++      detail: '尚未配置自定义规则',
 +    }
 +  }
 +
 +  const enabledRules = rules.filter((rule) => rule.enabled)
 +  return {
-+    value: `${enabledRules.length}/${rules.length} custom rules enabled`,
-+    detail: 'clients see normalized messages; logs keep masked previews',
++    value: `${enabledRules.length}/${rules.length} 条自定义规则已启用`,
++    detail: '客户端看到规范化提示，日志保留脱敏预览',
 +  }
 +}
 +
@@ -35435,7 +35648,7 @@ index 0000000..5a8972c
 +  const orderValue =
 +    orderedSections.length > 0
 +      ? orderedSections.map(formatSidebarSection).join(' / ')
-+      : 'Default order'
++      : '默认顺序'
 +
 +  try {
 +    const parsed = modulesConfig
@@ -35447,7 +35660,7 @@ index 0000000..5a8972c
 +    if (sections.length === 0) {
 +      return {
 +        value: orderValue,
-+        detail: 'default sections · default modules',
++        detail: '默认分组 · 默认模块',
 +      }
 +    }
 +
@@ -35466,12 +35679,12 @@ index 0000000..5a8972c
 +
 +    return {
 +      value: orderValue,
-+      detail: `${enabledSections}/${sections.length} sections · ${enabledModules}/${totalModules} modules visible`,
++      detail: `${enabledSections}/${sections.length} 个分组 · ${enabledModules}/${totalModules} 个模块可见`,
 +    }
 +  } catch {
 +    return {
 +      value: orderValue,
-+      detail: 'sidebar module JSON is not readable',
++      detail: '侧边栏模块 JSON 无法读取',
 +    }
 +  }
 +}
@@ -35487,13 +35700,13 @@ index 0000000..5a8972c
 +function formatSidebarSection(value: string) {
 +  switch (value) {
 +    case 'chat':
-+      return 'Chat'
++      return '聊天'
 +    case 'console':
-+      return 'Console'
++      return '控制台'
 +    case 'personal':
-+      return 'Personal'
++      return '个人'
 +    case 'admin':
-+      return 'Admin'
++      return '管理'
 +    default:
 +      return value
 +  }
@@ -35503,10 +35716,9 @@ index 0000000..5a8972c
 +  return (
 +    <Card className='rounded-lg shadow-none'>
 +      <CardHeader className='border-b pb-3'>
-+        <CardTitle className='text-sm'>Configuration map</CardTitle>
++        <CardTitle className='text-sm'>配置地图</CardTitle>
 +        <CardDescription>
-+          The shortest paths to the controls added for compatibility, analytics,
-+          appearance, and safety.
++          快速找到兼容、分析、外观和安全相关的新增控制项。
 +        </CardDescription>
 +      </CardHeader>
 +      <CardContent className='grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-4'>
@@ -35651,19 +35863,19 @@ index 0000000..5a8972c
 +}
 +
 +function formatUptime(startTime?: number | null) {
-+  if (!startTime || !Number.isFinite(startTime)) return 'Uptime unavailable'
++  if (!startTime || !Number.isFinite(startTime)) return '运行时长不可用'
 +  const nowSeconds = Math.floor(Date.now() / 1000)
 +  const elapsed = Math.max(0, nowSeconds - startTime)
 +  const days = Math.floor(elapsed / 86400)
 +  const hours = Math.floor((elapsed % 86400) / 3600)
-+  if (days > 0) return `${days}d ${hours}h uptime`
++  if (days > 0) return `已运行 ${days} 天 ${hours} 小时`
 +  const minutes = Math.floor((elapsed % 3600) / 60)
-+  if (hours > 0) return `${hours}h ${minutes}m uptime`
-+  return `${Math.max(1, minutes)}m uptime`
++  if (hours > 0) return `已运行 ${hours} 小时 ${minutes} 分钟`
++  return `已运行 ${Math.max(1, minutes)} 分钟`
 +}
 +
 +function formatTimestamp(timestamp?: number) {
-+  if (!timestamp) return 'never'
++  if (!timestamp) return '从未'
 +  return new Intl.DateTimeFormat(undefined, {
 +    year: 'numeric',
 +    month: '2-digit',
@@ -35676,15 +35888,45 @@ index 0000000..5a8972c
 +function formatTimeRange(value: string) {
 +  switch (value) {
 +    case '1d':
-+      return '1 day'
++      return '1 天'
 +    case '7d':
-+      return '7 days'
++      return '7 天'
 +    case '30d':
-+      return '30 days'
++      return '30 天'
 +    case '1y':
-+      return '1 year'
++      return '1 年'
 +    case 'all':
-+      return 'All time'
++      return '全部时间'
++    default:
++      return value
++  }
++}
++
++function formatHealthFilter(value: string) {
++  switch (value) {
++    case 'all':
++      return '全部健康状态'
++    case 'active':
++      return '仅活跃项'
++    case 'risk':
++      return '仅风险项'
++    case 'slow':
++      return '仅慢响应项'
++    default:
++      return value
++  }
++}
++
++function formatTrendMode(value: string) {
++  switch (value) {
++    case 'overview':
++      return '总览趋势'
++    case 'throughput':
++      return '吞吐趋势'
++    case 'latency':
++      return '延迟趋势'
++    case 'cost':
++      return '成本趋势'
 +    default:
 +      return value
 +  }
@@ -37947,6 +38189,329 @@ index a799610..faa7f09 100644
 +    return link ? [link] : []
 +  })
  }
+diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
+index c6ea6ac..c73dbc0 100644
+--- a/web/default/src/i18n/locales/zh.json
++++ b/web/default/src/i18n/locales/zh.json
+@@ -101,6 +101,271 @@
+     "80,443,8080": "80,443,8080",
+     "A billing multiplier. Lower ratios mean lower API call costs.": "计费乘数，倍率越低，API 调用费用越低。",
+     "A focused home for keys, balance, routing, and service health.": "集中展示密钥、余额、路由和服务健康状态。",
++    "API addresses JSON exported": "API 地址 JSON 已导出",
++    "API addresses JSON exported and copied": "API 地址 JSON 已导出并复制到剪贴板",
++    "API addresses imported. Click Save Settings to apply.": "已导入 API 地址。点击保存设置后生效。",
++    "Added {{count}} models from \"{{name}}\"": "已从“{{name}}”添加 {{count}} 个模型",
++    "Additional chart series color used by analytics panels.": "分析面板中附加图表序列使用的颜色。",
++    "Announcements JSON exported": "公告 JSON 已导出",
++    "Announcements JSON exported and copied": "公告 JSON 已导出并复制到剪贴板",
++    "Announcements imported. Click Save Settings to apply.": "已导入公告。点击保存设置后生效。",
++    "Appearance": "外观设置",
++    "Appearance exported": "外观设置已导出",
++    "Appearance imported": "外观设置已导入",
++    "Applied when a dashboard table has no saved view": "当看板表格没有本地保存视图时应用",
++    "Applies to dashboards with auto refresh enabled": "应用于已启用自动刷新的数据看板",
++    "Backup or restore sidebar visibility and ordering as JSON.": "以 JSON 备份或恢复侧边栏可见性与排序。",
++    "Backup or restore system settings area visibility and ordering as JSON.": "以 JSON 备份或恢复系统设置分区的可见性与排序。",
++    "Backup or restore top navigation modules, order, and Docs URL as JSON.": "以 JSON 备份或恢复顶部导航模块、排序和文档链接。",
++    "Basic Authentication JSON exported": "基础认证 JSON 已导出",
++    "Basic Authentication JSON exported and copied": "基础认证 JSON 已导出并复制到剪贴板",
++    "Basic Authentication imported. Click Save to apply.": "已导入基础认证配置。点击保存后生效。",
++    "Bot Protection JSON exported": "机器人防护 JSON 已导出",
++    "Bot Protection JSON exported and copied": "机器人防护 JSON 已导出并复制到剪贴板",
++    "Bot Protection imported. Click Save to apply.": "已导入机器人防护配置。点击保存后生效。",
++    "Browse models": "浏览模型",
++    "Channel affinity exported": "渠道亲和性配置已导出",
++    "Channel affinity imported": "渠道亲和性配置已导入",
++    "Chat presets JSON exported": "聊天预设 JSON 已导出",
++    "Chat presets JSON exported and copied": "聊天预设 JSON 已导出并复制到剪贴板",
++    "Chat presets imported. Click Save to apply.": "已导入聊天预设。点击保存后生效。",
++    "Check-in settings JSON exported": "签到设置 JSON 已导出",
++    "Check-in settings JSON exported and copied": "签到设置 JSON 已导出并复制到剪贴板",
++    "Check-in settings imported. Click Save to apply.": "已导入签到设置。点击保存后生效。",
++    "Claude settings exported": "Claude 设置已导出",
++    "Claude settings imported": "Claude 设置已导入",
++    "Controls the left-to-right order of enabled top navigation modules.": "控制已启用顶部导航模块从左到右的顺序。",
++    "Controls which dashboard tabs are visible globally": "控制全局可见的数据看板标签页",
++    "Currency display JSON exported": "货币显示 JSON 已导出",
++    "Currency display JSON exported and copied": "货币显示 JSON 已导出并复制到剪贴板",
++    "Currency display imported. Click Save to apply.": "已导入货币显示配置。点击保存后生效。",
++    "Custom OAuth JSON must contain a providers array": "自定义 OAuth JSON 必须包含 providers 数组",
++    "Custom OAuth imported: {{created}} created, {{updated}} updated": "自定义 OAuth 已导入：新建 {{created}} 个，更新 {{updated}} 个",
++    "Custom OAuth providers JSON exported": "自定义 OAuth 提供商 JSON 已导出",
++    "Custom OAuth providers JSON exported and copied": "自定义 OAuth 提供商 JSON 已导出并复制到剪贴板",
++    "Dashboard defaults exported": "数据看板默认值已导出",
++    "Dashboard defaults imported": "数据看板默认值已导入",
++    "Dashboard defaults, appearance, content cards, and FAQ.": "数据看板默认值、外观、内容卡片和 FAQ。",
++    "Default dashboard refresh interval": "数据看板默认刷新间隔",
++    "Default model analytics chart": "模型分析默认图表",
++    "Drawing JSON exported": "绘图设置 JSON 已导出",
++    "Drawing JSON exported and copied": "绘图设置 JSON 已导出并复制到剪贴板",
++    "Drawing settings imported. Click Save to apply.": "已导入绘图设置。点击保存后生效。",
++    "Enable dashboard auto refresh by default": "默认启用数据看板自动刷新",
++    "Export JSON": "导出 JSON",
++    "FAQ JSON exported": "FAQ JSON 已导出",
++    "FAQ JSON exported and copied": "FAQ JSON 已导出并复制到剪贴板",
++    "FAQ imported. Click Save Settings to apply.": "已导入 FAQ。点击保存设置后生效。",
++    "Failed to load playground models": "加载 Playground 模型失败",
++    "Fetch available models from upstream": "从上游拉取可用模型",
++    "Gemini settings exported": "Gemini 设置已导出",
++    "Gemini settings imported": "Gemini 设置已导入",
++    "Global model configuration exported": "全局模型配置已导出",
++    "Global model configuration imported": "全局模型配置已导入",
++    "Grok settings exported": "Grok 设置已导出",
++    "Grok settings imported": "Grok 设置已导入",
++    "Header navigation exported": "顶部导航已导出",
++    "Header navigation imported": "顶部导航已导入",
++    "Import API addresses JSON": "导入 API 地址 JSON",
++    "Import Basic Authentication JSON": "导入基础认证 JSON",
++    "Import Bot Protection JSON": "导入机器人防护 JSON",
++    "Import Custom OAuth providers JSON": "导入自定义 OAuth 提供商 JSON",
++    "Import FAQ JSON": "导入 FAQ JSON",
++    "Import JSON": "导入 JSON",
++    "Import Log Maintenance JSON": "导入日志维护 JSON",
++    "Import OAuth Integrations JSON": "导入 OAuth 集成 JSON",
++    "Import Passkey Authentication JSON": "导入通行密钥认证 JSON",
++    "Import Payment Gateway JSON": "导入支付网关 JSON",
++    "Import SMTP Email JSON": "导入 SMTP 邮件 JSON",
++    "Import SSRF protection JSON": "导入 SSRF 防护 JSON",
++    "Import Uptime Kuma JSON": "导入 Uptime Kuma JSON",
++    "Import Worker Proxy JSON": "导入 Worker 代理 JSON",
++    "Import announcements JSON": "导入公告 JSON",
++    "Import appearance": "导入外观设置",
++    "Import chat presets JSON": "导入聊天预设 JSON",
++    "Import check-in settings JSON": "导入签到设置 JSON",
++    "Import currency display JSON": "导入货币显示 JSON",
++    "Import dashboard defaults": "导入数据看板默认值",
++    "Import drawing JSON": "导入绘图设置 JSON",
++    "Import header navigation": "导入顶部导航",
++    "Import io.net Deployment JSON": "导入 io.net 部署 JSON",
++    "Import monitoring JSON": "导入监控 JSON",
++    "Import performance JSON": "导入性能设置 JSON",
++    "Import quota settings JSON": "导入额度设置 JSON",
++    "Import rate limiting JSON": "导入速率限制 JSON",
++    "Import sensitive words JSON": "导入敏感词 JSON",
++    "Import sidebar configuration": "导入侧边栏配置",
++    "Import system behavior JSON": "导入系统行为 JSON",
++    "Import system information": "导入系统信息",
++    "Import system notice JSON": "导入系统公告 JSON",
++    "Import system settings navigation": "导入系统设置导航",
++    "Import upstream error rules": "导入上游错误规则",
++    "Imported": "已导入",
++    "Imported rules are appended as new custom rules. Existing rules are not deleted or overwritten.": "导入的规则会追加为新的自定义规则，不会删除或覆盖现有规则。",
++    "Imported {{count}} rules": "已导入 {{count}} 条规则",
++    "Invalid API addresses JSON": "API 地址 JSON 无效",
++    "Invalid Claude settings JSON": "Claude 设置 JSON 无效",
++    "Invalid Custom OAuth JSON": "自定义 OAuth JSON 无效",
++    "Invalid FAQ JSON": "FAQ JSON 无效",
++    "Invalid Gemini settings JSON": "Gemini 设置 JSON 无效",
++    "Invalid Grok settings JSON": "Grok 设置 JSON 无效",
++    "Invalid Log Maintenance JSON": "日志维护 JSON 无效",
++    "Invalid OAuth JSON": "OAuth JSON 无效",
++    "Invalid Payment Gateway JSON": "支付网关 JSON 无效",
++    "Invalid SMTP JSON": "SMTP JSON 无效",
++    "Invalid SSRF protection JSON": "SSRF 防护 JSON 无效",
++    "Invalid Uptime Kuma JSON": "Uptime Kuma JSON 无效",
++    "Invalid Worker JSON": "Worker JSON 无效",
++    "Invalid announcements JSON": "公告 JSON 无效",
++    "Invalid appearance JSON": "外观设置 JSON 无效",
++    "Invalid basic auth JSON": "基础认证 JSON 无效",
++    "Invalid behavior JSON": "系统行为 JSON 无效",
++    "Invalid bot protection JSON": "机器人防护 JSON 无效",
++    "Invalid channel affinity JSON": "渠道亲和性 JSON 无效",
++    "Invalid chat presets JSON": "聊天预设 JSON 无效",
++    "Invalid check-in settings JSON": "签到设置 JSON 无效",
++    "Invalid currency display JSON": "货币显示 JSON 无效",
++    "Invalid dashboard defaults JSON": "数据看板默认值 JSON 无效",
++    "Invalid drawing JSON": "绘图设置 JSON 无效",
++    "Invalid global model configuration JSON": "全局模型配置 JSON 无效",
++    "Invalid header navigation JSON": "顶部导航 JSON 无效",
++    "Invalid io.net Deployment JSON": "io.net 部署 JSON 无效",
++    "Invalid model pricing JSON": "模型定价 JSON 无效",
++    "Invalid monitoring JSON": "监控 JSON 无效",
++    "Invalid passkey JSON": "通行密钥 JSON 无效",
++    "Invalid performance JSON": "性能设置 JSON 无效",
++    "Invalid quota settings JSON": "额度设置 JSON 无效",
++    "Invalid rate limiting JSON": "速率限制 JSON 无效",
++    "Invalid sensitive words JSON": "敏感词 JSON 无效",
++    "Invalid sidebar configuration JSON": "侧边栏配置 JSON 无效",
++    "Invalid system information JSON": "系统信息 JSON 无效",
++    "Invalid system notice JSON": "系统公告 JSON 无效",
++    "Invalid system settings navigation JSON": "系统设置导航 JSON 无效",
++    "Invalid upstream error rules JSON": "上游错误规则 JSON 无效",
++    "Keep upstream status code": "保留上游状态码",
++    "Log Maintenance JSON exported": "日志维护 JSON 已导出",
++    "Log Maintenance JSON exported and copied": "日志维护 JSON 已导出并复制到剪贴板",
++    "Log Maintenance imported. Click Save to apply.": "已导入日志维护配置。点击保存后生效。",
++    "Model Operations": "模型运维",
++    "Model behavior, pricing, UA, identity, and routing.": "模型行为、定价、UA、客户端标识和路由。",
++    "Model mapping must be a valid JSON object": "模型映射必须是有效的 JSON 对象",
++    "Model mapping must be valid JSON format": "模型映射必须是有效的 JSON 格式",
++    "Model pricing exported": "模型定价已导出",
++    "Model pricing imported": "模型定价已导入",
++    "Monitoring JSON exported": "监控 JSON 已导出",
++    "Monitoring JSON exported and copied": "监控 JSON 已导出并复制到剪贴板",
++    "Monitoring settings imported. Click Save to apply.": "已导入监控设置。点击保存后生效。",
++    "Navigation order": "导航顺序",
++    "No rules found in JSON": "JSON 中未找到规则",
++    "Normalize upstream error responses before they are shown to clients. Backend logs keep masked originals.": "在错误返回给客户端前规范化上游错误响应，后台日志保留脱敏后的原始信息。",
++    "Normalize upstream errors": "规范化上游错误",
++    "OAuth Integrations JSON exported": "OAuth 集成 JSON 已导出",
++    "OAuth Integrations JSON exported and copied": "OAuth 集成 JSON 已导出并复制到剪贴板",
++    "OAuth Integrations imported. Click Save to apply.": "已导入 OAuth 集成配置。点击保存后生效。",
++    "Official models.dev sync": "官方 models.dev 同步",
++    "Official prices synced: {{count}} models": "官方价格已同步：{{count}} 个模型",
++    "Open Dashboard": "打开数据看板",
++    "Operations Center": "运维中心",
++    "Overview Analytics": "运维总览",
++    "Override global background, surface, sidebar, and secondary chart colors.": "覆盖全局背景、表面、侧边栏和次级图表颜色。",
++    "Passkey Authentication JSON exported": "通行密钥认证 JSON 已导出",
++    "Passkey Authentication JSON exported and copied": "通行密钥认证 JSON 已导出并复制到剪贴板",
++    "Passkey Authentication imported. Click Save to apply.": "已导入通行密钥认证配置。点击保存后生效。",
++    "Payment Gateway JSON exported": "支付网关 JSON 已导出",
++    "Payment Gateway JSON exported and copied": "支付网关 JSON 已导出并复制到剪贴板",
++    "Payment Gateway imported. Click Save to apply.": "已导入支付网关配置。点击保存后生效。",
++    "Paste Claude settings JSON": "粘贴 Claude 设置 JSON",
++    "Paste Gemini settings JSON": "粘贴 Gemini 设置 JSON",
++    "Paste Grok settings JSON": "粘贴 Grok 设置 JSON",
++    "Paste an exported API addresses JSON payload. Imported values stay local until you save settings.": "粘贴导出的 API 地址 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported Basic Authentication JSON payload. Imported values stay local until you save settings.": "粘贴导出的基础认证 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported Bot Protection JSON payload. Redacted credentials keep the current saved secret.": "粘贴导出的机器人防护 JSON。被遮蔽的凭据会保留当前已保存密钥。",
++    "Paste an exported Custom OAuth providers payload. Providers are matched by slug; redacted client secrets keep existing saved secrets.": "粘贴导出的自定义 OAuth 提供商 JSON。提供商按 slug 匹配；被遮蔽的客户端密钥会保留现有值。",
++    "Paste an exported FAQ JSON payload. Imported values stay local until you save settings.": "粘贴导出的 FAQ JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported OAuth JSON payload. Redacted credentials keep the current saved secrets.": "粘贴导出的 OAuth JSON。被遮蔽的凭据会保留当前已保存密钥。",
++    "Paste an exported Passkey Authentication JSON payload. Imported values stay local until you save settings.": "粘贴导出的通行密钥认证 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported SMTP JSON payload. Redacted credentials keep the current saved secret.": "粘贴导出的 SMTP JSON。被遮蔽的凭据会保留当前已保存密钥。",
++    "Paste an exported SSRF protection JSON payload. Imported values stay local until you save settings.": "粘贴导出的 SSRF 防护 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported Uptime Kuma JSON payload. Imported values stay local until you save settings.": "粘贴导出的 Uptime Kuma JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported Worker Proxy JSON payload. Redacted credentials keep the current saved secret.": "粘贴导出的 Worker 代理 JSON。被遮蔽的凭据会保留当前已保存密钥。",
++    "Paste an exported announcements JSON payload. Imported values stay local until you save settings.": "粘贴导出的公告 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported chat presets JSON payload. Imported values stay local until you save settings.": "粘贴导出的聊天预设 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported check-in settings JSON payload. Imported values stay local until you save settings.": "粘贴导出的签到设置 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported currency display JSON payload. Imported values stay local until you save settings.": "粘贴导出的货币显示 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported drawing settings JSON payload. Imported values stay local until you save settings.": "粘贴导出的绘图设置 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported io.net deployment JSON payload. Redacted or empty API keys keep the current saved key.": "粘贴导出的 io.net 部署 JSON。被遮蔽或为空的 API Key 会保留当前已保存值。",
++    "Paste an exported log maintenance JSON payload. Cleanup timestamps and destructive log deletion actions are not imported.": "粘贴导出的日志维护 JSON。清理时间戳和删除日志这类破坏性操作不会导入。",
++    "Paste an exported monitoring JSON payload. Imported values stay local until you save settings.": "粘贴导出的监控 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported payment gateway JSON payload. Redacted or empty credentials keep the current saved secret; imported values are not saved until you click Save.": "粘贴导出的支付网关 JSON。被遮蔽或为空的凭据会保留当前已保存密钥；点击保存前不会写入后台。",
++    "Paste an exported performance JSON payload. Imported values stay local until you save settings.": "粘贴导出的性能设置 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported quota settings JSON payload. Imported values stay local until you save settings.": "粘贴导出的额度设置 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported rate limiting JSON payload. Imported values stay local until you save settings.": "粘贴导出的速率限制 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported sensitive words JSON payload. Imported values stay local until you save settings.": "粘贴导出的敏感词 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported system behavior JSON payload. Imported values stay local until you save settings.": "粘贴导出的系统行为 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste an exported system notice JSON payload. Imported values stay local until you save settings.": "粘贴导出的系统公告 JSON。导入值会先保留在本地，保存设置后才会生效。",
++    "Paste appearance JSON": "粘贴外观设置 JSON",
++    "Paste channel affinity JSON": "粘贴渠道亲和性 JSON",
++    "Paste dashboard defaults JSON": "粘贴数据看板默认值 JSON",
++    "Paste global model configuration JSON": "粘贴全局模型配置 JSON",
++    "Paste model pricing JSON": "粘贴模型定价 JSON",
++    "Paste system information JSON": "粘贴系统信息 JSON",
++    "Performance JSON exported": "性能设置 JSON 已导出",
++    "Performance JSON exported and copied": "性能设置 JSON 已导出并复制到剪贴板",
++    "Performance settings imported. Click Save to apply.": "已导入性能设置。点击保存后生效。",
++    "Quota settings JSON exported": "额度设置 JSON 已导出",
++    "Quota settings JSON exported and copied": "额度设置 JSON 已导出并复制到剪贴板",
++    "Quota settings imported. Click Save to apply.": "已导入额度设置。点击保存后生效。",
++    "Rate limiting JSON exported": "速率限制 JSON 已导出",
++    "Rate limiting JSON exported and copied": "速率限制 JSON 已导出并复制到剪贴板",
++    "Rate limiting imported. Click Save to apply.": "已导入速率限制配置。点击保存后生效。",
++    "Rate limits, sensitive words, SSRF, and error rules.": "速率限制、敏感词、SSRF 和错误规则。",
++    "Return fixed client-facing error messages while keeping sanitized logs.": "向客户端返回固定错误文案，同时保留脱敏日志。",
++    "SMTP Email JSON exported": "SMTP 邮件 JSON 已导出",
++    "SMTP Email JSON exported and copied": "SMTP 邮件 JSON 已导出并复制到剪贴板",
++    "SMTP Email imported. Click Save to apply.": "已导入 SMTP 邮件配置。点击保存后生效。",
++    "SSRF protection JSON exported": "SSRF 防护 JSON 已导出",
++    "SSRF protection JSON exported and copied": "SSRF 防护 JSON 已导出并复制到剪贴板",
++    "SSRF protection imported. Click Save to apply.": "已导入 SSRF 防护配置。点击保存后生效。",
++    "Sensitive words JSON exported": "敏感词 JSON 已导出",
++    "Sensitive words JSON exported and copied": "敏感词 JSON 已导出并复制到剪贴板",
++    "Sensitive words imported. Click Save to apply.": "已导入敏感词配置。点击保存后生效。",
++    "Sidebar canvas, sidebar hover surface, and sidebar border.": "侧边栏画布、悬停表面和边框。",
++    "Sidebar color": "侧边栏颜色",
++    "Sidebar configuration exported": "侧边栏配置已导出",
++    "Sidebar configuration imported": "侧边栏配置已导入",
++    "Site identity, notices, header, and navigation shells.": "站点标识、公告、顶部栏和导航框架。",
++    "System behavior JSON exported": "系统行为 JSON 已导出",
++    "System behavior JSON exported and copied": "系统行为 JSON 已导出并复制到剪贴板",
++    "System behavior imported. Click Save to apply.": "已导入系统行为配置。点击保存后生效。",
++    "System information exported": "系统信息已导出",
++    "System information imported": "系统信息已导入",
++    "System notice JSON exported": "系统公告 JSON 已导出",
++    "System notice JSON exported and copied": "系统公告 JSON 已导出并复制到剪贴板",
++    "System notice imported. Click Save to apply.": "已导入系统公告。点击保存后生效。",
++    "System settings navigation": "系统设置导航",
++    "System settings navigation exported": "系统设置导航已导出",
++    "System settings navigation imported": "系统设置导航已导入",
++    "Upstream Error Rules": "上游错误规则",
++    "Upstream HTTP Status": "上游 HTTP 状态",
++    "Upstream error rules exported": "上游错误规则已导出",
++    "Uptime Kuma JSON exported": "Uptime Kuma JSON 已导出",
++    "Uptime Kuma JSON exported and copied": "Uptime Kuma JSON 已导出并复制到剪贴板",
++    "Uptime Kuma imported. Click Save Settings to apply.": "已导入 Uptime Kuma。点击保存设置后生效。",
++    "upstream providers": "上游供应商",
++    "Use #RRGGBB. This affects buttons, rings, charts, and sidebar highlights.": "使用 #RRGGBB。会影响按钮、焦点环、图表和侧边栏高亮。",
++    "Used by dashboard pages when the browser has no saved local preference": "当浏览器没有本地偏好时供数据看板页面使用",
++    "Used by legacy dashboard charts with no saved view": "当旧版看板图表没有本地保存视图时使用",
++    "Used by the top navigation Docs link and default footer documentation links.": "用于顶部导航文档链接和默认页脚文档链接。",
++    "Users can still override this from their own dashboard controls": "用户仍可在自己的数据看板控件中覆盖此设置",
++    "View Models": "查看模型",
++    "Visible dashboard sections": "可见看板分区",
++    "Worker Proxy JSON exported": "Worker 代理 JSON 已导出",
++    "Worker Proxy JSON exported and copied": "Worker 代理 JSON 已导出并复制到剪贴板",
++    "Worker Proxy imported. Click Save to apply.": "已导入 Worker 代理配置。点击保存后生效。",
++    "io.net Deployment JSON exported": "io.net 部署 JSON 已导出",
++    "io.net Deployment JSON exported and copied": "io.net 部署 JSON 已导出并复制到剪贴板",
++    "io.net Deployment imported. Click Save to apply.": "已导入 io.net 部署配置。点击保存后生效。",
++    "{{count}} announcements deleted. Click \"Save Settings\" to apply.": "已删除 {{count}} 条公告。点击“保存设置”后生效。",
+     "About": "关于",
+     "About {{days}} days left": "约剩 {{days}} 天",
+     "Accept Unpriced Models": "接受未定价模型",
+@@ -643,6 +908,7 @@
+     "Channel Affinity": "渠道亲和性",
+     "Channel affinity reuses the last successful channel based on keys extracted from the request context or JSON body.": "渠道亲和性会基于从请求上下文或 JSON Body 提取的 Key，优先复用上一次成功的渠道。",
+     "Channel Affinity: Upstream Cache Hit": "渠道亲和性：上游缓存命中",
++    "Channel Analytics": "渠道分析",
+     "Channel copied successfully": "渠道复制成功",
+     "Channel created successfully": "渠道创建成功",
+     "Channel deleted successfully": "渠道删除成功",
+@@ -751,6 +1017,7 @@
+     "Click to view image": "点击查看图片",
+     "Client header value": "客户端请求头值",
+     "Client ID": "Client ID",
++    "Client Identity": "客户端标识",
+     "Client Secret": "Client Secret",
+     "Close": "关闭",
+     "Close dialog": "关闭对话框",
+@@ -1071,9 +1338,10 @@
+     "Daily uptime; {{incidents}} incidents totalling {{minutes}} minutes": "每日可用率；{{incidents}} 起事件，总计 {{minutes}} 分钟",
+     "Dark": "深色",
+     "Dashboard": "数据看板",
++    "Dashboard Defaults": "数据看板默认值",
+     "Dashboard Preferences": "看板偏好设置",
+-    "Dashboards, tokens, and usage analytics.": "仪表板、令牌和使用分析。",
+-    "Data Dashboard": "数据仪表板",
++    "Dashboards, tokens, and usage analytics.": "数据看板、令牌和用量分析。",
++    "Data Dashboard": "数据看板",
+     "Data directory:": "数据目录：",
+     "Data is stored locally on this device. Use system backups to keep a safe copy.": "数据存储在此设备本地。请使用系统备份来保留安全副本。",
+     "Data management and log viewing": "数据管理和日志查看",
+@@ -1362,7 +1630,7 @@
+     "Enable 2FA": "启用 2FA",
+     "Enable All": "启用全部",
+     "Enable check-in feature": "启用签到功能",
+-    "Enable Data Dashboard": "启用数据仪表板",
++    "Enable Data Dashboard": "启用数据看板",
+     "Enable demo mode with limited functionality": "启用功能受限的演示模式",
+     "Enable Discord OAuth": "启用 Discord OAuth",
+     "Enable Disk Cache": "启用磁盘缓存",
+@@ -4273,7 +4541,7 @@
+     "User": "用户",
+     "User {{id}}": "用户 {{id}}",
+     "User Agreement": "用户协议",
+-    "User Analytics": "用户统计",
++    "User Analytics": "用户分析",
+     "User Consumption Ranking": "用户消耗排行",
+     "User Consumption Trend": "用户消耗趋势",
+     "User created successfully": "用户创建成功",
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
 index 0000000..518b785
@@ -38466,7 +39031,7 @@ index 0000000..d73a3ac
 +  toggle: () => set((state) => ({ isOpen: !state.isOpen })),
 +}))
 diff --git a/web/default/src/stores/system-config-store.ts b/web/default/src/stores/system-config-store.ts
-index 76997ef..08f9ea7 100644
+index 76997ef..e212f83 100644
 --- a/web/default/src/stores/system-config-store.ts
 +++ b/web/default/src/stores/system-config-store.ts
 @@ -19,6 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
@@ -38494,7 +39059,47 @@ index 76997ef..08f9ea7 100644
  }
  
  export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
-@@ -75,6 +86,9 @@ export const useSystemConfigStore = create<SystemConfigState>()(
+@@ -55,6 +66,39 @@ export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
+   customCurrencyExchangeRate: 1,
+ }
+ 
++function mergeSystemConfig(
++  base: SystemConfig,
++  incoming?: Partial<SystemConfig>
++): SystemConfig {
++  const dashboardDefaults = {
++    ...DEFAULT_DASHBOARD_DEFAULTS,
++    ...(base.dashboardDefaults ?? {}),
++    ...(incoming?.dashboardDefaults ?? {}),
++  }
++  if (!Array.isArray(dashboardDefaults.visibleSections)) {
++    dashboardDefaults.visibleSections =
++      DEFAULT_DASHBOARD_DEFAULTS.visibleSections
++  }
++
++  return {
++    ...base,
++    ...(incoming ?? {}),
++    currency: {
++      ...DEFAULT_CURRENCY_CONFIG,
++      ...(base.currency ?? {}),
++      ...(incoming?.currency ?? {}),
++    },
++    themeCustomization: {
++      ...DEFAULT_THEME_CUSTOMIZATION,
++      ...(base.themeCustomization ?? {}),
++      ...(incoming?.themeCustomization ?? {}),
++    },
++    dashboardDefaults,
++    systemSettingsNavigation:
++      incoming?.systemSettingsNavigation ?? base.systemSettingsNavigation ?? '',
++  }
++}
++
+ interface SystemConfigState {
+   config: SystemConfig
+   loading: boolean
+@@ -75,19 +119,15 @@ export const useSystemConfigStore = create<SystemConfigState>()(
          systemName: DEFAULT_SYSTEM_NAME,
          logo: DEFAULT_LOGO,
          currency: { ...DEFAULT_CURRENCY_CONFIG },
@@ -38504,24 +39109,38 @@ index 76997ef..08f9ea7 100644
        },
        loading: true,
        loadedLogoUrl: DEFAULT_LOGO,
-@@ -87,6 +101,17 @@ export const useSystemConfigStore = create<SystemConfigState>()(
-               ...state.config.currency,
-               ...(newConfig.currency ?? {}),
-             },
-+            themeCustomization: {
-+              ...state.config.themeCustomization,
-+              ...(newConfig.themeCustomization ?? {}),
-+            },
-+            dashboardDefaults: {
-+              ...state.config.dashboardDefaults,
-+              ...(newConfig.dashboardDefaults ?? {}),
-+            },
-+            systemSettingsNavigation:
-+              newConfig.systemSettingsNavigation ??
-+              state.config.systemSettingsNavigation,
-           },
+       setConfig: (newConfig) =>
+         set((state) => ({
+-          config: {
+-            ...state.config,
+-            ...newConfig,
+-            currency: {
+-              ...state.config.currency,
+-              ...(newConfig.currency ?? {}),
+-            },
+-          },
++          config: mergeSystemConfig(state.config, newConfig),
          })),
        setLoadedLogoUrl: (url) => set({ loadedLogoUrl: url }),
+       setLoading: (loading) => set({ loading }),
+@@ -98,6 +138,17 @@ export const useSystemConfigStore = create<SystemConfigState>()(
+         config: state.config,
+         loadedLogoUrl: state.loadedLogoUrl,
+       }),
++      merge: (persisted, current) => {
++        const persistedState = persisted as
++          | Partial<Pick<SystemConfigState, 'config' | 'loadedLogoUrl'>>
++          | undefined
++        return {
++          ...current,
++          loadedLogoUrl:
++            persistedState?.loadedLogoUrl ?? current.loadedLogoUrl,
++          config: mergeSystemConfig(current.config, persistedState?.config),
++        }
++      },
+     }
+   )
+ )
 diff --git a/web/default/src/stores/theme-store.ts b/web/default/src/stores/theme-store.ts
 new file mode 100644
 index 0000000..d6f425a
