@@ -86,19 +86,23 @@
 | 模型控制中心 | `系统设置 -> 模型相关 -> Model Operations` |
 | 运维控制中心 | `系统设置` 默认入口、`系统设置 -> 运维/Operations -> Operations Center`，含配置入口地图和 Dashboard/Appearance/System Information/Sidebar 当前默认值快照，或命令面板 `Operations Center` |
 | 配置入口地图 | `Operations Center -> Configuration map`，按 Runtime / Analytics / Appearance / Safety 分组 |
-| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
+| 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`Performance Settings`、`Monitoring & Alerts`、`Global Model Configuration`、`Claude Settings`、`Gemini Settings`、`Grok Settings`、`Channel Affinity`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity` |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
+| 模型价格/倍率迁移 | `系统设置 -> 模型相关 -> Model Pricing` 支持模型价格、倍率、分组倍率、工具价格 JSON 导入/导出；官方价格同步动作不参与导入/导出 |
+| 模型运行配置迁移 | `系统设置 -> 模型相关 -> Global Model Configuration`、`Claude`、`Gemini`、`Grok`、`Channel Affinity` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
 | 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
-| 计费基础配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
+| 计费配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`、`Payment Gateway` 支持 JSON 导入/导出；Payment Gateway 导出的 Epay/Stripe/Creem/Waffo/Waffo Pancake 密钥默认脱敏，导入脱敏占位符时保留当前密钥；导入仅更新当前表单，需保存后写入后台 |
 | 渠道测试调度 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，可配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
 | 监控与告警 | `系统设置 -> 运维/Operations -> Monitoring & Alerts`，可配置全局渠道测试、自动禁用/恢复、重试状态码、额度提醒，并支持 JSON 导入/导出 |
 | 性能设置 | `系统设置 -> 运维/Operations -> Performance`，可配置磁盘缓存、资源阈值、性能指标采集，并支持 JSON 导入/导出 |
+| 日志维护 | `系统设置 -> 运维/Operations -> Log Maintenance`，可配置额度消费日志写入，并支持 JSON 导入/导出；清理历史日志属于一次性危险操作，不参与导入/导出 |
 | SMTP/Worker | `系统设置 -> 运维/Operations -> SMTP Email` 与 `Worker Proxy` 支持 JSON 导入/导出；导出的 `SMTPToken`、`WorkerValidKey` 默认脱敏，导入脱敏占位符时保留当前密钥 |
+| 模型部署 | `系统设置 -> 模型相关 -> Model Deployment` 支持 io.net 部署开关/API key JSON 导入/导出；导出的 API key 默认脱敏，导入脱敏占位符时保留当前密钥 |
 | 认证配置 | `系统设置 -> 认证/Auth -> Basic Authentication`、`OAuth Integrations`、`Passkey Authentication`、`Bot Protection`、`Custom OAuth` 支持 JSON 导入/导出；OAuth/Turnstile/Custom OAuth 密钥默认脱敏 |
 | 运营统计总览 | `Dashboard -> Overview` 的管理员 `Operations center` |
 | 模型/渠道/用户统计 | `Dashboard -> Model Call Analytics`、`Dashboard -> Channel Analytics`、`Dashboard -> User Analytics` |
@@ -114,7 +118,7 @@
 | 系统公告 | `系统设置 -> 站点设置 -> System Notice`，可配置站点全局公告，并支持 JSON 导入/导出 |
 | 顶部文档地址 | `系统设置 -> 站点设置 -> Header navigation -> Documentation URL` |
 | 侧边栏模块 | `系统设置 -> 站点设置 -> Sidebar modules`，可配置显示/隐藏、顶层分组排序和分组内模块排序，并可从 Operations Center 直达 |
-| 全局默认外观 | `系统设置 -> 内容/外观 -> Appearance`，可配置全局默认主题/字体/圆角/密度/内容宽度，并支持 JSON 导入/导出 |
+| 全局默认外观 | `系统设置 -> 内容/外观 -> Appearance`，可配置全局默认主题/字体/圆角/密度/内容宽度/强调色，并支持 JSON 导入/导出 |
 
 ## 已知边界
 
