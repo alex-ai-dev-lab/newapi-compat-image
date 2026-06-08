@@ -14271,7 +14271,7 @@ index 0000000..8bb9061
 +}
 diff --git a/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..ac71067
+index 0000000..3270952
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/channels/channel-analytics-dashboard.tsx
 @@ -0,0 +1,1660 @@
@@ -14964,12 +14964,12 @@ index 0000000..ac71067
 +                <BarChart data={trafficChart}>
 +                  <CartesianGrid
 +                    strokeDasharray='3 3'
-+                    stroke='hsl(var(--border))'
++                    stroke='var(--border)'
 +                  />
 +                  <XAxis
 +                    dataKey='name'
 +                    tick={{
-+                      fill: 'hsl(var(--muted-foreground))',
++                      fill: 'var(--muted-foreground)',
 +                      fontSize: 11,
 +                    }}
 +                    tickLine={false}
@@ -14978,7 +14978,7 @@ index 0000000..ac71067
 +                  />
 +                  <YAxis
 +                    tick={{
-+                      fill: 'hsl(var(--muted-foreground))',
++                      fill: 'var(--muted-foreground)',
 +                      fontSize: 11,
 +                    }}
 +                    tickLine={false}
@@ -14986,20 +14986,20 @@ index 0000000..ac71067
 +                  />
 +                  <Tooltip
 +                    contentStyle={{
-+                      background: 'hsl(var(--popover))',
-+                      border: '1px solid hsl(var(--border))',
++                      background: 'var(--popover)',
++                      border: '1px solid var(--border)',
 +                      borderRadius: 8,
 +                    }}
 +                  />
 +                  <Bar
 +                    dataKey='requests'
-+                    fill='hsl(var(--primary))'
++                    fill='var(--primary)'
 +                    radius={[4, 4, 0, 0]}
 +                    name='Requests'
 +                  />
 +                  <Bar
 +                    dataKey='failures'
-+                    fill='hsl(var(--destructive))'
++                    fill='var(--destructive)'
 +                    radius={[4, 4, 0, 0]}
 +                    name='Failures'
 +                  />
@@ -15937,7 +15937,7 @@ index 0000000..ac71067
 +}
 diff --git a/web/default/src/features/dashboard/components/overview/operations-insights-panel.tsx b/web/default/src/features/dashboard/components/overview/operations-insights-panel.tsx
 new file mode 100644
-index 0000000..f0f55d5
+index 0000000..9b7a8cd
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/overview/operations-insights-panel.tsx
 @@ -0,0 +1,570 @@
@@ -16228,38 +16228,38 @@ index 0000000..f0f55d5
 +                  <AreaChart data={chartData}>
 +                    <defs>
 +                      <linearGradient id='successArea' x1='0' y1='0' x2='0' y2='1'>
-+                        <stop offset='5%' stopColor='hsl(var(--success))' stopOpacity={0.28} />
-+                        <stop offset='95%' stopColor='hsl(var(--success))' stopOpacity={0.02} />
++                        <stop offset='5%' stopColor='var(--success)' stopOpacity={0.28} />
++                        <stop offset='95%' stopColor='var(--success)' stopOpacity={0.02} />
 +                      </linearGradient>
 +                      <linearGradient id='failureArea' x1='0' y1='0' x2='0' y2='1'>
-+                        <stop offset='5%' stopColor='hsl(var(--destructive))' stopOpacity={0.26} />
-+                        <stop offset='95%' stopColor='hsl(var(--destructive))' stopOpacity={0.02} />
++                        <stop offset='5%' stopColor='var(--destructive)' stopOpacity={0.26} />
++                        <stop offset='95%' stopColor='var(--destructive)' stopOpacity={0.02} />
 +                      </linearGradient>
 +                    </defs>
-+                    <CartesianGrid strokeDasharray='3 3' stroke='hsl(var(--border))' />
++                    <CartesianGrid strokeDasharray='3 3' stroke='var(--border)' />
 +                    <XAxis
 +                      dataKey='time'
-+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                      tickLine={false}
 +                      axisLine={false}
 +                      minTickGap={24}
 +                    />
 +                    <YAxis
-+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                      tickLine={false}
 +                      axisLine={false}
 +                    />
 +                    <Tooltip
 +                      contentStyle={{
-+                        background: 'hsl(var(--popover))',
-+                        border: '1px solid hsl(var(--border))',
++                        background: 'var(--popover)',
++                        border: '1px solid var(--border)',
 +                        borderRadius: 8,
 +                      }}
 +                    />
 +                    <Area
 +                      type='monotone'
 +                      dataKey='success'
-+                      stroke='hsl(var(--success))'
++                      stroke='var(--success)'
 +                      strokeWidth={2}
 +                      fill='url(#successArea)'
 +                      name='Success'
@@ -16267,7 +16267,7 @@ index 0000000..f0f55d5
 +                    <Area
 +                      type='monotone'
 +                      dataKey='failure'
-+                      stroke='hsl(var(--destructive))'
++                      stroke='var(--destructive)'
 +                      strokeWidth={2}
 +                      fill='url(#failureArea)'
 +                      name='Failure'
@@ -16534,7 +16534,7 @@ index 297bdbe..f0c6459 100644
            className={cn(
 diff --git a/web/default/src/features/dashboard/components/users/user-operations-panel.tsx b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
 new file mode 100644
-index 0000000..eb190f1
+index 0000000..7a8ffcb
 --- /dev/null
 +++ b/web/default/src/features/dashboard/components/users/user-operations-panel.tsx
 @@ -0,0 +1,1110 @@
@@ -17101,12 +17101,12 @@ index 0000000..eb190f1
 +                <BarChart data={spendChart}>
 +                  <CartesianGrid
 +                    strokeDasharray='3 3'
-+                    stroke='hsl(var(--border))'
++                    stroke='var(--border)'
 +                  />
 +                  <XAxis
 +                    dataKey='name'
 +                    tick={{
-+                      fill: 'hsl(var(--muted-foreground))',
++                      fill: 'var(--muted-foreground)',
 +                      fontSize: 11,
 +                    }}
 +                    tickLine={false}
@@ -17115,7 +17115,7 @@ index 0000000..eb190f1
 +                  />
 +                  <YAxis
 +                    tick={{
-+                      fill: 'hsl(var(--muted-foreground))',
++                      fill: 'var(--muted-foreground)',
 +                      fontSize: 11,
 +                    }}
 +                    tickLine={false}
@@ -17123,14 +17123,14 @@ index 0000000..eb190f1
 +                  />
 +                  <Tooltip
 +                    contentStyle={{
-+                      background: 'hsl(var(--popover))',
-+                      border: '1px solid hsl(var(--border))',
++                      background: 'var(--popover)',
++                      border: '1px solid var(--border)',
 +                      borderRadius: 8,
 +                    }}
 +                  />
 +                  <Bar
 +                    dataKey='cost'
-+                    fill='hsl(var(--primary))'
++                    fill='var(--primary)'
 +                    radius={[4, 4, 0, 0]}
 +                    name='Cost'
 +                  />
@@ -18042,10 +18042,10 @@ index 8277754..8086eae 100644
  
 diff --git a/web/default/src/features/dashboard/model-analytics-dashboard.tsx b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
 new file mode 100644
-index 0000000..c7c9274
+index 0000000..072ef5e
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-analytics-dashboard.tsx
-@@ -0,0 +1,1105 @@
+@@ -0,0 +1,1107 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -18614,7 +18614,7 @@ index 0000000..c7c9274
 +                <BarChart data={trafficChart}>
 +                  <CartesianGrid
 +                    strokeDasharray='3 3'
-+                    stroke='hsl(var(--border))'
++                    stroke='var(--border)'
 +                  />
 +                  <XAxis
 +                    dataKey='name'
@@ -18626,21 +18626,23 @@ index 0000000..c7c9274
 +                  />
 +                  <YAxis tick={{ fontSize: 11 }} />
 +                  <Tooltip
-+                    cursor={{ fill: 'hsl(var(--muted) / 0.35)' }}
++                    cursor={{
++                      fill: 'color-mix(in oklab, var(--muted) 35%, transparent)',
++                    }}
 +                    contentStyle={{
-+                      backgroundColor: 'hsl(var(--popover))',
-+                      border: '1px solid hsl(var(--border))',
++                      backgroundColor: 'var(--popover)',
++                      border: '1px solid var(--border)',
 +                      borderRadius: 8,
 +                    }}
 +                  />
 +                  <Bar
 +                    dataKey='requests'
-+                    fill='hsl(var(--chart-1))'
++                    fill='var(--chart-1)'
 +                    radius={[4, 4, 0, 0]}
 +                  />
 +                  <Bar
 +                    dataKey='failures'
-+                    fill='hsl(var(--destructive))'
++                    fill='var(--destructive)'
 +                    radius={[4, 4, 0, 0]}
 +                  />
 +                </BarChart>
@@ -19153,7 +19155,7 @@ index 0000000..c7c9274
 +}
 diff --git a/web/default/src/features/dashboard/model-distribution-chart.tsx b/web/default/src/features/dashboard/model-distribution-chart.tsx
 new file mode 100644
-index 0000000..5d4ee95
+index 0000000..0500d36
 --- /dev/null
 +++ b/web/default/src/features/dashboard/model-distribution-chart.tsx
 @@ -0,0 +1,89 @@
@@ -19184,11 +19186,11 @@ index 0000000..5d4ee95
 +}
 +
 +const COLORS = [
-+  'hsl(var(--chart-1))',
-+  'hsl(var(--chart-2))',
-+  'hsl(var(--chart-3))',
-+  'hsl(var(--chart-4))',
-+  'hsl(var(--chart-5))',
++  'var(--chart-1)',
++  'var(--chart-2)',
++  'var(--chart-3)',
++  'var(--chart-4)',
++  'var(--chart-5)',
 +  'hsl(221.2 83.2% 53.3%)', // primary
 +  'hsl(142.1 76.2% 36.3%)', // success
 +  'hsl(47.9 95.8% 53.1%)', // warning
@@ -19234,8 +19236,8 @@ index 0000000..5d4ee95
 +            </Pie>
 +            <Tooltip
 +              contentStyle={{
-+                backgroundColor: 'hsl(var(--popover))',
-+                border: '1px solid hsl(var(--border))',
++                backgroundColor: 'var(--popover)',
++                border: '1px solid var(--border)',
 +                borderRadius: '6px',
 +              }}
 +            />
@@ -19886,7 +19888,7 @@ index 0000000..8334f0a
 +}
 diff --git a/web/default/src/features/dashboard/trend-chart.tsx b/web/default/src/features/dashboard/trend-chart.tsx
 new file mode 100644
-index 0000000..7a23f48
+index 0000000..7a7465e
 --- /dev/null
 +++ b/web/default/src/features/dashboard/trend-chart.tsx
 @@ -0,0 +1,446 @@
@@ -20122,12 +20124,12 @@ index 0000000..7a23f48
 +                {
 +                  key: 'requests',
 +                  name: 'Requests',
-+                  color: 'hsl(var(--primary))',
++                  color: 'var(--primary)',
 +                },
 +                {
 +                  key: 'failure',
 +                  name: 'Failures',
-+                  color: 'hsl(var(--destructive))',
++                  color: 'var(--destructive)',
 +                },
 +              ]}
 +            />
@@ -20141,12 +20143,12 @@ index 0000000..7a23f48
 +                {
 +                  key: 'successRate',
 +                  name: 'Success %',
-+                  color: 'hsl(var(--success))',
++                  color: 'var(--success)',
 +                },
 +                {
 +                  key: 'errorRate',
 +                  name: 'Error %',
-+                  color: 'hsl(var(--destructive))',
++                  color: 'var(--destructive)',
 +                },
 +              ]}
 +              unit='%'
@@ -20161,12 +20163,12 @@ index 0000000..7a23f48
 +                {
 +                  key: 'firstToken',
 +                  name: 'First token ms',
-+                  color: 'hsl(var(--warning))',
++                  color: 'var(--warning)',
 +                },
 +                {
 +                  key: 'useTime',
 +                  name: 'Avg use time ms',
-+                  color: 'hsl(var(--primary))',
++                  color: 'var(--primary)',
 +                },
 +              ]}
 +            />
@@ -20177,8 +20179,8 @@ index 0000000..7a23f48
 +              title='Cost and tokens'
 +              expanded={mode !== 'overview'}
 +              series={[
-+                { key: 'cost', name: 'Cost $', color: 'hsl(var(--success))' },
-+                { key: 'tokens', name: 'Tokens', color: 'hsl(var(--primary))' },
++                { key: 'cost', name: 'Cost $', color: 'var(--success)' },
++                { key: 'tokens', name: 'Tokens', color: 'var(--primary)' },
 +              ]}
 +            />
 +          ) : null}
@@ -20229,8 +20231,8 @@ index 0000000..7a23f48
 +  expanded?: boolean
 +}) {
 +  const tooltipStyle = {
-+    backgroundColor: 'hsl(var(--popover))',
-+    border: '1px solid hsl(var(--border))',
++    backgroundColor: 'var(--popover)',
++    border: '1px solid var(--border)',
 +    borderRadius: 8,
 +  }
 +
@@ -20251,17 +20253,17 @@ index 0000000..7a23f48
 +            <AreaChart data={props.data}>
 +              <CartesianGrid
 +                strokeDasharray='3 3'
-+                stroke='hsl(var(--border))'
++                stroke='var(--border)'
 +              />
 +              <XAxis
 +                dataKey='time'
 +                minTickGap={24}
-+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                tickLine={false}
 +                axisLine={false}
 +              />
 +              <YAxis
-+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                tickLine={false}
 +                axisLine={false}
 +              />
@@ -20283,17 +20285,17 @@ index 0000000..7a23f48
 +            <LineChart data={props.data}>
 +              <CartesianGrid
 +                strokeDasharray='3 3'
-+                stroke='hsl(var(--border))'
++                stroke='var(--border)'
 +              />
 +              <XAxis
 +                dataKey='time'
 +                minTickGap={24}
-+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                tickLine={false}
 +                axisLine={false}
 +              />
 +              <YAxis
-+                tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
++                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
 +                tickFormatter={(value) => `${value}${props.unit ?? ''}`}
 +                tickLine={false}
 +                axisLine={false}
