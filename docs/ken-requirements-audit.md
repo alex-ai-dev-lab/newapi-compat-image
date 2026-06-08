@@ -160,6 +160,19 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
+2026-06-08 Appearance palette 批次部署验证：
+
+- Patch repo commit `4cd0ff8` (`Add appearance palette controls`) built successfully by Actions run `27118295951` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27118295951`).
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; server-downloaded tar checksum was `b53158ddb4fcd3468d59be1912fd57b5d5defd3e4a029a2e9361e64b10e092ba`.
+- Previous production image was backed up as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-134801`.
+- Loaded production image ID is `sha256:7a0f8ccb45493002f1b88492aebbeb09ba0dd7a1326fc5263924d880f03f6e70`; previous image ID was `sha256:5c3db2a995e406e1e77b2330966bb3dbe289dc2d3fb46926706a6df922395443`.
+- Compose still contains `user: "0:0"`, container `ConfigUser=0:0`, and container state is running/healthy.
+- Public HTTP 200: `/api/status`, `/system-settings`, `/system-settings/operations/overview`, `/system-settings/content/appearance`, `/system-settings/site/settings-navigation`, `/system-settings/models/user-agents`, `/system-settings/models/client-identity`, and `/system-settings/security/upstream-error-rules`.
+- `/api/status` exposes `theme_customization` with `custom_palette_enabled=false`, `custom_background_color=#ffffff`, `custom_surface_color=#f8fafc`, `custom_sidebar_color=#f8fafc`, `custom_chart_color=#14b8a6`, plus existing Dashboard defaults `dashboard_default_time_range=7d` and `dashboard_refresh_interval=5`.
+- SQLite quick pragma check: `journal_mode=wal`, `busy_timeout=5000`, `synchronous=2`, `wal_autocheckpoint=1000`.
+- Recent 20-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, `fatal`, or `codex_access_restricted`; recent `client identity applied` count was `5`.
+- Homepage variant was checked with server headless Chromium rendered DOM; production DOM contains `One`, `endpoint`, `Every`, and `model`. Remote DOM dump: `/tmp/newapi-home-after-palette-dom.html`.
+
 2026-06-08 System Settings navigation snapshot 刷新批次部署验证：
 
 - Patch repo commit `f9fd2a2` (`Refresh system navigation snapshot patch`) built successfully by Actions run `27117337143` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27117337143`).
