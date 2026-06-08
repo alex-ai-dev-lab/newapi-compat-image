@@ -10682,10 +10682,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..a6af414
+index 0000000..98a2e65
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,1214 @@
+@@ -0,0 +1,1292 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -10713,6 +10713,7 @@ index 0000000..a6af414
 +  Settings,
 +  Users,
 +  FileText,
++  BadgeDollarSign,
 +  BarChart3,
 +  Palette,
 +  Shield,
@@ -10723,6 +10724,7 @@ index 0000000..a6af414
 +  LineChart,
 +  RefreshCw,
 +  Timer,
++  Gift,
 +  type LucideIcon,
 +} from 'lucide-react'
 +import { useAuthStore } from '@/stores/auth-store'
@@ -11075,6 +11077,82 @@ index 0000000..a6af414
 +          navigate({
 +            to: '/system-settings/models/$section',
 +            params: { section: 'model-pricing' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-quota',
++        label: 'Quota Settings',
++        description: 'Configure and import/export quota and top-up basics',
++        icon: BadgeDollarSign,
++        keywords: [
++          'quota',
++          'topup',
++          'billing',
++          'invite',
++          'docs',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/billing/$section',
++            params: { section: 'quota' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-currency-display',
++        label: 'Currency Display',
++        description: 'Configure and import/export currency display defaults',
++        icon: BadgeDollarSign,
++        keywords: [
++          'currency',
++          'display',
++          'exchange',
++          'quota',
++          'billing',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/billing/$section',
++            params: { section: 'currency' },
++          })
++          close()
++        },
++        requiresRole: 100,
++      },
++      {
++        id: 'settings-checkin-rewards',
++        label: 'Check-in Rewards',
++        description: 'Configure and import/export daily check-in rewards',
++        icon: Gift,
++        keywords: [
++          'checkin',
++          'check-in',
++          'daily',
++          'reward',
++          'quota',
++          'billing',
++          'json',
++          'import',
++          'export',
++        ],
++        section: 'Settings',
++        action: () => {
++          navigate({
++            to: '/system-settings/billing/$section',
++            params: { section: 'checkin' },
 +          })
 +          close()
 +        },
@@ -23919,6 +23997,800 @@ index 7ba50e7..012f4ae 100644
        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
          <AlertDialogContent>
            <AlertDialogHeader>
+diff --git a/web/default/src/features/system-settings/general/checkin-settings-section.tsx b/web/default/src/features/system-settings/general/checkin-settings-section.tsx
+index da70eaf..6f9c1cf 100644
+--- a/web/default/src/features/system-settings/general/checkin-settings-section.tsx
++++ b/web/default/src/features/system-settings/general/checkin-settings-section.tsx
+@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import { z } from 'zod'
+ import { useForm, type Resolver } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -32,12 +43,16 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import {
+   SettingsForm,
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useUpdateOption } from '../hooks/use-update-option'
+ 
+@@ -49,6 +64,22 @@ const schema = z.object({
+ 
+ type Values = z.infer<typeof schema>
+ 
++type CheckinImportExportPayload = Partial<Values> & {
++  BillingBasics?: {
++    checkin?: Partial<Values> & Record<string, unknown>
++  }
++  checkin?: Partial<Values> & Record<string, unknown>
++  'checkin_setting.enabled'?: unknown
++  'checkin_setting.min_quota'?: unknown
++  'checkin_setting.max_quota'?: unknown
++}
++
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toNumber = (value: unknown) =>
++  typeof value === 'number' && Number.isFinite(value) ? value : undefined
++
+ export function CheckinSettingsSection({
+   defaultValues,
+ }: {
+@@ -60,6 +91,8 @@ export function CheckinSettingsSection({
+ }) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const form = useForm<Values>({
+     resolver: zodResolver(schema) as unknown as Resolver<Values>,
+@@ -109,10 +142,119 @@ export function CheckinSettingsSection({
+     form.reset(values)
+   }
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      BillingBasics: {
++        checkin: values,
++      },
++      'checkin_setting.enabled': values.enabled,
++      'checkin_setting.min_quota': values.minQuota,
++      'checkin_setting.max_quota': values.maxQuota,
++      ...values,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-checkin-settings.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Check-in settings JSON exported and copied'))
++    } catch {
++      toast.success(t('Check-in settings JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          BillingBasics: {
++            checkin: form.getValues(),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as CheckinImportExportPayload
++      const source = raw.BillingBasics?.checkin ?? raw.checkin ?? raw
++      const next = form.getValues()
++
++      const enabledValue = toBoolean(
++        source.enabled ?? source['checkin_setting.enabled']
++      )
++      if (enabledValue !== undefined) next.enabled = enabledValue
++
++      const minQuota = toNumber(
++        source.minQuota ?? source['checkin_setting.min_quota']
++      )
++      if (minQuota !== undefined) next.minQuota = minQuota
++
++      const maxQuota = toNumber(
++        source.maxQuota ?? source['checkin_setting.max_quota']
++      )
++      if (maxQuota !== undefined) next.maxQuota = maxQuota
++
++      const parsed = schema.parse(next)
++      form.setValue('enabled', parsed.enabled, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('minQuota', parsed.minQuota, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('maxQuota', parsed.maxQuota, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Check-in settings imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid check-in settings JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Check-in Settings')}>
+       <Form {...form}>
+         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={form.handleSubmit(onSubmit)}
+             isSaving={updateOption.isPending || isSubmitting}
+@@ -192,6 +334,29 @@ export function CheckinSettingsSection({
+           )}
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import check-in settings JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported check-in settings JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
+diff --git a/web/default/src/features/system-settings/general/pricing-section.tsx b/web/default/src/features/system-settings/general/pricing-section.tsx
+index 6a99f0d..0989c4e 100644
+--- a/web/default/src/features/system-settings/general/pricing-section.tsx
++++ b/web/default/src/features/system-settings/general/pricing-section.tsx
+@@ -16,11 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
++import { useState } from 'react'
+ import * as z from 'zod'
+ import type { Resolver } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
+ import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -40,6 +52,7 @@ import {
+   SelectValue,
+ } from '@/components/ui/select'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import { FormDirtyIndicator } from '../components/form-dirty-indicator'
+ import { FormNavigationGuard } from '../components/form-navigation-guard'
+ import {
+@@ -47,7 +60,10 @@ import {
+   SettingsSwitchContent,
+   SettingsSwitchItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useSettingsForm } from '../hooks/use-settings-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -99,9 +115,30 @@ type PricingSectionProps = {
+   defaultValues: PricingFormValues
+ }
+ 
++type PricingImportExportPayload = Partial<PricingFormValues> & {
++  BillingBasics?: {
++    currency?: Partial<PricingFormValues> & Record<string, unknown>
++  }
++  currency?: Partial<PricingFormValues> & Record<string, unknown>
++  'general_setting.quota_display_type'?: unknown
++  'general_setting.custom_currency_symbol'?: unknown
++  'general_setting.custom_currency_exchange_rate'?: unknown
++}
++
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toNumber = (value: unknown) =>
++  typeof value === 'number' && Number.isFinite(value) ? value : undefined
++
++const toStringValue = (value: unknown) =>
++  typeof value === 'string' ? value : undefined
++
+ export function PricingSection({ defaultValues }: PricingSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+ 
+   const pricingSchema = createPricingSchema(t)
+ 
+@@ -134,6 +171,152 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
+       },
+     })
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      BillingBasics: {
++        currency: values,
++      },
++      QuotaPerUnit: values.QuotaPerUnit,
++      USDExchangeRate: values.USDExchangeRate,
++      DisplayInCurrencyEnabled: values.DisplayInCurrencyEnabled,
++      DisplayTokenStatEnabled: values.DisplayTokenStatEnabled,
++      'general_setting.quota_display_type':
++        values.general_setting.quota_display_type,
++      'general_setting.custom_currency_symbol':
++        values.general_setting.custom_currency_symbol,
++      'general_setting.custom_currency_exchange_rate':
++        values.general_setting.custom_currency_exchange_rate,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-currency-display.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Currency display JSON exported and copied'))
++    } catch {
++      toast.success(t('Currency display JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          BillingBasics: {
++            currency: form.getValues(),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as PricingImportExportPayload
++      const source = raw.BillingBasics?.currency ?? raw.currency ?? raw
++      const next = form.getValues()
++
++      const quotaPerUnit = toNumber(source.QuotaPerUnit)
++      if (quotaPerUnit !== undefined) next.QuotaPerUnit = quotaPerUnit
++
++      const usdExchangeRate = toNumber(source.USDExchangeRate)
++      if (usdExchangeRate !== undefined) {
++        next.USDExchangeRate = usdExchangeRate
++      }
++
++      const displayInCurrency = toBoolean(source.DisplayInCurrencyEnabled)
++      if (displayInCurrency !== undefined) {
++        next.DisplayInCurrencyEnabled = displayInCurrency
++      }
++
++      const displayTokenStat = toBoolean(source.DisplayTokenStatEnabled)
++      if (displayTokenStat !== undefined) {
++        next.DisplayTokenStatEnabled = displayTokenStat
++      }
++
++      const displayType = toStringValue(
++        source.general_setting?.quota_display_type ??
++          source['general_setting.quota_display_type']
++      )
++      if (displayType !== undefined) {
++        next.general_setting.quota_display_type =
++          displayType as PricingFormValues['general_setting']['quota_display_type']
++      }
++
++      const customSymbol = toStringValue(
++        source.general_setting?.custom_currency_symbol ??
++          source['general_setting.custom_currency_symbol']
++      )
++      if (customSymbol !== undefined) {
++        next.general_setting.custom_currency_symbol = customSymbol
++      }
++
++      const customRate = toNumber(
++        source.general_setting?.custom_currency_exchange_rate ??
++          source['general_setting.custom_currency_exchange_rate']
++      )
++      if (customRate !== undefined) {
++        next.general_setting.custom_currency_exchange_rate = customRate
++      }
++
++      const parsed = pricingSchema.parse(next)
++      form.setValue('QuotaPerUnit', parsed.QuotaPerUnit, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('USDExchangeRate', parsed.USDExchangeRate, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue(
++        'DisplayInCurrencyEnabled',
++        parsed.DisplayInCurrencyEnabled,
++        {
++          shouldDirty: true,
++          shouldValidate: true,
++        }
++      )
++      form.setValue('DisplayTokenStatEnabled', parsed.DisplayTokenStatEnabled, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue(
++        'general_setting.quota_display_type',
++        parsed.general_setting.quota_display_type,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'general_setting.custom_currency_symbol',
++        parsed.general_setting.custom_currency_symbol,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      form.setValue(
++        'general_setting.custom_currency_exchange_rate',
++        parsed.general_setting.custom_currency_exchange_rate,
++        { shouldDirty: true, shouldValidate: true }
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Currency display imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid currency display JSON')
++      )
++    }
++  }
++
+   const displayType = form.watch('general_setting.quota_display_type') ?? 'USD'
+   const displayInCurrencyEnabled = form.watch('DisplayInCurrencyEnabled')
+   const showTokensOnlyOption = displayType === 'TOKENS'
+@@ -149,6 +332,26 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
+       <SettingsSection title={t('Pricing & Display')}>
+         <Form {...form}>
+           <SettingsForm onSubmit={handleSubmit}>
++            <SettingsPageActionsPortal>
++              <Button
++                type='button'
++                size='sm'
++                variant='outline'
++                onClick={exportConfig}
++              >
++                <Download data-icon='inline-start' />
++                <span>{t('Export JSON')}</span>
++              </Button>
++              <Button
++                type='button'
++                size='sm'
++                variant='outline'
++                onClick={openImportDialog}
++              >
++                <Upload data-icon='inline-start' />
++                <span>{t('Import JSON')}</span>
++              </Button>
++            </SettingsPageActionsPortal>
+             <SettingsPageFormActions
+               onSave={handleSubmit}
+               onReset={handleReset}
+@@ -368,6 +571,29 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
+             />
+           </SettingsForm>
+         </Form>
++        <Dialog open={importOpen} onOpenChange={setImportOpen}>
++          <DialogContent className='max-w-2xl'>
++            <DialogHeader>
++              <DialogTitle>{t('Import currency display JSON')}</DialogTitle>
++              <DialogDescription>
++                {t(
++                  'Paste an exported currency display JSON payload. Imported values stay local until you save settings.'
++                )}
++              </DialogDescription>
++            </DialogHeader>
++            <Textarea
++              value={importText}
++              onChange={(event) => setImportText(event.target.value)}
++              className='min-h-80 font-mono text-xs'
++            />
++            <DialogFooter>
++              <Button variant='outline' onClick={() => setImportOpen(false)}>
++                {t('Cancel')}
++              </Button>
++              <Button onClick={importConfig}>{t('Import JSON')}</Button>
++            </DialogFooter>
++          </DialogContent>
++        </Dialog>
+       </SettingsSection>
+     </>
+   )
+diff --git a/web/default/src/features/system-settings/general/quota-settings-section.tsx b/web/default/src/features/system-settings/general/quota-settings-section.tsx
+index a8a8370..1867f1f 100644
+--- a/web/default/src/features/system-settings/general/quota-settings-section.tsx
++++ b/web/default/src/features/system-settings/general/quota-settings-section.tsx
+@@ -16,12 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ For commercial licensing, please contact support@quantumnous.com
+ */
+-import type { ChangeEvent } from 'react'
++import { useState, type ChangeEvent } from 'react'
+ import * as z from 'zod'
+ import type { Resolver } from 'react-hook-form'
+ import { zodResolver } from '@hookform/resolvers/zod'
++import { Download, Upload } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
++import { toast } from 'sonner'
+ import { Alert, AlertDescription } from '@/components/ui/alert'
++import { Button } from '@/components/ui/button'
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
+ import {
+   Form,
+   FormControl,
+@@ -33,6 +44,7 @@ import {
+ } from '@/components/ui/form'
+ import { Input } from '@/components/ui/input'
+ import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
+ import { FormDirtyIndicator } from '../components/form-dirty-indicator'
+ import { FormNavigationGuard } from '../components/form-navigation-guard'
+ import {
+@@ -42,7 +54,10 @@ import {
+   SettingsFormGrid,
+   SettingsFormGridItem,
+ } from '../components/settings-form-layout'
+-import { SettingsPageFormActions } from '../components/settings-page-context'
++import {
++  SettingsPageActionsPortal,
++  SettingsPageFormActions,
++} from '../components/settings-page-context'
+ import { SettingsSection } from '../components/settings-section'
+ import { useSettingsForm } from '../hooks/use-settings-form'
+ import { useUpdateOption } from '../hooks/use-update-option'
+@@ -68,12 +83,32 @@ type QuotaSettingsSectionProps = {
+   complianceConfirmed?: boolean
+ }
+ 
++type QuotaImportExportPayload = Partial<QuotaFormValues> & {
++  BillingBasics?: {
++    quota?: Partial<QuotaFormValues> & Record<string, unknown>
++  }
++  quota?: Partial<QuotaFormValues> & Record<string, unknown>
++  'general_setting.docs_link'?: unknown
++  'quota_setting.enable_free_model_pre_consume'?: unknown
++}
++
++const toBoolean = (value: unknown) =>
++  typeof value === 'boolean' ? value : undefined
++
++const toNumber = (value: unknown) =>
++  typeof value === 'number' && Number.isFinite(value) ? value : undefined
++
++const toStringValue = (value: unknown) =>
++  typeof value === 'string' ? value : undefined
++
+ export function QuotaSettingsSection({
+   defaultValues,
+   complianceConfirmed = true,
+ }: QuotaSettingsSectionProps) {
+   const { t } = useTranslation()
+   const updateOption = useUpdateOption()
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
+   const handleNumberChange =
+     (onChange: (value: number | string) => void) =>
+     (event: ChangeEvent<HTMLInputElement>) => {
+@@ -100,6 +135,138 @@ export function QuotaSettingsSection({
+       },
+     })
+ 
++  const exportConfig = async () => {
++    const values = form.getValues()
++    const payload = {
++      BillingBasics: {
++        quota: values,
++      },
++      QuotaForNewUser: values.QuotaForNewUser,
++      PreConsumedQuota: values.PreConsumedQuota,
++      QuotaForInviter: values.QuotaForInviter,
++      QuotaForInvitee: values.QuotaForInvitee,
++      TopUpLink: values.TopUpLink,
++      'general_setting.docs_link': values.general_setting.docs_link,
++      'quota_setting.enable_free_model_pre_consume':
++        values.quota_setting.enable_free_model_pre_consume,
++    }
++    const text = JSON.stringify(payload, null, 2)
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-quota-settings.json'
++    link.click()
++    URL.revokeObjectURL(url)
++
++    try {
++      await navigator.clipboard.writeText(text)
++      toast.success(t('Quota settings JSON exported and copied'))
++    } catch {
++      toast.success(t('Quota settings JSON exported'))
++    }
++  }
++
++  const openImportDialog = () => {
++    setImportText(
++      JSON.stringify(
++        {
++          BillingBasics: {
++            quota: form.getValues(),
++          },
++        },
++        null,
++        2
++      )
++    )
++    setImportOpen(true)
++  }
++
++  const importConfig = async () => {
++    try {
++      const raw = JSON.parse(importText) as QuotaImportExportPayload
++      const source = raw.BillingBasics?.quota ?? raw.quota ?? raw
++      const next = form.getValues()
++
++      const quotaForNewUser = toNumber(source.QuotaForNewUser)
++      if (quotaForNewUser !== undefined) next.QuotaForNewUser = quotaForNewUser
++
++      const preConsumedQuota = toNumber(source.PreConsumedQuota)
++      if (preConsumedQuota !== undefined) {
++        next.PreConsumedQuota = preConsumedQuota
++      }
++
++      const quotaForInviter = toNumber(source.QuotaForInviter)
++      if (quotaForInviter !== undefined) next.QuotaForInviter = quotaForInviter
++
++      const quotaForInvitee = toNumber(source.QuotaForInvitee)
++      if (quotaForInvitee !== undefined) next.QuotaForInvitee = quotaForInvitee
++
++      const topUpLink = toStringValue(source.TopUpLink)
++      if (topUpLink !== undefined) next.TopUpLink = topUpLink
++
++      const docsLink = toStringValue(
++        source.general_setting?.docs_link ?? source['general_setting.docs_link']
++      )
++      if (docsLink !== undefined) next.general_setting.docs_link = docsLink
++
++      const freeModelPreConsume = toBoolean(
++        source.quota_setting?.enable_free_model_pre_consume ??
++          source['quota_setting.enable_free_model_pre_consume']
++      )
++      if (freeModelPreConsume !== undefined) {
++        next.quota_setting.enable_free_model_pre_consume = freeModelPreConsume
++      }
++
++      const parsed = quotaSchema.parse(next)
++      form.setValue('QuotaForNewUser', parsed.QuotaForNewUser, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('PreConsumedQuota', parsed.PreConsumedQuota, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('QuotaForInviter', parsed.QuotaForInviter, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('QuotaForInvitee', parsed.QuotaForInvitee, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue('TopUpLink', parsed.TopUpLink, {
++        shouldDirty: true,
++        shouldValidate: true,
++      })
++      form.setValue(
++        'general_setting.docs_link',
++        parsed.general_setting.docs_link,
++        {
++          shouldDirty: true,
++          shouldValidate: true,
++        }
++      )
++      form.setValue(
++        'quota_setting.enable_free_model_pre_consume',
++        parsed.quota_setting.enable_free_model_pre_consume,
++        {
++          shouldDirty: true,
++          shouldValidate: true,
++        }
++      )
++      await form.trigger()
++      setImportOpen(false)
++      toast.success(t('Quota settings imported. Click Save to apply.'))
++    } catch (error) {
++      toast.error(
++        error instanceof Error
++          ? error.message
++          : t('Invalid quota settings JSON')
++      )
++    }
++  }
++
+   return (
+     <SettingsSection title={t('Quota Settings')}>
+       <FormNavigationGuard when={isDirty} />
+@@ -116,6 +283,26 @@ export function QuotaSettingsSection({
+ 
+       <Form {...form}>
+         <SettingsForm onSubmit={handleSubmit}>
++          <SettingsPageActionsPortal>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={exportConfig}
++            >
++              <Download data-icon='inline-start' />
++              <span>{t('Export JSON')}</span>
++            </Button>
++            <Button
++              type='button'
++              size='sm'
++              variant='outline'
++              onClick={openImportDialog}
++            >
++              <Upload data-icon='inline-start' />
++              <span>{t('Import JSON')}</span>
++            </Button>
++          </SettingsPageActionsPortal>
+           <SettingsPageFormActions
+             onSave={handleSubmit}
+             isSaving={updateOption.isPending || isSubmitting}
+@@ -286,6 +473,29 @@ export function QuotaSettingsSection({
+           </SettingsFormGrid>
+         </SettingsForm>
+       </Form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import quota settings JSON')}</DialogTitle>
++            <DialogDescription>
++              {t(
++                'Paste an exported quota settings JSON payload. Imported values stay local until you save settings.'
++              )}
++            </DialogDescription>
++          </DialogHeader>
++          <Textarea
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            className='min-h-80 font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button variant='outline' onClick={() => setImportOpen(false)}>
++              {t('Cancel')}
++            </Button>
++            <Button onClick={importConfig}>{t('Import JSON')}</Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
+     </SettingsSection>
+   )
+ }
 diff --git a/web/default/src/features/system-settings/general/system-behavior-section.tsx b/web/default/src/features/system-settings/general/system-behavior-section.tsx
 index 8619569..e3cd4e3 100644
 --- a/web/default/src/features/system-settings/general/system-behavior-section.tsx
@@ -29056,10 +29928,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..394ebf5
+index 0000000..a297b06
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1080 @@
+@@ -0,0 +1,1143 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -29126,7 +29998,14 @@ index 0000000..394ebf5
 +type ActionLink =
 +  | {
 +      kind: 'system-settings'
-+      area: 'models' | 'security' | 'content' | 'site' | 'operations' | 'auth'
++      area:
++        | 'models'
++        | 'security'
++        | 'content'
++        | 'site'
++        | 'operations'
++        | 'auth'
++        | 'billing'
 +      section: string
 +    }
 +  | {
@@ -29500,6 +30379,62 @@ index 0000000..394ebf5
 +          kind: 'system-settings',
 +          area: 'site',
 +          section: 'sidebar-modules',
++        },
++      },
++    ],
++  },
++  {
++    title: 'Billing',
++    description:
++      'Quota, currency display, payment gateways, check-in rewards, and ratios.',
++    icon: BadgeDollarSign,
++    items: [
++      {
++        label: 'Quota settings',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'quota',
++        },
++      },
++      {
++        label: 'Currency display',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'currency',
++        },
++      },
++      {
++        label: 'Payment gateway',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'payment',
++        },
++      },
++      {
++        label: 'Check-in rewards',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'checkin',
++        },
++      },
++      {
++        label: 'Model pricing',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'model-pricing',
++        },
++      },
++      {
++        label: 'Group pricing',
++        link: {
++          kind: 'system-settings',
++          area: 'billing',
++          section: 'group-pricing',
 +        },
 +      },
 +    ],

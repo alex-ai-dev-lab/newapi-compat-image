@@ -44,6 +44,8 @@ Custom OAuth 列表资源增量：`系统设置 -> 认证/Auth -> Custom OAuth` 
 
 Request Limits 安全配置增量：`系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection` 已补充 JSON 导入/导出。Rate Limiting 导出/导入模型请求限流开关、周期、总请求数、成功请求数和分组限流 JSON；Sensitive Words 导出/导入敏感词扫描开关、Prompt 扫描开关和敏感词列表；SSRF Protection 导出/导入 SSRF 总开关、私网 IP 放行、域名/IP 黑白名单模式、域名/IP 列表、端口列表和域名解析后 IP 过滤开关。导入仍只更新当前表单，必须点保存才写入后台；Operations Center 的 Safety 配置地图和命令面板已新增 Rate Limiting、Sensitive Words、SSRF Protection 直达入口，可通过 `rate limit`、`sensitive`、`ssrf`、`json`、`import`、`export` 等关键词找到。
 
+Billing basics 增量：`系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards` 已补充 JSON 导入/导出。Quota Settings 导出/导入新用户额度、预消耗额度、邀请奖励、充值链接、文档链接和免费模型预消耗开关；Currency & Display 导出/导入额度单位、美元汇率、展示币种、币种符号/自定义汇率和 token 统计开关；Check-in Rewards 导出/导入签到开关、最小/最大奖励额度。导入仍只更新当前表单，必须点保存才写入后台；Operations Center 新增 Billing 配置地图，命令面板新增 Quota Settings、Currency Display、Check-in Rewards 直达入口，可通过 `billing`、`quota`、`currency`、`checkin`、`json`、`import`、`export` 等关键词找到。本轮没有覆盖 Payment Gateway 的 Stripe/Creem/Waffo/Epay 密钥导入导出，后续需要单独按密钥脱敏规则处理。
+
 ## 功能入口速查
 
 | 功能 | 后台入口 |
@@ -57,6 +59,7 @@ Request Limits 安全配置增量：`系统设置 -> 安全 -> Rate Limiting`、
 | 模型价格/官方同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync` |
 | 上游错误归一化 | `系统设置 -> 安全 -> Upstream Error Rules` |
 | 请求限制/防护 | `系统设置 -> 安全 -> Rate Limiting`、`Sensitive Words`、`SSRF Protection`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
+| 计费基础配置 | `系统设置 -> 计费/Billing -> Quota Settings`、`Currency & Display`、`Check-in Rewards`，支持 JSON 导入/导出；导入后需点保存才写入后台 |
 | 渠道定时测试配置 | `渠道 -> 编辑渠道 -> 测试/恢复相关高级设置` |
 | Claude thinking 支持开关 | `渠道 -> 编辑渠道 -> Claude thinking support` |
 | 系统行为 | `系统设置 -> 运维/Operations -> System Behavior`，配置重试次数、默认侧边栏、演示站点、自用模式，并支持 JSON 导入/导出 |
