@@ -192,6 +192,18 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 - Recent 20-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, `fatal`, or `codex_access_restricted`; recent `client identity applied` count was `5`.
 - Homepage variant was checked with server headless Chromium rendered DOM; production DOM contains `One`, `endpoint`, `Every`, and `model`. Remote DOM dump: `/tmp/newapi-home-after-palette-dom.html`.
 
+2026-06-08 Appearance palette 图表主色修复部署验证：
+
+- Root cause: `theme-customization-provider.tsx` mistakenly mapped custom accent color to `--chart-1`; Ken's recommended accent `#111827` is appropriate for UI primary/ring/sidebar emphasis but made `/dashboard/models` model traffic ranking bars render as an almost pure black chart layer.
+- Fix: custom accent no longer writes `--chart-1`; palette mode now maps `custom_chart_color` to `--chart-1` and derives the secondary chart variables from it. This keeps accent for UI emphasis and chart color for data visualization.
+- Patch repo commit `afcaa97` (`Fix custom palette chart color mapping`) built successfully by Actions run `27133999644` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27133999644`).
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; server-downloaded tar checksum was `748319d590d427b6b4d042ef3dc6c63f64e65ec01f418afb29f7d601f41c84ac`.
+- Previous production image was backed up as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-192543`.
+- Loaded production image ID is `sha256:991fdcdfa6af4bf4a00092192e7863ef429946a0dfed9282f6e8c8761f4f1199`; compose still contains `user: "0:0"`, container `ConfigUser=0:0`, and container state is running/healthy.
+- Public HTTP 200: `/api/status`, `/system-settings/content/appearance`, and `/dashboard/models`.
+- `/api/status` currently exposes `theme_customization` with Ken's recommended palette: `custom_accent_enabled=true`, `custom_accent_color=#111827`, `custom_palette_enabled=true`, `custom_background_color=#F7F8FA`, `custom_surface_color=#FFFFFF`, `custom_sidebar_color=#F3F4F6`, and `custom_chart_color=#0EA5A4`.
+- Recent 10-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
+
 2026-06-08 System Settings navigation snapshot 刷新批次部署验证：
 
 - Patch repo commit `f9fd2a2` (`Refresh system navigation snapshot patch`) built successfully by Actions run `27117337143` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27117337143`).
