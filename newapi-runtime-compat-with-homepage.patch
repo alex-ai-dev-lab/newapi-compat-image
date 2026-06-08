@@ -20335,10 +20335,10 @@ index 0000000..7a23f48
 +}
 diff --git a/web/default/src/features/dashboard/use-dashboard-controls.ts b/web/default/src/features/dashboard/use-dashboard-controls.ts
 new file mode 100644
-index 0000000..4ca5c46
+index 0000000..a090e8a
 --- /dev/null
 +++ b/web/default/src/features/dashboard/use-dashboard-controls.ts
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,312 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -20357,7 +20357,7 @@ index 0000000..4ca5c46
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
-+import { useEffect, useState } from 'react'
++import { useEffect, useMemo, useState } from 'react'
 +import { useSystemConfigStore } from '@/stores/system-config-store'
 +import {
 +  DASHBOARD_REFRESH_INTERVAL_MS_VALUES,
@@ -20606,26 +20606,48 @@ index 0000000..4ca5c46
 +}
 +
 +export function useDashboardHealthThresholds() {
-+  return useSystemConfigStore((state) => {
-+    const defaults = state.config.dashboardDefaults
-+    return {
-+      slowFirstTokenThresholdMs:
-+        defaults.slowFirstTokenThresholdMs ??
-+        DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs,
-+      errorRateWarningThreshold:
-+        defaults.errorRateWarningThreshold ??
-+        DEFAULT_DASHBOARD_DEFAULTS.errorRateWarningThreshold,
-+      errorRateCriticalThreshold:
-+        defaults.errorRateCriticalThreshold ??
-+        DEFAULT_DASHBOARD_DEFAULTS.errorRateCriticalThreshold,
-+      successRateGoodThreshold:
-+        defaults.successRateGoodThreshold ??
-+        DEFAULT_DASHBOARD_DEFAULTS.successRateGoodThreshold,
-+      successRateDegradedThreshold:
-+        defaults.successRateDegradedThreshold ??
-+        DEFAULT_DASHBOARD_DEFAULTS.successRateDegradedThreshold,
-+    }
-+  })
++  const slowFirstTokenThresholdMs = useSystemConfigStore(
++    (state) =>
++      state.config.dashboardDefaults.slowFirstTokenThresholdMs ??
++      DEFAULT_DASHBOARD_DEFAULTS.slowFirstTokenThresholdMs
++  )
++  const errorRateWarningThreshold = useSystemConfigStore(
++    (state) =>
++      state.config.dashboardDefaults.errorRateWarningThreshold ??
++      DEFAULT_DASHBOARD_DEFAULTS.errorRateWarningThreshold
++  )
++  const errorRateCriticalThreshold = useSystemConfigStore(
++    (state) =>
++      state.config.dashboardDefaults.errorRateCriticalThreshold ??
++      DEFAULT_DASHBOARD_DEFAULTS.errorRateCriticalThreshold
++  )
++  const successRateGoodThreshold = useSystemConfigStore(
++    (state) =>
++      state.config.dashboardDefaults.successRateGoodThreshold ??
++      DEFAULT_DASHBOARD_DEFAULTS.successRateGoodThreshold
++  )
++  const successRateDegradedThreshold = useSystemConfigStore(
++    (state) =>
++      state.config.dashboardDefaults.successRateDegradedThreshold ??
++      DEFAULT_DASHBOARD_DEFAULTS.successRateDegradedThreshold
++  )
++
++  return useMemo(
++    () => ({
++      slowFirstTokenThresholdMs,
++      errorRateWarningThreshold,
++      errorRateCriticalThreshold,
++      successRateGoodThreshold,
++      successRateDegradedThreshold,
++    }),
++    [
++      slowFirstTokenThresholdMs,
++      errorRateWarningThreshold,
++      errorRateCriticalThreshold,
++      successRateGoodThreshold,
++      successRateDegradedThreshold,
++    ]
++  )
 +}
 +
 +export type { DashboardHealthFilter, DashboardPageSize, DashboardTrendMode }
