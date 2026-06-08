@@ -1296,10 +1296,10 @@ index eada490..69a1ee8 100644
  		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
 diff --git a/controller/official_price_sync.go b/controller/official_price_sync.go
 new file mode 100644
-index 0000000..b52b3d3
+index 0000000..f59df81
 --- /dev/null
 +++ b/controller/official_price_sync.go
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,256 @@
 +package controller
 +
 +import (
@@ -1323,13 +1323,15 @@ index 0000000..b52b3d3
 +// (OpenAI / Anthropic / Google / etc.), so it is used as the single official
 +// source here.
 +//
-+// The sync replaces local model ratio maps with the official-source maps.
-+// Operators should adjust margins via group ratios instead of editing the base
-+// model prices.
++// The sync is additive: official-source prices are imported only when a model
++// is missing locally. Existing local prices are preserved so hand-maintained
++// special models and manual overrides are not overwritten by the upstream
++// source.
 +
 +const (
-+	officialPriceSourceURL = "https://models.dev/api.json"
-+	officialSyncInterval   = 24 * time.Hour
++	officialPriceSourceURL  = "https://models.dev/api.json"
++	officialSyncInterval    = 24 * time.Hour
++	officialSyncTimeOfDay   = "07:00"
 +	officialSyncHTTPTimeout = 30 * time.Second
 +)
 +
@@ -1380,77 +1382,85 @@ index 0000000..b52b3d3
 +	return convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
 +}
 +
-+// applyOfficialPricing replaces local pricing maps with fetched official
-+// ratios. Only model_ratio / completion_ratio / cache_ratio are present in the
++// mergeOfficialRatioField adds official prices only for keys that do not exist
++// locally. Existing local values always win.
++func mergeOfficialRatioField(current map[string]float64, raw any) (map[string]float64, int) {
++	merged := make(map[string]float64, len(current))
++	for k, v := range current {
++		merged[k] = v
++	}
++
++	added := 0
++	if m, ok := raw.(map[string]any); ok {
++		for k, v := range m {
++			if _, exists := merged[k]; exists {
++				continue
++			}
++			if f, ok := toFloat(v); ok {
++				merged[k] = f
++				added++
++			}
++		}
++	}
++	return merged, added
++}
++
++// applyOfficialPricing adds missing official prices to local pricing maps.
++// Only model_ratio / completion_ratio / cache_ratio are present in the
 +// models.dev conversion.
 +func applyOfficialPricing(converted map[string]any) (int, error) {
-+	updated := 0
++	addedModels := 0
 +
 +	if raw, ok := converted["model_ratio"]; ok {
-+		if m, ok := raw.(map[string]any); ok && len(m) > 0 {
-+			cur := make(map[string]float64, len(m))
-+			for k, v := range m {
-+				if f, ok := toFloat(v); ok {
-+					cur[k] = f
-+					updated++
-+				}
-+			}
++		cur, added := mergeOfficialRatioField(ratio_setting.GetModelRatioCopy(), raw)
++		if added > 0 {
++			addedModels = added
 +			jsonStr, err := common.Marshal(cur)
 +			if err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := model.UpdateOption("ModelRatio", string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := ratio_setting.UpdateModelRatioByJSONString(string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +		}
 +	}
 +
 +	if raw, ok := converted["completion_ratio"]; ok {
-+		if m, ok := raw.(map[string]any); ok && len(m) > 0 {
-+			cur := make(map[string]float64, len(m))
-+			for k, v := range m {
-+				if f, ok := toFloat(v); ok {
-+					cur[k] = f
-+				}
-+			}
++		cur, added := mergeOfficialRatioField(ratio_setting.GetCompletionRatioCopy(), raw)
++		if added > 0 {
 +			jsonStr, err := common.Marshal(cur)
 +			if err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := model.UpdateOption("CompletionRatio", string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := ratio_setting.UpdateCompletionRatioByJSONString(string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +		}
 +	}
 +
 +	if raw, ok := converted["cache_ratio"]; ok {
-+		if m, ok := raw.(map[string]any); ok && len(m) > 0 {
-+			cur := make(map[string]float64, len(m))
-+			for k, v := range m {
-+				if f, ok := toFloat(v); ok {
-+					cur[k] = f
-+				}
-+			}
++		cur, added := mergeOfficialRatioField(ratio_setting.GetCacheRatioCopy(), raw)
++		if added > 0 {
 +			jsonStr, err := common.Marshal(cur)
 +			if err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := model.UpdateOption("CacheRatio", string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +			if err := ratio_setting.UpdateCacheRatioByJSONString(string(jsonStr)); err != nil {
-+				return updated, err
++				return addedModels, err
 +			}
 +		}
 +	}
 +
-+	return updated, nil
++	return addedModels, nil
 +}
 +
 +func toFloat(v any) (float64, bool) {
@@ -1465,6 +1475,18 @@ index 0000000..b52b3d3
 +		return float64(f), true
 +	}
 +	return 0, false
++}
++
++func nextOfficialSyncTime(now time.Time) time.Time {
++	parsed, err := time.ParseInLocation("15:04", officialSyncTimeOfDay, now.Location())
++	if err != nil {
++		return now.Add(officialSyncInterval)
++	}
++	next := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
++	if !next.After(now) {
++		next = next.AddDate(0, 0, 1)
++	}
++	return next
 +}
 +
 +// RunOfficialPriceSync performs a single official price sync cycle. Safe to call
@@ -1500,24 +1522,22 @@ index 0000000..b52b3d3
 +	officialSyncState.LastOK = true
 +	officialSyncState.LastError = ""
 +	officialSyncState.LastModelsNum = merged
-+	common.SysLog(fmt.Sprintf("official price sync ok: %d models updated", merged))
++	common.SysLog(fmt.Sprintf("official price sync ok: %d models added", merged))
 +	return merged, nil
 +}
 +
 +// StartOfficialPriceSyncTask runs the daily official price sync on the master
-+// node. The first run is delayed slightly to avoid competing with startup.
++// node at 07:00 in the process local timezone.
 +func StartOfficialPriceSyncTask() {
 +	if !common.IsMasterNode {
 +		return
 +	}
 +	officialSyncOnce.Do(func() {
 +		go func() {
-+			// Initial delay so startup migrations/caches settle first.
-+			time.Sleep(2 * time.Minute)
-+			_, _ = RunOfficialPriceSync()
-+			ticker := time.NewTicker(officialSyncInterval)
-+			defer ticker.Stop()
-+			for range ticker.C {
++			for {
++				next := nextOfficialSyncTime(time.Now())
++				common.SysLog(fmt.Sprintf("official price sync scheduled at %s", next.Format(time.RFC3339)))
++				time.Sleep(time.Until(next))
 +				_, _ = RunOfficialPriceSync()
 +			}
 +		}()
@@ -1538,10 +1558,10 @@ index 0000000..b52b3d3
 +}
 diff --git a/controller/official_price_sync_api.go b/controller/official_price_sync_api.go
 new file mode 100644
-index 0000000..3054bfb
+index 0000000..a278e4e
 --- /dev/null
 +++ b/controller/official_price_sync_api.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,38 @@
 +package controller
 +
 +import (
@@ -1565,6 +1585,7 @@ index 0000000..3054bfb
 +		"success": true,
 +		"message": "",
 +		"data": gin.H{
++			"added_models":   merged,
 +			"updated_models": merged,
 +			"status":         OfficialPriceSyncStatus(),
 +		},
@@ -1581,15 +1602,16 @@ index 0000000..3054bfb
 +}
 diff --git a/controller/official_price_sync_test.go b/controller/official_price_sync_test.go
 new file mode 100644
-index 0000000..67f1d2f
+index 0000000..8a667e2
 --- /dev/null
 +++ b/controller/official_price_sync_test.go
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,126 @@
 +package controller
 +
 +import (
 +	"strings"
 +	"testing"
++	"time"
 +
 +	"github.com/stretchr/testify/require"
 +)
@@ -1668,6 +1690,47 @@ index 0000000..67f1d2f
 +	require.Equal(t, 0.1, cacheRatios["qwen3-max"])
 +	require.NotContains(t, modelRatios, "siliconflow/deepseek-v3.2")
 +	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
++}
++
++func TestMergeOfficialRatioFieldAddsMissingOnly(t *testing.T) {
++	current := map[string]float64{
++		"grok-4.3-high":    99,
++		"claude-opus-4-7":  2.5,
++		"manual-local-one": 12,
++	}
++	official := map[string]any{
++		"grok-4.3-high":    1.5,
++		"claude-opus-4-7":  7.5,
++		"claude-opus-4-8":  2.5,
++		"bad-price-format": "skip-me",
++	}
++
++	merged, added := mergeOfficialRatioField(current, official)
++
++	require.Equal(t, 1, added)
++	require.Equal(t, 99.0, merged["grok-4.3-high"])
++	require.Equal(t, 2.5, merged["claude-opus-4-7"])
++	require.Equal(t, 12.0, merged["manual-local-one"])
++	require.Equal(t, 2.5, merged["claude-opus-4-8"])
++	require.NotContains(t, merged, "bad-price-format")
++}
++
++func TestNextOfficialSyncTimeUsesSevenAMLocalTime(t *testing.T) {
++	location := time.FixedZone("Asia/Taipei", 8*60*60)
++
++	beforeSeven := time.Date(2026, 6, 8, 6, 30, 0, 0, location)
++	require.Equal(
++		t,
++		time.Date(2026, 6, 8, 7, 0, 0, 0, location),
++		nextOfficialSyncTime(beforeSeven),
++	)
++
++	afterSeven := time.Date(2026, 6, 8, 7, 1, 0, 0, location)
++	require.Equal(
++		t,
++		time.Date(2026, 6, 9, 7, 0, 0, 0, location),
++		nextOfficialSyncTime(afterSeven),
++	)
 +}
 diff --git a/controller/option.go b/controller/option.go
 index b5fdfdc..a78ac57 100644
@@ -33668,10 +33731,10 @@ index 0000000..e0258a9
 +}
 diff --git a/web/default/src/features/system-settings/models/official-price-sync-panel.tsx b/web/default/src/features/system-settings/models/official-price-sync-panel.tsx
 new file mode 100644
-index 0000000..1aa9f13
+index 0000000..766a861
 --- /dev/null
 +++ b/web/default/src/features/system-settings/models/official-price-sync-panel.tsx
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,135 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -33731,9 +33794,11 @@ index 0000000..1aa9f13
 +        return
 +      }
 +      toast.success(
-+        t('Official prices synced: {{count}} models', {
++        t('Official prices added: {{count}} models', {
 +          count:
-+            result.data.updated_models ?? result.data.status.last_models_num,
++            result.data.added_models ??
++            result.data.updated_models ??
++            result.data.status.last_models_num,
 +        })
 +      )
 +      queryClient.invalidateQueries({
@@ -37463,7 +37528,7 @@ index 6cea57a..eb912af 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..ff0f7bc 100644
+index 2122268..efba736 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,9 @@ export type SiteSettings = {
@@ -37517,7 +37582,7 @@ index 2122268..ff0f7bc 100644
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -375,6 +405,29 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +405,30 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -37539,6 +37604,7 @@ index 2122268..ff0f7bc 100644
 +  success: boolean
 +  message: string
 +  data: {
++    added_models?: number
 +    updated_models?: number
 +    status: OfficialPriceSyncStatus
 +  }
@@ -38217,10 +38283,10 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..c73dbc0 100644
+index c6ea6ac..58cb332 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
-@@ -101,6 +101,271 @@
+@@ -101,6 +101,272 @@
      "80,443,8080": "80,443,8080",
      "A billing multiplier. Lower ratios mean lower API call costs.": "计费乘数，倍率越低，API 调用费用越低。",
      "A focused home for keys, balance, routing, and service health.": "集中展示密钥、余额、路由和服务健康状态。",
@@ -38386,6 +38452,7 @@ index c6ea6ac..c73dbc0 100644
 +    "OAuth Integrations JSON exported and copied": "OAuth 集成 JSON 已导出并复制到剪贴板",
 +    "OAuth Integrations imported. Click Save to apply.": "已导入 OAuth 集成配置。点击保存后生效。",
 +    "Official models.dev sync": "官方 models.dev 同步",
++    "Official prices added: {{count}} models": "官方价格已新增：{{count}} 个模型",
 +    "Official prices synced: {{count}} models": "官方价格已同步：{{count}} 个模型",
 +    "Open Dashboard": "打开数据看板",
 +    "Operations Center": "运维中心",
@@ -38492,7 +38559,7 @@ index c6ea6ac..c73dbc0 100644
      "About": "关于",
      "About {{days}} days left": "约剩 {{days}} 天",
      "Accept Unpriced Models": "接受未定价模型",
-@@ -643,6 +908,7 @@
+@@ -643,6 +909,7 @@
      "Channel Affinity": "渠道亲和性",
      "Channel affinity reuses the last successful channel based on keys extracted from the request context or JSON body.": "渠道亲和性会基于从请求上下文或 JSON Body 提取的 Key，优先复用上一次成功的渠道。",
      "Channel Affinity: Upstream Cache Hit": "渠道亲和性：上游缓存命中",
@@ -38500,7 +38567,7 @@ index c6ea6ac..c73dbc0 100644
      "Channel copied successfully": "渠道复制成功",
      "Channel created successfully": "渠道创建成功",
      "Channel deleted successfully": "渠道删除成功",
-@@ -751,6 +1017,7 @@
+@@ -751,6 +1018,7 @@
      "Click to view image": "点击查看图片",
      "Client header value": "客户端请求头值",
      "Client ID": "Client ID",
@@ -38508,7 +38575,7 @@ index c6ea6ac..c73dbc0 100644
      "Client Secret": "Client Secret",
      "Close": "关闭",
      "Close dialog": "关闭对话框",
-@@ -1071,9 +1338,10 @@
+@@ -1071,9 +1339,10 @@
      "Daily uptime; {{incidents}} incidents totalling {{minutes}} minutes": "每日可用率；{{incidents}} 起事件，总计 {{minutes}} 分钟",
      "Dark": "深色",
      "Dashboard": "数据看板",
@@ -38521,7 +38588,7 @@ index c6ea6ac..c73dbc0 100644
      "Data directory:": "数据目录：",
      "Data is stored locally on this device. Use system backups to keep a safe copy.": "数据存储在此设备本地。请使用系统备份来保留安全副本。",
      "Data management and log viewing": "数据管理和日志查看",
-@@ -1362,7 +1630,7 @@
+@@ -1362,7 +1631,7 @@
      "Enable 2FA": "启用 2FA",
      "Enable All": "启用全部",
      "Enable check-in feature": "启用签到功能",
@@ -38530,7 +38597,7 @@ index c6ea6ac..c73dbc0 100644
      "Enable demo mode with limited functionality": "启用功能受限的演示模式",
      "Enable Discord OAuth": "启用 Discord OAuth",
      "Enable Disk Cache": "启用磁盘缓存",
-@@ -4273,7 +4541,7 @@
+@@ -4273,7 +4542,7 @@
      "User": "用户",
      "User {{id}}": "用户 {{id}}",
      "User Agreement": "用户协议",
