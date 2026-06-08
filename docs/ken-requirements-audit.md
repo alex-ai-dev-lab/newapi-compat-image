@@ -162,6 +162,21 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
+2026-06-08 Responses routing / Dashboard compatibility 批次部署验证：
+
+- Patch repo commit `9a3fa64` (`Fix responses routing and dashboard compatibility`) 包含实际源码 patch、README、SHA256SUMS 和审计更新；commit `3b4b135` (`Retry upstream source download in release build`) 只补强 GitHub Actions 下载 upstream zip 的重试与 codeload fallback。
+- 首次 Actions run `27124278454` 失败原因是 GitHub upstream zip 下载返回 `504`，不是 patch apply / Docker build 失败；下载重试修复后，Actions run `27124385879` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27124385879`) 成功完成 runtime、homepage 两个镜像构建、推送、tar 导出和 release 重建。
+- Release `newapi-compat-v1.0.0-rc.10` 的 homepage tar `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz` SHA256 为 `9d9bfc7ad4abb8bfbaa8d8124b9f9e9c799e96460c6e194874bdae982a271233`，服务器下载后校验一致。
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` 已重新加载并重建容器；previous image ID 为 `sha256:7a0f8ccb45493002f1b88492aebbeb09ba0dd7a1326fc5263924d880f03f6e70`，备份 tag 为 `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-162349`。
+- Loaded production image ID 为 `sha256:41c306ea7ca207ab4f77208cf074b505be3539eadecc9860464854d237312bed`；compose 仍包含 `user: "0:0"`，container `ConfigUser=0:0`，容器状态 running/healthy。
+- Production `client_identity_setting` 已直接校验并修正为 Ken 指定值：Codex `installation_id=bb46211a-d8cf-41d2-9a77-6bc1e37183a2`，Claude `device_id=11e05ca409557a3efed2bef1fdbb4384379a3db718053b0049da1df44a593a75`，`session_id_mode=force_global`，`sync_session_header=true`，`apply_to_all_openai_responses=true`，`apply_to_all_claude_messages=true`；配置修正后已重建容器让内存 option cache 生效。
+- Public / local HTTP 200：`/api/status`、`/`、`/dashboard/models`、`/system-settings/models/client-identity`、`/system-settings/operations/overview`、`/system-settings/security/upstream-error-rules`、`/system-settings/content/dashboard`。
+- `/api/status` exposes Dashboard defaults: `dashboard_default_time_range=7d`、`dashboard_auto_refresh=true`、`dashboard_refresh_interval=5`、`dashboard_visible_sections=overview,models,channels,users`，并继续暴露 custom palette defaults。
+- SQLite quick pragma check: `journal_mode=wal`、`busy_timeout=5000`、`synchronous=2`、`wal_autocheckpoint=1000`。
+- Recent 20-minute log keyword scan showed `0` matches for `sql busy`、`database is locked`、`database is closed`、`failed to open log file`、`panic`、`fatal`、`codex_access_restricted`、`not implemented`、`array_above_max_length`；recent `client identity applied` count was `4` after restart.
+- Server headless Chromium rendered `/`、`/dashboard/models` 和 `/system-settings/models/client-identity` without `Uncaught` / `TypeError` / `ReferenceError` / `SyntaxError` / `Cannot read properties` console signatures. Unauthenticated admin routes render the login/shell state, which is expected.
+- Binary marker check confirms both `web/default/dist` and `web/classic/dist` assets are embedded in `/app/new-api`, including classic `assets/*.js`; production currently uses default theme static paths (`/static/*`), so `/assets/*` returns 404 until classic theme is active.
+
 2026-06-08 Appearance palette 批次部署验证：
 
 - Patch repo commit `4cd0ff8` (`Add appearance palette controls`) built successfully by Actions run `27118295951` (`https://github.com/alex-ai-dev-lab/newapi-compat-image/actions/runs/27118295951`).
