@@ -10717,10 +10717,10 @@ index 0000000..a683442
 +}
 diff --git a/web/default/src/components/layout/components/command-palette.tsx b/web/default/src/components/layout/components/command-palette.tsx
 new file mode 100644
-index 0000000..1caba8f
+index 0000000..2eb334d
 --- /dev/null
 +++ b/web/default/src/components/layout/components/command-palette.tsx
-@@ -0,0 +1,1508 @@
+@@ -0,0 +1,1528 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -11065,9 +11065,19 @@ index 0000000..1caba8f
 +      {
 +        id: 'settings-client-identity',
 +        label: 'Client Identity',
-+        description: 'Manage device and installation identifiers',
++        description:
++          'Manage and import/export device and installation identifiers',
 +        icon: Shield,
-+        keywords: ['identity', 'uuid', 'device', 'codex', 'claude'],
++        keywords: [
++          'identity',
++          'uuid',
++          'device',
++          'codex',
++          'claude',
++          'json',
++          'import',
++          'export',
++        ],
 +        section: 'Settings',
 +        action: () => {
 +          navigate({
@@ -11660,9 +11670,19 @@ index 0000000..1caba8f
 +      {
 +        id: 'settings-upstream-error-rules',
 +        label: 'Upstream Error Rules',
-+        description: 'Normalize unsafe upstream error messages',
++        description:
++          'Normalize and import/export unsafe upstream error message rules',
 +        icon: AlertTriangle,
-+        keywords: ['error', 'upstream', 'anti-poison', 'security', 'normalize'],
++        keywords: [
++          'error',
++          'upstream',
++          'anti-poison',
++          'security',
++          'normalize',
++          'json',
++          'import',
++          'export',
++        ],
 +        section: 'Settings',
 +        action: () => {
 +          navigate({
@@ -29527,10 +29547,10 @@ index 0000000..b90b14c
 +}
 diff --git a/web/default/src/features/system-settings/models/client-identity-settings-card.tsx b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
 new file mode 100644
-index 0000000..bf5eca3
+index 0000000..d4b1f7f
 --- /dev/null
 +++ b/web/default/src/features/system-settings/models/client-identity-settings-card.tsx
-@@ -0,0 +1,846 @@
+@@ -0,0 +1,1246 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -29549,14 +29569,53 @@ index 0000000..bf5eca3
 +
 +For commercial licensing, please contact support@quantumnous.com
 +*/
++import { useState } from 'react'
 +import { useFieldArray, useForm } from 'react-hook-form'
-+import { Button } from '@/components/ui/button'
-+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form'
-+import { Input } from '@/components/ui/input'
-+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-+import { Switch } from '@/components/ui/switch'
++import {
++  Clock,
++  Download,
++  Info,
++  Plus,
++  RefreshCw,
++  Shuffle,
++  Trash2,
++  Upload,
++} from 'lucide-react'
 +import { toast } from 'sonner'
++import { Alert, AlertDescription } from '@/components/ui/alert'
++import { Button } from '@/components/ui/button'
++import {
++  Card,
++  CardContent,
++  CardDescription,
++  CardHeader,
++  CardTitle,
++} from '@/components/ui/card'
++import {
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog'
++import {
++  Form,
++  FormControl,
++  FormDescription,
++  FormField,
++  FormItem,
++  FormLabel,
++} from '@/components/ui/form'
++import { Input } from '@/components/ui/input'
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from '@/components/ui/select'
++import { Switch } from '@/components/ui/switch'
++import { Textarea } from '@/components/ui/textarea'
 +import {
 +  useClientIdentitySetting,
 +  useUpdateClientIdentitySetting,
@@ -29566,8 +29625,6 @@ index 0000000..bf5eca3
 +  useRotateClaudeId,
 +  type ClientIdentitySetting,
 +} from './client-identity-api'
-+import { Clock, Info, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
-+import { Alert, AlertDescription } from '@/components/ui/alert'
 +
 +const DEFAULT_SETTING: ClientIdentitySetting = {
 +  enabled: true,
@@ -29597,7 +29654,183 @@ index 0000000..bf5eca3
 +  generic: [],
 +}
 +
++type ClientIdentityImportExportPayload = Partial<ClientIdentitySetting> & {
++  ClientIdentity?: Partial<ClientIdentitySetting>
++}
++
++const toObject = (value: unknown): Record<string, any> =>
++  value && typeof value === 'object' && !Array.isArray(value)
++    ? (value as Record<string, any>)
++    : {}
++
++const toBoolean = (value: unknown, fallback: boolean) =>
++  typeof value === 'boolean'
++    ? value
++    : value === 'true'
++      ? true
++      : value === 'false'
++        ? false
++        : fallback
++
++const toStringValue = (value: unknown, fallback: string) =>
++  typeof value === 'string' ? value : fallback
++
++const toMode = (
++  value: unknown,
++  fallback: 'force_global' | 'disabled'
++): 'force_global' | 'disabled' =>
++  value === 'force_global' || value === 'disabled' ? value : fallback
++
++const toPathType = (
++  value: unknown,
++  fallback: 'body_json' | 'header'
++): 'body_json' | 'header' =>
++  value === 'body_json' || value === 'header' ? value : fallback
++
++const toIntervalUnit = (
++  value: unknown,
++  fallback: 'week' | 'month' | 'year'
++): 'week' | 'month' | 'year' =>
++  value === 'week' || value === 'month' || value === 'year' ? value : fallback
++
++const toPositiveNumber = (value: unknown, fallback: number) => {
++  const next = Number(value)
++  return Number.isFinite(next) && next > 0 ? Math.floor(next) : fallback
++}
++
++const toTimestamp = (value: unknown, fallback: number) => {
++  const next = Number(value)
++  return Number.isFinite(next) && next >= 0 ? Math.floor(next) : fallback
++}
++
++function normalizeClientIdentityImport(
++  raw: ClientIdentityImportExportPayload,
++  current: ClientIdentitySetting
++): ClientIdentitySetting {
++  const payload = toObject(raw.ClientIdentity ?? raw)
++  if (Object.keys(payload).length === 0) {
++    throw new Error('empty payload')
++  }
++
++  const codex = toObject(payload.codex)
++  const claude = toObject(payload.claude)
++  const generic = Array.isArray(payload.generic)
++    ? payload.generic
++    : current.generic
++
++  return {
++    enabled: toBoolean(payload.enabled, current.enabled),
++    apply_to_all_openai_responses: toBoolean(
++      payload.apply_to_all_openai_responses,
++      current.apply_to_all_openai_responses
++    ),
++    apply_to_all_claude_messages: toBoolean(
++      payload.apply_to_all_claude_messages,
++      current.apply_to_all_claude_messages
++    ),
++    codex: {
++      enabled: toBoolean(codex.enabled, current.codex.enabled),
++      mode: toMode(codex.mode, current.codex.mode),
++      installation_id: toStringValue(
++        codex.installation_id,
++        current.codex.installation_id
++      ),
++      rotate_enabled: toBoolean(
++        codex.rotate_enabled,
++        current.codex.rotate_enabled
++      ),
++      rotate_interval_unit: toIntervalUnit(
++        codex.rotate_interval_unit,
++        current.codex.rotate_interval_unit
++      ),
++      rotate_interval_value: toPositiveNumber(
++        codex.rotate_interval_value,
++        current.codex.rotate_interval_value
++      ),
++      next_rotate_at: toTimestamp(
++        codex.next_rotate_at,
++        current.codex.next_rotate_at
++      ),
++    },
++    claude: {
++      enabled: toBoolean(claude.enabled, current.claude.enabled),
++      mode: toMode(claude.mode, current.claude.mode),
++      device_id: toStringValue(claude.device_id, current.claude.device_id),
++      session_id_mode: toMode(
++        claude.session_id_mode,
++        current.claude.session_id_mode
++      ),
++      fixed_session_id: toStringValue(
++        claude.fixed_session_id,
++        current.claude.fixed_session_id
++      ),
++      sync_session_header: toBoolean(
++        claude.sync_session_header,
++        current.claude.sync_session_header
++      ),
++      rotate_enabled: toBoolean(
++        claude.rotate_enabled,
++        current.claude.rotate_enabled
++      ),
++      rotate_interval_unit: toIntervalUnit(
++        claude.rotate_interval_unit,
++        current.claude.rotate_interval_unit
++      ),
++      rotate_interval_value: toPositiveNumber(
++        claude.rotate_interval_value,
++        current.claude.rotate_interval_value
++      ),
++      next_rotate_at: toTimestamp(
++        claude.next_rotate_at,
++        current.claude.next_rotate_at
++      ),
++    },
++    generic: generic.map((item, index) => {
++      const value = toObject(item)
++      const fallback = current.generic[index] ?? {
++        name: 'Custom Provider',
++        enabled: true,
++        mode: 'force_global' as const,
++        path_type: 'body_json' as const,
++        field_path: 'metadata.device_id',
++        field_value: '',
++        rotate_enabled: false,
++        rotate_interval_unit: 'month' as const,
++        rotate_interval_value: 1,
++        next_rotate_at: 0,
++      }
++
++      return {
++        name: toStringValue(value.name, fallback.name),
++        enabled: toBoolean(value.enabled, fallback.enabled),
++        mode: toMode(value.mode, fallback.mode),
++        path_type: toPathType(value.path_type, fallback.path_type),
++        field_path: toStringValue(value.field_path, fallback.field_path),
++        field_value: toStringValue(value.field_value, fallback.field_value),
++        rotate_enabled: toBoolean(
++          value.rotate_enabled,
++          fallback.rotate_enabled
++        ),
++        rotate_interval_unit: toIntervalUnit(
++          value.rotate_interval_unit,
++          fallback.rotate_interval_unit
++        ),
++        rotate_interval_value: toPositiveNumber(
++          value.rotate_interval_value,
++          fallback.rotate_interval_value
++        ),
++        next_rotate_at: toTimestamp(
++          value.next_rotate_at,
++          fallback.next_rotate_at
++        ),
++      }
++    }),
++  }
++}
++
 +export function ClientIdentitySettingsCard() {
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
 +  const { data: setting, isLoading } = useClientIdentitySetting()
 +  const updateMutation = useUpdateClientIdentitySetting()
 +  const generateCodexMutation = useGenerateCodexId()
@@ -29609,10 +29842,52 @@ index 0000000..bf5eca3
 +    defaultValues: DEFAULT_SETTING,
 +    values: setting ?? DEFAULT_SETTING,
 +  })
-+  const { fields: genericFields, append: appendGeneric, remove: removeGeneric } = useFieldArray({
++  const {
++    fields: genericFields,
++    append: appendGeneric,
++    remove: removeGeneric,
++  } = useFieldArray({
 +    control: form.control,
 +    name: 'generic',
 +  })
++
++  const exportConfig = async () => {
++    const text = JSON.stringify({ ClientIdentity: form.getValues() }, null, 2)
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-client-identity.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success('Client identity exported')
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const raw = JSON.parse(importText) as ClientIdentityImportExportPayload
++      const normalized = normalizeClientIdentityImport(raw, form.getValues())
++      form.reset(normalized)
++      setImportOpen(false)
++      toast.success(
++        'Client identity imported. Click Save Settings to apply it.'
++      )
++    } catch {
++      toast.error('Invalid client identity JSON')
++    }
++  }
 +
 +  const onSubmit = async (data: ClientIdentitySetting) => {
 +    try {
@@ -29689,18 +29964,32 @@ index 0000000..bf5eca3
 +  }
 +
 +  if (isLoading) {
-+    return <div className="flex items-center justify-center py-8">Loading...</div>
++    return (
++      <div className='flex items-center justify-center py-8'>Loading...</div>
++    )
 +  }
 +
 +  return (
 +    <Form {...form}>
-+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
++      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
++        <div className='flex flex-wrap justify-end gap-2'>
++          <Button type='button' variant='outline' onClick={exportConfig}>
++            <Download className='mr-2 h-4 w-4' />
++            Export JSON
++          </Button>
++          <Button type='button' variant='outline' onClick={openImportDialog}>
++            <Upload className='mr-2 h-4 w-4' />
++            Import JSON
++          </Button>
++        </div>
++
 +        <Alert>
-+          <Info className="h-4 w-4" />
++          <Info className='h-4 w-4' />
 +          <AlertDescription>
-+            Client Identity Management allows NewAPI to inject or replace device/installation identifiers
-+            in requests to upstream providers. This ensures stable identifiers and prevents 403 errors
-+            from providers that require them (e.g., Codex RawChat channel).
++            Client Identity Management allows NewAPI to inject or replace
++            device/installation identifiers in requests to upstream providers.
++            This ensures stable identifiers and prevents 403 errors from
++            providers that require them (e.g., Codex RawChat channel).
 +          </AlertDescription>
 +        </Alert>
 +
@@ -29712,54 +30001,68 @@ index 0000000..bf5eca3
 +              Master switch for client identity management
 +            </CardDescription>
 +          </CardHeader>
-+          <CardContent className="space-y-4">
++          <CardContent className='space-y-4'>
 +            <FormField
 +              control={form.control}
-+              name="enabled"
++              name='enabled'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
 +                    <FormLabel>Enable Client Identity Management</FormLabel>
 +                    <FormDescription>
-+                      When enabled, NewAPI will inject identifiers into matching requests
++                      When enabled, NewAPI will inject identifiers into matching
++                      requests
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
 +            />
 +            <FormField
 +              control={form.control}
-+              name="apply_to_all_openai_responses"
++              name='apply_to_all_openai_responses'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
-+                    <FormLabel>Apply to all OpenAI Responses requests</FormLabel>
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
++                    <FormLabel>
++                      Apply to all OpenAI Responses requests
++                    </FormLabel>
 +                    <FormDescription>
-+                      Force Codex installation ID on every /v1/responses request, even when the User-Agent is not Codex.
++                      Force Codex installation ID on every /v1/responses
++                      request, even when the User-Agent is not Codex.
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
 +            />
 +            <FormField
 +              control={form.control}
-+              name="apply_to_all_claude_messages"
++              name='apply_to_all_claude_messages'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
 +                    <FormLabel>Apply to all Claude Messages requests</FormLabel>
 +                    <FormDescription>
-+                      Force Claude device/session IDs on every /v1/messages request.
++                      Force Claude device/session IDs on every /v1/messages
++                      request.
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
@@ -29772,23 +30075,29 @@ index 0000000..bf5eca3
 +          <CardHeader>
 +            <CardTitle>Codex (OpenAI Responses API)</CardTitle>
 +            <CardDescription>
-+              Manages <code className="text-xs">client_metadata.x-codex-installation-id</code>
++              Manages{' '}
++              <code className='text-xs'>
++                client_metadata.x-codex-installation-id
++              </code>
 +            </CardDescription>
 +          </CardHeader>
-+          <CardContent className="space-y-4">
++          <CardContent className='space-y-4'>
 +            <FormField
 +              control={form.control}
-+              name="codex.enabled"
++              name='codex.enabled'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
 +                    <FormLabel>Enable Codex Identity</FormLabel>
 +                    <FormDescription>
 +                      Inject installation ID for /v1/responses requests
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
@@ -29796,7 +30105,7 @@ index 0000000..bf5eca3
 +
 +            <FormField
 +              control={form.control}
-+              name="codex.mode"
++              name='codex.mode'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Injection Mode</FormLabel>
@@ -29807,8 +30116,10 @@ index 0000000..bf5eca3
 +                      </SelectTrigger>
 +                    </FormControl>
 +                    <SelectContent>
-+                      <SelectItem value="force_global">Force Global (Replace All)</SelectItem>
-+                      <SelectItem value="disabled">Disabled</SelectItem>
++                      <SelectItem value='force_global'>
++                        Force Global (Replace All)
++                      </SelectItem>
++                      <SelectItem value='disabled'>Disabled</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                  <FormDescription>
@@ -29820,32 +30131,35 @@ index 0000000..bf5eca3
 +
 +            <FormField
 +              control={form.control}
-+              name="codex.installation_id"
++              name='codex.installation_id'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Installation ID</FormLabel>
-+                  <div className="flex gap-2">
++                  <div className='flex gap-2'>
 +                    <FormControl>
-+                      <Input {...field} placeholder="UUID will be auto-generated" />
++                      <Input
++                        {...field}
++                        placeholder='UUID will be auto-generated'
++                      />
 +                    </FormControl>
 +                    <Button
-+                      type="button"
-+                      variant="outline"
-+                      size="icon"
++                      type='button'
++                      variant='outline'
++                      size='icon'
 +                      onClick={handleGenerateCodex}
 +                      disabled={generateCodexMutation.isPending}
 +                    >
-+                      <Shuffle className="h-4 w-4" />
++                      <Shuffle className='h-4 w-4' />
 +                    </Button>
 +                    <Button
-+                      type="button"
-+                      variant="outline"
-+                      size="icon"
++                      type='button'
++                      variant='outline'
++                      size='icon'
 +                      onClick={handleRotateCodex}
 +                      disabled={rotateCodexMutation.isPending}
-+                      title="Rotate Now"
++                      title='Rotate Now'
 +                    >
-+                      <RefreshCw className="h-4 w-4" />
++                      <RefreshCw className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
@@ -29855,40 +30169,45 @@ index 0000000..bf5eca3
 +              )}
 +            />
 +
-+            <div className="space-y-4 border-t pt-4">
-+              <h4 className="text-sm font-medium">Automatic Rotation</h4>
++            <div className='space-y-4 border-t pt-4'>
++              <h4 className='text-sm font-medium'>Automatic Rotation</h4>
 +
 +              <FormField
 +                control={form.control}
-+                name="codex.rotate_enabled"
++                name='codex.rotate_enabled'
 +                render={({ field }) => (
-+                  <FormItem className="flex items-center justify-between">
-+                    <div className="space-y-0.5">
++                  <FormItem className='flex items-center justify-between'>
++                    <div className='space-y-0.5'>
 +                      <FormLabel>Enable Rotation</FormLabel>
 +                      <FormDescription>
 +                        Automatically generate new ID on schedule
 +                      </FormDescription>
 +                    </div>
 +                    <FormControl>
-+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
++                      <Switch
++                        checked={field.value}
++                        onCheckedChange={field.onChange}
++                      />
 +                    </FormControl>
 +                  </FormItem>
 +                )}
 +              />
 +
-+              <div className="grid grid-cols-2 gap-4">
++              <div className='grid grid-cols-2 gap-4'>
 +                <FormField
 +                  control={form.control}
-+                  name="codex.rotate_interval_value"
++                  name='codex.rotate_interval_value'
 +                  render={({ field }) => (
 +                    <FormItem>
 +                      <FormLabel>Interval Value</FormLabel>
 +                      <FormControl>
 +                        <Input
-+                          type="number"
++                          type='number'
 +                          min={1}
 +                          {...field}
-+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
++                          onChange={(e) =>
++                            field.onChange(parseInt(e.target.value) || 1)
++                          }
 +                        />
 +                      </FormControl>
 +                    </FormItem>
@@ -29897,20 +30216,23 @@ index 0000000..bf5eca3
 +
 +                <FormField
 +                  control={form.control}
-+                  name="codex.rotate_interval_unit"
++                  name='codex.rotate_interval_unit'
 +                  render={({ field }) => (
 +                    <FormItem>
 +                      <FormLabel>Interval Unit</FormLabel>
-+                      <Select onValueChange={field.onChange} value={field.value}>
++                      <Select
++                        onValueChange={field.onChange}
++                        value={field.value}
++                      >
 +                        <FormControl>
 +                          <SelectTrigger>
 +                            <SelectValue />
 +                          </SelectTrigger>
 +                        </FormControl>
 +                        <SelectContent>
-+                          <SelectItem value="week">Week(s)</SelectItem>
-+                          <SelectItem value="month">Month(s)</SelectItem>
-+                          <SelectItem value="year">Year(s)</SelectItem>
++                          <SelectItem value='week'>Week(s)</SelectItem>
++                          <SelectItem value='month'>Month(s)</SelectItem>
++                          <SelectItem value='year'>Year(s)</SelectItem>
 +                        </SelectContent>
 +                      </Select>
 +                    </FormItem>
@@ -29919,9 +30241,12 @@ index 0000000..bf5eca3
 +              </div>
 +
 +              {form.watch('codex.next_rotate_at') > 0 && (
-+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-+                  <Clock className="h-4 w-4" />
-+                  <span>Next rotation: {formatTimestamp(form.watch('codex.next_rotate_at'))}</span>
++                <div className='text-muted-foreground flex items-center gap-2 text-sm'>
++                  <Clock className='h-4 w-4' />
++                  <span>
++                    Next rotation:{' '}
++                    {formatTimestamp(form.watch('codex.next_rotate_at'))}
++                  </span>
 +                </div>
 +              )}
 +            </div>
@@ -29933,23 +30258,27 @@ index 0000000..bf5eca3
 +          <CardHeader>
 +            <CardTitle>Claude Code / Claude CLI</CardTitle>
 +            <CardDescription>
-+              Manages <code className="text-xs">metadata.user_id.device_id</code>
++              Manages{' '}
++              <code className='text-xs'>metadata.user_id.device_id</code>
 +            </CardDescription>
 +          </CardHeader>
-+          <CardContent className="space-y-4">
++          <CardContent className='space-y-4'>
 +            <FormField
 +              control={form.control}
-+              name="claude.enabled"
++              name='claude.enabled'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
 +                    <FormLabel>Enable Claude Identity</FormLabel>
 +                    <FormDescription>
 +                      Inject device ID for /v1/messages requests
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
@@ -29957,7 +30286,7 @@ index 0000000..bf5eca3
 +
 +            <FormField
 +              control={form.control}
-+              name="claude.mode"
++              name='claude.mode'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Injection Mode</FormLabel>
@@ -29968,8 +30297,10 @@ index 0000000..bf5eca3
 +                      </SelectTrigger>
 +                    </FormControl>
 +                    <SelectContent>
-+                      <SelectItem value="force_global">Force Global (Replace All)</SelectItem>
-+                      <SelectItem value="disabled">Disabled</SelectItem>
++                      <SelectItem value='force_global'>
++                        Force Global (Replace All)
++                      </SelectItem>
++                      <SelectItem value='disabled'>Disabled</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                </FormItem>
@@ -29978,32 +30309,35 @@ index 0000000..bf5eca3
 +
 +            <FormField
 +              control={form.control}
-+              name="claude.device_id"
++              name='claude.device_id'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Device ID</FormLabel>
-+                  <div className="flex gap-2">
++                  <div className='flex gap-2'>
 +                    <FormControl>
-+                      <Input {...field} placeholder="UUID will be auto-generated" />
++                      <Input
++                        {...field}
++                        placeholder='UUID will be auto-generated'
++                      />
 +                    </FormControl>
 +                    <Button
-+                      type="button"
-+                      variant="outline"
-+                      size="icon"
++                      type='button'
++                      variant='outline'
++                      size='icon'
 +                      onClick={handleGenerateClaude}
 +                      disabled={generateClaudeMutation.isPending}
 +                    >
-+                      <Shuffle className="h-4 w-4" />
++                      <Shuffle className='h-4 w-4' />
 +                    </Button>
 +                    <Button
-+                      type="button"
-+                      variant="outline"
-+                      size="icon"
++                      type='button'
++                      variant='outline'
++                      size='icon'
 +                      onClick={handleRotateClaude}
 +                      disabled={rotateClaudeMutation.isPending}
-+                      title="Rotate Now"
++                      title='Rotate Now'
 +                    >
-+                      <RefreshCw className="h-4 w-4" />
++                      <RefreshCw className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
@@ -30015,7 +30349,7 @@ index 0000000..bf5eca3
 +
 +            <FormField
 +              control={form.control}
-+              name="claude.session_id_mode"
++              name='claude.session_id_mode'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Session ID Mode</FormLabel>
@@ -30026,94 +30360,114 @@ index 0000000..bf5eca3
 +                      </SelectTrigger>
 +                    </FormControl>
 +                    <SelectContent>
-+                      <SelectItem value="force_global">Force Global</SelectItem>
-+                      <SelectItem value="disabled">Disabled</SelectItem>
++                      <SelectItem value='force_global'>Force Global</SelectItem>
++                      <SelectItem value='disabled'>Disabled</SelectItem>
 +                    </SelectContent>
 +                  </Select>
 +                  <FormDescription>
-+                    Force Global replaces request session IDs with NewAPI's configured value.
++                    Force Global replaces request session IDs with NewAPI's
++                    configured value.
 +                  </FormDescription>
 +                </FormItem>
 +              )}
 +            />
 +            <FormField
 +              control={form.control}
-+              name="claude.fixed_session_id"
++              name='claude.fixed_session_id'
 +              render={({ field }) => (
 +                <FormItem>
 +                  <FormLabel>Fixed Session ID</FormLabel>
-+                  <div className="flex gap-2">
++                  <div className='flex gap-2'>
 +                    <FormControl>
-+                      <Input {...field} placeholder="UUID will be auto-generated" />
++                      <Input
++                        {...field}
++                        placeholder='UUID will be auto-generated'
++                      />
 +                    </FormControl>
 +                    <Button
-+                      type="button"
-+                      variant="outline"
-+                      size="icon"
-+                      onClick={() => form.setValue('claude.fixed_session_id', crypto.randomUUID(), { shouldDirty: true })}
-+                      title="Generate session ID"
++                      type='button'
++                      variant='outline'
++                      size='icon'
++                      onClick={() =>
++                        form.setValue(
++                          'claude.fixed_session_id',
++                          crypto.randomUUID(),
++                          { shouldDirty: true }
++                        )
++                      }
++                      title='Generate session ID'
 +                    >
-+                      <Shuffle className="h-4 w-4" />
++                      <Shuffle className='h-4 w-4' />
 +                    </Button>
 +                  </div>
 +                  <FormDescription>
-+                    Written to metadata.user_id.session_id and the Claude session header when force mode is enabled.
++                    Written to metadata.user_id.session_id and the Claude
++                    session header when force mode is enabled.
 +                  </FormDescription>
 +                </FormItem>
 +              )}
 +            />
 +            <FormField
 +              control={form.control}
-+              name="claude.sync_session_header"
++              name='claude.sync_session_header'
 +              render={({ field }) => (
-+                <FormItem className="flex items-center justify-between">
-+                  <div className="space-y-0.5">
++                <FormItem className='flex items-center justify-between'>
++                  <div className='space-y-0.5'>
 +                    <FormLabel>Sync X-Claude-Code-Session-Id</FormLabel>
 +                    <FormDescription>
-+                      Keep the Claude session header aligned with the fixed session ID.
++                      Keep the Claude session header aligned with the fixed
++                      session ID.
 +                    </FormDescription>
 +                  </div>
 +                  <FormControl>
-+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
++                    <Switch
++                      checked={field.value}
++                      onCheckedChange={field.onChange}
++                    />
 +                  </FormControl>
 +                </FormItem>
 +              )}
 +            />
 +
-+            <div className="space-y-4 border-t pt-4">
-+              <h4 className="text-sm font-medium">Automatic Rotation</h4>
++            <div className='space-y-4 border-t pt-4'>
++              <h4 className='text-sm font-medium'>Automatic Rotation</h4>
 +
 +              <FormField
 +                control={form.control}
-+                name="claude.rotate_enabled"
++                name='claude.rotate_enabled'
 +                render={({ field }) => (
-+                  <FormItem className="flex items-center justify-between">
-+                    <div className="space-y-0.5">
++                  <FormItem className='flex items-center justify-between'>
++                    <div className='space-y-0.5'>
 +                      <FormLabel>Enable Rotation</FormLabel>
 +                      <FormDescription>
 +                        Automatically generate new device ID on schedule
 +                      </FormDescription>
 +                    </div>
 +                    <FormControl>
-+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
++                      <Switch
++                        checked={field.value}
++                        onCheckedChange={field.onChange}
++                      />
 +                    </FormControl>
 +                  </FormItem>
 +                )}
 +              />
 +
-+              <div className="grid grid-cols-2 gap-4">
++              <div className='grid grid-cols-2 gap-4'>
 +                <FormField
 +                  control={form.control}
-+                  name="claude.rotate_interval_value"
++                  name='claude.rotate_interval_value'
 +                  render={({ field }) => (
 +                    <FormItem>
 +                      <FormLabel>Interval Value</FormLabel>
 +                      <FormControl>
 +                        <Input
-+                          type="number"
++                          type='number'
 +                          min={1}
 +                          {...field}
-+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
++                          onChange={(e) =>
++                            field.onChange(parseInt(e.target.value) || 1)
++                          }
 +                        />
 +                      </FormControl>
 +                    </FormItem>
@@ -30122,20 +30476,23 @@ index 0000000..bf5eca3
 +
 +                <FormField
 +                  control={form.control}
-+                  name="claude.rotate_interval_unit"
++                  name='claude.rotate_interval_unit'
 +                  render={({ field }) => (
 +                    <FormItem>
 +                      <FormLabel>Interval Unit</FormLabel>
-+                      <Select onValueChange={field.onChange} value={field.value}>
++                      <Select
++                        onValueChange={field.onChange}
++                        value={field.value}
++                      >
 +                        <FormControl>
 +                          <SelectTrigger>
 +                            <SelectValue />
 +                          </SelectTrigger>
 +                        </FormControl>
 +                        <SelectContent>
-+                          <SelectItem value="week">Week(s)</SelectItem>
-+                          <SelectItem value="month">Month(s)</SelectItem>
-+                          <SelectItem value="year">Year(s)</SelectItem>
++                          <SelectItem value='week'>Week(s)</SelectItem>
++                          <SelectItem value='month'>Month(s)</SelectItem>
++                          <SelectItem value='year'>Year(s)</SelectItem>
 +                        </SelectContent>
 +                      </Select>
 +                    </FormItem>
@@ -30144,9 +30501,12 @@ index 0000000..bf5eca3
 +              </div>
 +
 +              {form.watch('claude.next_rotate_at') > 0 && (
-+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-+                  <Clock className="h-4 w-4" />
-+                  <span>Next rotation: {formatTimestamp(form.watch('claude.next_rotate_at'))}</span>
++                <div className='text-muted-foreground flex items-center gap-2 text-sm'>
++                  <Clock className='h-4 w-4' />
++                  <span>
++                    Next rotation:{' '}
++                    {formatTimestamp(form.watch('claude.next_rotate_at'))}
++                  </span>
 +                </div>
 +              )}
 +            </div>
@@ -30156,52 +30516,59 @@ index 0000000..bf5eca3
 +        {/* Generic Provider Settings */}
 +        <Card>
 +          <CardHeader>
-+            <div className="flex items-center justify-between gap-4">
++            <div className='flex items-center justify-between gap-4'>
 +              <div>
 +                <CardTitle>Generic Provider Fields</CardTitle>
 +                <CardDescription>
 +                  Force custom header or JSON body fields for other providers.
 +                </CardDescription>
 +              </div>
-+              <Button type="button" variant="outline" onClick={handleAddGeneric}>
-+                <Plus className="mr-2 h-4 w-4" />
++              <Button
++                type='button'
++                variant='outline'
++                onClick={handleAddGeneric}
++              >
++                <Plus className='mr-2 h-4 w-4' />
 +                Add Field
 +              </Button>
 +            </div>
 +          </CardHeader>
-+          <CardContent className="space-y-4">
++          <CardContent className='space-y-4'>
 +            {genericFields.length === 0 && (
-+              <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
++              <div className='text-muted-foreground rounded-md border border-dashed p-6 text-center text-sm'>
 +                No generic identity fields configured.
 +              </div>
 +            )}
 +            {genericFields.map((field, index) => (
-+              <div key={field.id} className="space-y-4 rounded-md border p-4">
-+                <div className="flex items-center justify-between gap-3">
++              <div key={field.id} className='space-y-4 rounded-md border p-4'>
++                <div className='flex items-center justify-between gap-3'>
 +                  <FormField
 +                    control={form.control}
 +                    name={`generic.${index}.enabled`}
 +                    render={({ field }) => (
-+                      <FormItem className="flex items-center gap-3 space-y-0">
++                      <FormItem className='flex items-center gap-3 space-y-0'>
 +                        <FormControl>
-+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
++                          <Switch
++                            checked={field.value}
++                            onCheckedChange={field.onChange}
++                          />
 +                        </FormControl>
-+                        <FormLabel className="font-medium">Enabled</FormLabel>
++                        <FormLabel className='font-medium'>Enabled</FormLabel>
 +                      </FormItem>
 +                    )}
 +                  />
 +                  <Button
-+                    type="button"
-+                    variant="ghost"
-+                    size="icon"
++                    type='button'
++                    variant='ghost'
++                    size='icon'
 +                    onClick={() => removeGeneric(index)}
-+                    title="Remove field"
++                    title='Remove field'
 +                  >
-+                    <Trash2 className="h-4 w-4" />
++                    <Trash2 className='h-4 w-4' />
 +                  </Button>
 +                </div>
 +
-+                <div className="grid gap-4 md:grid-cols-2">
++                <div className='grid gap-4 md:grid-cols-2'>
 +                  <FormField
 +                    control={form.control}
 +                    name={`generic.${index}.name`}
@@ -30209,7 +30576,10 @@ index 0000000..bf5eca3
 +                      <FormItem>
 +                        <FormLabel>Provider Name</FormLabel>
 +                        <FormControl>
-+                          <Input {...field} placeholder="Gemini / Tongyi / Custom" />
++                          <Input
++                            {...field}
++                            placeholder='Gemini / Tongyi / Custom'
++                          />
 +                        </FormControl>
 +                      </FormItem>
 +                    )}
@@ -30220,15 +30590,20 @@ index 0000000..bf5eca3
 +                    render={({ field }) => (
 +                      <FormItem>
 +                        <FormLabel>Mode</FormLabel>
-+                        <Select onValueChange={field.onChange} value={field.value}>
++                        <Select
++                          onValueChange={field.onChange}
++                          value={field.value}
++                        >
 +                          <FormControl>
 +                            <SelectTrigger>
 +                              <SelectValue />
 +                            </SelectTrigger>
 +                          </FormControl>
 +                          <SelectContent>
-+                            <SelectItem value="force_global">Force Global</SelectItem>
-+                            <SelectItem value="disabled">Disabled</SelectItem>
++                            <SelectItem value='force_global'>
++                              Force Global
++                            </SelectItem>
++                            <SelectItem value='disabled'>Disabled</SelectItem>
 +                          </SelectContent>
 +                        </Select>
 +                      </FormItem>
@@ -30236,22 +30611,25 @@ index 0000000..bf5eca3
 +                  />
 +                </div>
 +
-+                <div className="grid gap-4 md:grid-cols-2">
++                <div className='grid gap-4 md:grid-cols-2'>
 +                  <FormField
 +                    control={form.control}
 +                    name={`generic.${index}.path_type`}
 +                    render={({ field }) => (
 +                      <FormItem>
 +                        <FormLabel>Target</FormLabel>
-+                        <Select onValueChange={field.onChange} value={field.value}>
++                        <Select
++                          onValueChange={field.onChange}
++                          value={field.value}
++                        >
 +                          <FormControl>
 +                            <SelectTrigger>
 +                              <SelectValue />
 +                            </SelectTrigger>
 +                          </FormControl>
 +                          <SelectContent>
-+                            <SelectItem value="body_json">JSON Body</SelectItem>
-+                            <SelectItem value="header">Header</SelectItem>
++                            <SelectItem value='body_json'>JSON Body</SelectItem>
++                            <SelectItem value='header'>Header</SelectItem>
 +                          </SelectContent>
 +                        </Select>
 +                      </FormItem>
@@ -30264,7 +30642,10 @@ index 0000000..bf5eca3
 +                      <FormItem>
 +                        <FormLabel>Field Path</FormLabel>
 +                        <FormControl>
-+                          <Input {...field} placeholder="metadata.device_id or X-Device-Id" />
++                          <Input
++                            {...field}
++                            placeholder='metadata.device_id or X-Device-Id'
++                          />
 +                        </FormControl>
 +                        <FormDescription>
 +                          Dot path for JSON body, exact name for headers.
@@ -30280,43 +30661,46 @@ index 0000000..bf5eca3
 +                  render={({ field }) => (
 +                    <FormItem>
 +                      <FormLabel>Field Value</FormLabel>
-+                      <div className="flex gap-2">
++                      <div className='flex gap-2'>
 +                        <FormControl>
-+                          <Input {...field} placeholder="UUID or fixed value" />
++                          <Input {...field} placeholder='UUID or fixed value' />
 +                        </FormControl>
 +                        <Button
-+                          type="button"
-+                          variant="outline"
-+                          size="icon"
++                          type='button'
++                          variant='outline'
++                          size='icon'
 +                          onClick={() => handleGenerateGeneric(index)}
-+                          title="Generate value"
++                          title='Generate value'
 +                        >
-+                          <Shuffle className="h-4 w-4" />
++                          <Shuffle className='h-4 w-4' />
 +                        </Button>
 +                      </div>
 +                    </FormItem>
 +                  )}
 +                />
 +
-+                <div className="space-y-4 border-t pt-4">
++                <div className='space-y-4 border-t pt-4'>
 +                  <FormField
 +                    control={form.control}
 +                    name={`generic.${index}.rotate_enabled`}
 +                    render={({ field }) => (
-+                      <FormItem className="flex items-center justify-between">
-+                        <div className="space-y-0.5">
++                      <FormItem className='flex items-center justify-between'>
++                        <div className='space-y-0.5'>
 +                          <FormLabel>Enable Rotation</FormLabel>
 +                          <FormDescription>
 +                            Rotate this field value on the configured schedule.
 +                          </FormDescription>
 +                        </div>
 +                        <FormControl>
-+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
++                          <Switch
++                            checked={field.value}
++                            onCheckedChange={field.onChange}
++                          />
 +                        </FormControl>
 +                      </FormItem>
 +                    )}
 +                  />
-+                  <div className="grid grid-cols-2 gap-4">
++                  <div className='grid grid-cols-2 gap-4'>
 +                    <FormField
 +                      control={form.control}
 +                      name={`generic.${index}.rotate_interval_value`}
@@ -30325,10 +30709,12 @@ index 0000000..bf5eca3
 +                          <FormLabel>Interval Value</FormLabel>
 +                          <FormControl>
 +                            <Input
-+                              type="number"
++                              type='number'
 +                              min={1}
 +                              {...field}
-+                              onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
++                              onChange={(e) =>
++                                field.onChange(parseInt(e.target.value) || 1)
++                              }
 +                            />
 +                          </FormControl>
 +                        </FormItem>
@@ -30340,16 +30726,19 @@ index 0000000..bf5eca3
 +                      render={({ field }) => (
 +                        <FormItem>
 +                          <FormLabel>Interval Unit</FormLabel>
-+                          <Select onValueChange={field.onChange} value={field.value}>
++                          <Select
++                            onValueChange={field.onChange}
++                            value={field.value}
++                          >
 +                            <FormControl>
 +                              <SelectTrigger>
 +                                <SelectValue />
 +                              </SelectTrigger>
 +                            </FormControl>
 +                            <SelectContent>
-+                              <SelectItem value="week">Week(s)</SelectItem>
-+                              <SelectItem value="month">Month(s)</SelectItem>
-+                              <SelectItem value="year">Year(s)</SelectItem>
++                              <SelectItem value='week'>Week(s)</SelectItem>
++                              <SelectItem value='month'>Month(s)</SelectItem>
++                              <SelectItem value='year'>Year(s)</SelectItem>
 +                            </SelectContent>
 +                          </Select>
 +                        </FormItem>
@@ -30357,9 +30746,14 @@ index 0000000..bf5eca3
 +                    />
 +                  </div>
 +                  {form.watch(`generic.${index}.next_rotate_at`) > 0 && (
-+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-+                      <Clock className="h-4 w-4" />
-+                      <span>Next rotation: {formatTimestamp(form.watch(`generic.${index}.next_rotate_at`))}</span>
++                    <div className='text-muted-foreground flex items-center gap-2 text-sm'>
++                      <Clock className='h-4 w-4' />
++                      <span>
++                        Next rotation:{' '}
++                        {formatTimestamp(
++                          form.watch(`generic.${index}.next_rotate_at`)
++                        )}
++                      </span>
 +                    </div>
 +                  )}
 +                </div>
@@ -30368,12 +30762,38 @@ index 0000000..bf5eca3
 +          </CardContent>
 +        </Card>
 +
-+        <div className="flex justify-end">
-+          <Button type="submit" disabled={updateMutation.isPending}>
++        <div className='flex justify-end'>
++          <Button type='submit' disabled={updateMutation.isPending}>
 +            {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
 +          </Button>
 +        </div>
 +      </form>
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>Import client identity</DialogTitle>
++          </DialogHeader>
++          <Textarea
++            rows={14}
++            value={importText}
++            onChange={(event) => setImportText(event.target.value)}
++            placeholder='{ "ClientIdentity": { "enabled": true } }'
++            className='font-mono text-xs'
++          />
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setImportOpen(false)}
++            >
++              Cancel
++            </Button>
++            <Button type='button' onClick={importConfig}>
++              Import
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
 +    </Form>
 +  )
 +}
@@ -32674,7 +33094,7 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..3f47000
+index 0000000..fe2b651
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
 @@ -0,0 +1,1201 @@
@@ -32819,7 +33239,7 @@ index 0000000..3f47000
 +  {
 +    title: 'Client Identity',
 +    description:
-+      'Force Codex, Claude, and custom provider identifiers, then rotate them manually or on a schedule.',
++      'Force Codex, Claude, and custom provider identifiers, rotate them, and migrate the config as JSON.',
 +    icon: Fingerprint,
 +    status: 'Forced IDs',
 +    cta: 'Manage IDs',
@@ -32850,7 +33270,7 @@ index 0000000..3f47000
 +  {
 +    title: 'Upstream error rules',
 +    description:
-+      'Normalize unsafe upstream error bodies for clients while preserving masked previews in backend logs.',
++      'Normalize unsafe upstream error bodies, preserve masked log previews, and import/export custom rules.',
 +    icon: ShieldAlert,
 +    status: 'Anti-poison',
 +    cta: 'Open rules',
@@ -34640,10 +35060,10 @@ index e63f883..e8a9880 100644
  export type SecuritySectionId = (typeof SECURITY_SECTIONS)[number]['id']
 diff --git a/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
 new file mode 100644
-index 0000000..d13eb55
+index 0000000..d1e07a9
 --- /dev/null
 +++ b/web/default/src/features/system-settings/security/upstream-error-rules-section.tsx
-@@ -0,0 +1,475 @@
+@@ -0,0 +1,657 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -34664,7 +35084,7 @@ index 0000000..d13eb55
 +*/
 +import { useEffect, useMemo, useState } from 'react'
 +import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-+import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
++import { Download, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 +import { useTranslation } from 'react-i18next'
 +import { toast } from 'sonner'
 +import { api } from '@/lib/api'
@@ -34710,6 +35130,10 @@ index 0000000..d13eb55
 +
 +type ErrorRuleForm = Omit<ErrorRule, 'id' | 'created_at' | 'updated_at'> & {
 +  id?: number
++}
++
++type ErrorRuleImportExportPayload = {
++  UpstreamErrorRules?: unknown
 +}
 +
 +const EMPTY_RULE: ErrorRuleForm = {
@@ -34758,6 +35182,8 @@ index 0000000..d13eb55
 +    description: values.description.trim(),
 +    platforms: values.platforms.trim(),
 +    keywords: values.keywords.trim(),
++    passthrough_body: false,
++    skip_monitoring: false,
 +    custom_message: values.custom_message.trim(),
 +    upstream_status: Number(values.upstream_status) || 0,
 +    response_code: Number(values.response_code) || 0,
@@ -34765,10 +35191,59 @@ index 0000000..d13eb55
 +  }
 +}
 +
++function exportableRule(rule: ErrorRule): ErrorRuleForm {
++  return normalizeForm({
++    enabled: Boolean(rule.enabled),
++    description: rule.description,
++    platforms: rule.platforms,
++    upstream_status: rule.upstream_status,
++    keywords: rule.keywords,
++    passthrough_code: Boolean(rule.passthrough_code),
++    response_code: rule.response_code,
++    passthrough_body: false,
++    custom_message: rule.custom_message,
++    skip_monitoring: false,
++    priority: rule.priority,
++  })
++}
++
++function parseImportRules(text: string): ErrorRuleForm[] {
++  const raw = JSON.parse(text) as ErrorRuleImportExportPayload | unknown[]
++  const payload = Array.isArray(raw)
++    ? raw
++    : Array.isArray(raw.UpstreamErrorRules)
++      ? raw.UpstreamErrorRules
++      : []
++
++  return payload.map((item) => {
++    if (!item || typeof item !== 'object' || Array.isArray(item)) {
++      throw new Error('invalid rule')
++    }
++    const value = item as Partial<ErrorRuleForm>
++    return normalizeForm({
++      enabled: value.enabled === undefined ? true : Boolean(value.enabled),
++      description:
++        typeof value.description === 'string' ? value.description : '',
++      platforms: typeof value.platforms === 'string' ? value.platforms : '',
++      upstream_status: Number(value.upstream_status) || 0,
++      keywords: typeof value.keywords === 'string' ? value.keywords : '',
++      passthrough_code: Boolean(value.passthrough_code),
++      response_code: Number(value.response_code) || 0,
++      passthrough_body: false,
++      custom_message:
++        typeof value.custom_message === 'string' ? value.custom_message : '',
++      skip_monitoring: false,
++      priority: Number(value.priority) || 100,
++    })
++  })
++}
++
 +export function UpstreamErrorRulesSection() {
 +  const { t } = useTranslation()
 +  const queryClient = useQueryClient()
 +  const [formOpen, setFormOpen] = useState(false)
++  const [importOpen, setImportOpen] = useState(false)
++  const [importText, setImportText] = useState('')
 +  const [formValues, setFormValues] = useState<ErrorRuleForm>(EMPTY_RULE)
 +  const [deleteTarget, setDeleteTarget] = useState<ErrorRule | null>(null)
 +
@@ -34811,6 +35286,23 @@ index 0000000..d13eb55
 +    },
 +  })
 +
++  const importMutation = useMutation({
++    mutationFn: async (values: ErrorRuleForm[]) => {
++      for (const rule of values) {
++        await saveRule(rule)
++      }
++    },
++    onSuccess: (_data, values) => {
++      toast.success(t('Imported {{count}} rules', { count: values.length }))
++      setImportOpen(false)
++      setImportText('')
++      queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
++    },
++    onError: (error: any) => {
++      toast.error(error?.message || t('Failed to import rules'))
++    },
++  })
++
 +  const openCreate = () => {
 +    setFormValues(EMPTY_RULE)
 +    setFormOpen(true)
@@ -34830,6 +35322,52 @@ index 0000000..d13eb55
 +    saveMutation.mutate(normalized)
 +  }
 +
++  const exportConfig = async () => {
++    const text = JSON.stringify(
++      { UpstreamErrorRules: sortedRules.map(exportableRule) },
++      null,
++      2
++    )
++
++    try {
++      await navigator.clipboard?.writeText(text)
++    } catch {
++      /* Clipboard can be unavailable on non-secure origins. */
++    }
++
++    const blob = new Blob([text], { type: 'application/json' })
++    const url = URL.createObjectURL(blob)
++    const link = document.createElement('a')
++    link.href = url
++    link.download = 'newapi-upstream-error-rules.json'
++    link.click()
++    URL.revokeObjectURL(url)
++    toast.success(t('Upstream error rules exported'))
++  }
++
++  const openImportDialog = () => {
++    setImportText('')
++    setImportOpen(true)
++  }
++
++  const importConfig = () => {
++    try {
++      const imported = parseImportRules(importText)
++      if (imported.length === 0) {
++        toast.error(t('No rules found in JSON'))
++        return
++      }
++      const invalid = imported.find((rule) => !rule.description)
++      if (invalid) {
++        toast.error(t('Description is required'))
++        return
++      }
++      importMutation.mutate(imported)
++    } catch {
++      toast.error(t('Invalid upstream error rules JSON'))
++    }
++  }
++
 +  useEffect(() => {
 +    if (!formOpen) setFormValues(EMPTY_RULE)
 +  }, [formOpen])
@@ -34843,6 +35381,24 @@ index 0000000..d13eb55
 +          )}
 +        </p>
 +        <div className='flex flex-wrap gap-2'>
++          <Button
++            type='button'
++            variant='outline'
++            size='sm'
++            onClick={exportConfig}
++          >
++            <Download className='mr-2 h-4 w-4' />
++            {t('Export JSON')}
++          </Button>
++          <Button
++            type='button'
++            variant='outline'
++            size='sm'
++            onClick={openImportDialog}
++          >
++            <Upload className='mr-2 h-4 w-4' />
++            {t('Import JSON')}
++          </Button>
 +          <Button
 +            type='button'
 +            variant='outline'
@@ -34880,7 +35436,9 @@ index 0000000..d13eb55
 +            ) : sortedRules.length === 0 ? (
 +              <TableRow>
 +                <TableCell colSpan={6} className='text-muted-foreground'>
-+                  {t('No custom rules. Built-in fixed messages are still active.')}
++                  {t(
++                    'No custom rules. Built-in fixed messages are still active.'
++                  )}
 +                </TableCell>
 +              </TableRow>
 +            ) : (
@@ -35027,7 +35585,9 @@ index 0000000..d13eb55
 +                }
 +              />
 +              <p className='text-muted-foreground text-xs'>
-+                {t('Comma-separated channel type IDs. Empty means all platforms.')}
++                {t(
++                  'Comma-separated channel type IDs. Empty means all platforms.'
++                )}
 +              </p>
 +            </label>
 +
@@ -35044,7 +35604,9 @@ index 0000000..d13eb55
 +                }
 +              />
 +              <p className='text-muted-foreground text-xs'>
-+                {t('Comma-separated case-insensitive body keywords. Empty matches all.')}
++                {t(
++                  'Comma-separated case-insensitive body keywords. Empty matches all.'
++                )}
 +              </p>
 +            </label>
 +
@@ -35053,7 +35615,9 @@ index 0000000..d13eb55
 +              <Textarea
 +                rows={3}
 +                value={formValues.custom_message}
-+                placeholder={t('Leave empty to use the built-in fixed message.')}
++                placeholder={t(
++                  'Leave empty to use the built-in fixed message.'
++                )}
 +                onChange={(event) =>
 +                  setFormValues((prev) => ({
 +                    ...prev,
@@ -35100,6 +35664,44 @@ index 0000000..d13eb55
 +              disabled={saveMutation.isPending}
 +            >
 +              {t('Save')}
++            </Button>
++          </DialogFooter>
++        </DialogContent>
++      </Dialog>
++
++      <Dialog open={importOpen} onOpenChange={setImportOpen}>
++        <DialogContent className='sm:max-w-2xl'>
++          <DialogHeader>
++            <DialogTitle>{t('Import upstream error rules')}</DialogTitle>
++          </DialogHeader>
++          <div className='space-y-2'>
++            <p className='text-muted-foreground text-sm'>
++              {t(
++                'Imported rules are appended as new custom rules. Existing rules are not deleted or overwritten.'
++              )}
++            </p>
++            <Textarea
++              rows={14}
++              value={importText}
++              onChange={(event) => setImportText(event.target.value)}
++              placeholder='{ "UpstreamErrorRules": [] }'
++              className='font-mono text-xs'
++            />
++          </div>
++          <DialogFooter>
++            <Button
++              type='button'
++              variant='outline'
++              onClick={() => setImportOpen(false)}
++            >
++              {t('Cancel')}
++            </Button>
++            <Button
++              type='button'
++              onClick={importConfig}
++              disabled={importMutation.isPending}
++            >
++              {importMutation.isPending ? t('Importing...') : t('Import')}
 +            </Button>
 +          </DialogFooter>
 +        </DialogContent>
