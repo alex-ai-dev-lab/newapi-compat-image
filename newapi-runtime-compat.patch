@@ -26252,10 +26252,10 @@ index d1ecbc5..6e90d40 100644
      </>
    )
 diff --git a/web/default/src/features/system-settings/hooks/use-update-option.ts b/web/default/src/features/system-settings/hooks/use-update-option.ts
-index 2f73207..1871c65 100644
+index 2f73207..24759ec 100644
 --- a/web/default/src/features/system-settings/hooks/use-update-option.ts
 +++ b/web/default/src/features/system-settings/hooks/use-update-option.ts
-@@ -25,17 +25,40 @@ import type { UpdateOptionRequest } from '../types'
+@@ -25,17 +25,41 @@ import type { UpdateOptionRequest } from '../types'
  // Configuration keys that require status refresh
  const STATUS_RELATED_KEYS = [
    'theme.frontend',
@@ -26267,6 +26267,7 @@ index 2f73207..1871c65 100644
    'HeaderNavModules',
    'SidebarModulesAdmin',
 +  'SidebarSectionOrder',
++  'SystemSettingsNavigation',
    'Notice',
    'LogConsumeEnabled',
    'QuotaPerUnit',
@@ -34056,10 +34057,10 @@ index 0000000..86d3672
 +}
 diff --git a/web/default/src/features/system-settings/operations/operations-center.tsx b/web/default/src/features/system-settings/operations/operations-center.tsx
 new file mode 100644
-index 0000000..8f993f5
+index 0000000..ff6930c
 --- /dev/null
 +++ b/web/default/src/features/system-settings/operations/operations-center.tsx
-@@ -0,0 +1,1222 @@
+@@ -0,0 +1,1258 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -34113,8 +34114,11 @@ index 0000000..8f993f5
 +} from '@/components/ui/card'
 +import { getOfficialPriceSyncStatus } from '../api'
 +import {
++  getSystemSettingsAreaOrder,
++  getSystemSettingsSectionOrder,
 +  normalizeHeaderNavOrder,
 +  parseHeaderNavModules,
++  parseSystemSettingsNavigation,
 +} from '../maintenance/config'
 +import type { OfficialPriceSyncStatus } from '../types'
 +
@@ -34810,6 +34814,9 @@ index 0000000..8f993f5
 +          status?.SidebarModulesAdmin as string | null | undefined
 +        }
 +        headerNavModules={status?.HeaderNavModules as string | null | undefined}
++        systemSettingsNavigation={
++          status?.SystemSettingsNavigation as string | null | undefined
++        }
 +        docsLink={status?.docs_link as string | null | undefined}
 +        priceSyncStatus={priceSyncResponse?.data}
 +        errorRules={errorRules}
@@ -34846,6 +34853,7 @@ index 0000000..8f993f5
 +  sidebarSectionOrder?: string | null
 +  sidebarModulesAdmin?: string | null
 +  headerNavModules?: string | null
++  systemSettingsNavigation?: string | null
 +  docsLink?: string | null
 +  priceSyncStatus?: OfficialPriceSyncStatus
 +  errorRules: ErrorRule[]
@@ -34859,6 +34867,9 @@ index 0000000..8f993f5
 +  const headerSummary = getHeaderNavSummary(
 +    props.headerNavModules,
 +    props.docsLink
++  )
++  const systemSettingsSummary = getSystemSettingsNavigationSummary(
++    props.systemSettingsNavigation
 +  )
 +  const priceSummary = getPriceSyncSummary(props.priceSyncStatus)
 +  const errorRuleSummary = getErrorRuleSummary(props.errorRules)
@@ -34896,6 +34907,11 @@ index 0000000..8f993f5
 +      detail: headerSummary.detail,
 +    },
 +    {
++      label: 'System settings nav',
++      value: systemSettingsSummary.value,
++      detail: systemSettingsSummary.detail,
++    },
++    {
 +      label: 'Official pricing',
 +      value: priceSummary.value,
 +      detail: priceSummary.detail,
@@ -34929,6 +34945,27 @@ index 0000000..8f993f5
 +      </CardContent>
 +    </Card>
 +  )
++}
++
++function getSystemSettingsNavigationSummary(navConfig?: string | null) {
++  const parsed = parseSystemSettingsNavigation(navConfig)
++  const areaOrder = getSystemSettingsAreaOrder(parsed)
++  const enabledAreas = areaOrder.filter((area) => parsed.areas[area]?.enabled)
++  let totalSections = 0
++  let enabledSections = 0
++
++  areaOrder.forEach((area) => {
++    const sections = getSystemSettingsSectionOrder(parsed, area)
++    totalSections += sections.length
++    enabledSections += sections.filter(
++      (section) => parsed.areas[area]?.sections?.[section] !== false
++    ).length
++  })
++
++  return {
++    value: `${enabledAreas.length}/${areaOrder.length} areas visible`,
++    detail: `${enabledSections}/${totalSections} sections visible · ${areaOrder.join(' / ')}`,
++  }
 +}
 +
 +function getHeaderNavSummary(
