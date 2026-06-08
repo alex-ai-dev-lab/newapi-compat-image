@@ -174,6 +174,21 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 - Recent production logs after deploy show `client identity applied` for both `provider=codex` and `provider=claude`. The same checked window had `0` channel 77 requests, so this deployment does not claim a fresh channel 77 live test.
 - Homepage variant was checked with headless Chrome DOM rendering; production DOM contains the split hero words `One`, `endpoint.`, `Every`, and `model.`. Local dump: `D:\Code\newapi\homepage-after-identity-error-rules.html`.
 
+2026-06-08 System Settings navigation 批次部署验证：
+
+- Patch repo commit `d152d35` (`Add system settings navigation controls`) built successfully by Actions run `27115081144`.
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; downloaded tar checksum on server was `8d9288b9f6333fc67ff283ff8a04f3e3966bdc8c8652194e4bb55d9ab77f8637`.
+- Loaded container image ID is `sha256:3a56556bec85e70f573ed558feafb0b5f78dd83928891064c653be798b57ab33`.
+- Previous production image was backed up on the server as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-121827`.
+- Compose still has `user: "0:0"` and container `ConfigUser=0:0`; container state is running/healthy.
+- Public checks returned HTTP 200 for `/api/status`, `/system-settings/site/settings-navigation`, `/system-settings/operations/overview`, `/system-settings/models/user-agents`, `/system-settings/models/client-identity`, and `/system-settings/security/upstream-error-rules`.
+- Local checks additionally returned HTTP 200 for `/system-settings`, `/system-settings/site/sidebar-modules`, and `/system-settings/site/header-navigation`.
+- `/api/status` exposes a non-empty `SystemSettingsNavigation` value.
+- SQLite quick pragma check: `journal_mode=wal`, `busy_timeout=5000`, `synchronous=2`, `wal_autocheckpoint=1000`.
+- Recent 15-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
+- Recent production logs after deploy show `client identity applied` for both `provider=codex` and `provider=claude`; the checked 30-minute window had `0` fresh channel 77 requests and `0` `codex_access_restricted`, so this deployment does not claim a fresh channel 77 live test.
+- Homepage variant was checked with headless Chrome rendered DOM text; production DOM contains `One endpoint.` and `Every model.`. Local dump: `D:\Code\newapi\homepage-after-system-nav-dom.html`.
+
 2026-06-08 管理后台配置迁移批次部署验证：
 
 - Patch repo commit `82af9f9` (`Complete admin config migration batch`) built successfully by Actions run `27112466557`.
