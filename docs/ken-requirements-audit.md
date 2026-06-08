@@ -157,6 +157,20 @@ git apply --check D:\Code\newapi\newapi-compat-image\newapi-runtime-compat-with-
 
 ## 生产验证项
 
+2026-06-08 Client Identity / Upstream Error Rules JSON 迁移批次部署验证：
+
+- Patch repo commit `d6f068d` (`Add identity and error rule import export`) built successfully by Actions run `27113981263`.
+- Production homepage image tag `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10` was redeployed from release asset `newapi-runtime-compat-homepage-docker-image-v1.0.0-rc.10.tar.gz`; downloaded tar checksum on server was `2691a6415d1342a2b61b70f7a8f9589e7767cbb4ff5567ebaea739548895eee8`.
+- Loaded container image ID is `sha256:0d9723aceac83c98cd51544e80a7bda829f3e712bae81c2163d398dacded6cd9`.
+- Previous production image was backed up on the server as `ghcr.io/alex-ai-dev-lab/newapi-runtime-compat-homepage:v1.0.0-rc.10-backup-20260608-112511`.
+- Compose still has `user: "0:0"` and container `ConfigUser=0:0`; container state is running/healthy.
+- Local checks returned HTTP 200 for `/api/status`, `/system-settings`, `/system-settings/models/client-identity`, `/system-settings/security/upstream-error-rules`, `/system-settings/models/user-agents`, and `/system-settings/operations/overview`.
+- Public checks returned HTTP 200 for `/api/status`, `/system-settings/models/client-identity`, and `/system-settings/security/upstream-error-rules`.
+- SQLite quick pragma check: `journal_mode=wal`, `busy_timeout=5000`, `synchronous=2`, `wal_autocheckpoint=1000`.
+- Recent 15-minute log keyword scan showed `0` matches for `sql busy`, `database is locked`, `database is closed`, `failed to open log file`, `panic`, or `fatal`.
+- Recent production logs after deploy show `client identity applied` for both `provider=codex` and `provider=claude`. The same checked window had `0` channel 77 requests, so this deployment does not claim a fresh channel 77 live test.
+- Homepage variant was checked with headless Chrome DOM rendering; production DOM contains the split hero words `One`, `endpoint.`, `Every`, and `model.`. Local dump: `D:\Code\newapi\homepage-after-identity-error-rules.html`.
+
 2026-06-08 管理后台配置迁移批次部署验证：
 
 - Patch repo commit `82af9f9` (`Complete admin config migration batch`) built successfully by Actions run `27112466557`.
