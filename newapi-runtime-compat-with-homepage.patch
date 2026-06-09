@@ -206,7 +206,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..e2ac890 100644
+index 037b849..820e8c3 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -2,6 +2,8 @@ package controller
@@ -415,6 +415,15 @@ index 037b849..e2ac890 100644
  		return testResult{
  			context:     c,
  			localErr:    bodyErr,
+@@ -595,7 +675,7 @@ func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dt
+ 
+ func readTestResponseBody(body io.ReadCloser, isStream bool) ([]byte, error) {
+ 	defer func() { _ = body.Close() }()
+-	const maxStreamLogBytes = 8 << 10
++	const maxStreamLogBytes = 256 << 10
+ 	if isStream {
+ 		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
+ 	}
 @@ -631,6 +711,28 @@ func detectErrorFromTestResponseBody(respBody []byte) error {
  	return nil
  }
@@ -680,10 +689,16 @@ index 037b849..e2ac890 100644
  	})
  }
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
-index 0254080..f8ebae1 100644
+index 0254080..03d957f 100644
 --- a/controller/channel_test_internal_test.go
 +++ b/controller/channel_test_internal_test.go
-@@ -5,7 +5,9 @@ import (
+@@ -1,11 +1,15 @@
+ package controller
+ 
+ import (
++	"io"
+ 	"net/http/httptest"
++	"strings"
  	"testing"
  
  	"github.com/QuantumNous/new-api/common"
@@ -693,7 +708,7 @@ index 0254080..f8ebae1 100644
  	"github.com/QuantumNous/new-api/pkg/billingexpr"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/types"
-@@ -80,3 +82,104 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
+@@ -80,3 +84,124 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
  	require.NoError(t, err)
  	require.Equal(t, 2, userID)
  }
@@ -795,6 +810,26 @@ index 0254080..f8ebae1 100644
 +`)
 +
 +	err := validateTestResponseBody(body, true, "NEWAPI_TEST_deadbeef")
++
++	require.NoError(t, err)
++}
++
++func TestReadTestResponseBodyKeepsLateResponsesNonce(t *testing.T) {
++	largeInstructions := strings.Repeat("x", 70<<10)
++	body := `event: response.created
++data: {"type":"response.created","response":{"instructions":"` + largeInstructions + `"}}
++
++event: response.output_text.delta
++data: {"type":"response.output_text.delta","delta":"NEWAPI_TEST_deadbeef"}
++
++event: response.completed
++data: {"type":"response.completed"}
++`
++
++	read, err := readTestResponseBody(io.NopCloser(strings.NewReader(body)), true)
++	require.NoError(t, err)
++
++	err = validateTestResponseBody(read, true, "NEWAPI_TEST_deadbeef")
 +
 +	require.NoError(t, err)
 +}
