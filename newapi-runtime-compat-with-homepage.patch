@@ -8923,10 +8923,10 @@ index 0000000..0b7e02c
 +}
 diff --git a/relay/antipoison/shape.go b/relay/antipoison/shape.go
 new file mode 100644
-index 0000000..4886d29
+index 0000000..c6d5c37
 --- /dev/null
 +++ b/relay/antipoison/shape.go
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,279 @@
 +package antipoison
 +
 +import (
@@ -8959,6 +8959,15 @@ index 0000000..4886d29
 +	"stop_sequence":  true,
 +	"tool_use":       true,
 +	"content_filter": true,
++}
++
++var (
++	openAIChatCompletionIDPattern = regexp.MustCompile(`^chatcmpl-[A-Za-z0-9\-]+$`)
++	openAIResponsesIDPattern      = regexp.MustCompile(`^resp_[A-Za-z0-9\-]+$`)
++)
++
++func isOpenAIChatCompatibleID(id string) bool {
++	return openAIChatCompletionIDPattern.MatchString(id) || openAIResponsesIDPattern.MatchString(id)
 +}
 +
 +// ValidateClaudeResponseShape validates the structural fingerprint of a Claude response.
@@ -8995,9 +9004,10 @@ index 0000000..4886d29
 +		return nil
 +	}
 +
-+	// Validate ID format: must match ^chatcmpl-[A-Za-z0-9\-]+$
++	// Validate ID format. NewAPI can route chat.completions through the
++	// Responses API, in which case a resp_* ID is still a valid local shape.
 +	if resp.Id != "" {
-+		if !regexp.MustCompile(`^chatcmpl-[A-Za-z0-9\-]+$`).MatchString(resp.Id) {
++		if !isOpenAIChatCompatibleID(resp.Id) {
 +			return shapeError("openai id malformed: %q", resp.Id)
 +		}
 +	}
@@ -9032,7 +9042,7 @@ index 0000000..4886d29
 +
 +	// Validate ID format
 +	if chunk.Id != "" {
-+		if !regexp.MustCompile(`^chatcmpl-[A-Za-z0-9\-]+$`).MatchString(chunk.Id) {
++		if !isOpenAIChatCompatibleID(chunk.Id) {
 +			return shapeError("openai stream id malformed: %q", chunk.Id)
 +		}
 +	}
@@ -9067,7 +9077,7 @@ index 0000000..4886d29
 +
 +	// Validate ID format: must match ^resp_[A-Za-z0-9\-]+$
 +	if resp.ID != "" {
-+		if !regexp.MustCompile(`^resp_[A-Za-z0-9\-]+$`).MatchString(resp.ID) {
++		if !openAIResponsesIDPattern.MatchString(resp.ID) {
 +			return shapeError("responses id malformed: %q", resp.ID)
 +		}
 +	}
@@ -9198,10 +9208,10 @@ index 0000000..4886d29
 +}
 diff --git a/relay/antipoison/shape_test.go b/relay/antipoison/shape_test.go
 new file mode 100644
-index 0000000..9c2bf96
+index 0000000..fec185b
 --- /dev/null
 +++ b/relay/antipoison/shape_test.go
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,186 @@
 +package antipoison
 +
 +import (
@@ -9266,6 +9276,19 @@ index 0000000..9c2bf96
 +	}
 +	if err := ValidateOpenAIResponseShape(resp, "gpt-4o", cfg); err != nil {
 +		t.Fatalf("valid response failed: %v", err)
++	}
++
++	// Valid response converted from the OpenAI Responses API.
++	responsesBacked := &dto.OpenAITextResponse{
++		Id:     "resp_d187261eaef159fa6c702cb53d44ae0c81a8a206c0d58199e9",
++		Object: "chat.completion",
++		Model:  "gpt-5",
++		Choices: []dto.OpenAITextResponseChoice{
++			{FinishReason: "stop"},
++		},
++	}
++	if err := ValidateOpenAIResponseShape(responsesBacked, "gpt-5.5", cfg); err != nil {
++		t.Fatalf("responses-backed chat response failed: %v", err)
 +	}
 +
 +	// Invalid ID
