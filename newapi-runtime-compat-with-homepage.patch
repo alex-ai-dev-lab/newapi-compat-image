@@ -491,7 +491,7 @@ index 0254080..0ae65a7 100644
 +}
 diff --git a/controller/channel_test_scheduler.go b/controller/channel_test_scheduler.go
 new file mode 100644
-index 0000000..a1b51b3
+index 0000000..786ecbd
 --- /dev/null
 +++ b/controller/channel_test_scheduler.go
 @@ -0,0 +1,275 @@
@@ -569,11 +569,11 @@ index 0000000..a1b51b3
 +func getEffectiveTestConfig(channel *model.Channel) (interval time.Duration, retryCount int, retryThreshold int, timeWindowStart string, timeWindowEnd string, timezone string) {
 +	// Global defaults
 +	interval = time.Duration(math.Round(operation_setting.GetMonitorSetting().AutoTestChannelMinutes)) * time.Minute
-+	retryCount = 1
-+	retryThreshold = 1
-+	timeWindowStart = ""
-+	timeWindowEnd = ""
-+	timezone = ""
++	retryCount = 2
++	retryThreshold = 2
++	timeWindowStart = "08:00"
++	timeWindowEnd = "18:00"
++	timezone = "Asia/Taipei"
 +
 +	// Channel overrides
 +	cs := channel.GetSetting()
@@ -772,7 +772,7 @@ index 0000000..a1b51b3
 +}
 diff --git a/controller/channel_test_scheduler_test.go b/controller/channel_test_scheduler_test.go
 new file mode 100644
-index 0000000..4b772ea
+index 0000000..a1f90a8
 --- /dev/null
 +++ b/controller/channel_test_scheduler_test.go
 @@ -0,0 +1,44 @@
@@ -790,9 +790,9 @@ index 0000000..4b772ea
 +func TestGetEffectiveTestConfigUsesChannelIntervalMinutes(t *testing.T) {
 +	channel := &model.Channel{}
 +	channel.SetSetting(dto.ChannelSettings{
-+		AutoTestInterval:       10,
-+		AutoTestRetryCount:     3,
-+		AutoTestRetryThreshold: 2,
++		AutoTestInterval:        10,
++		AutoTestRetryCount:      3,
++		AutoTestRetryThreshold:  2,
 +		AutoTestTimeWindowStart: "23:00",
 +		AutoTestTimeWindowEnd:   "07:00",
 +		AutoTestTimezone:        "Asia/Taipei",
@@ -3232,10 +3232,10 @@ index 0000000..b1f2496
 +	return fmt.Errorf("invalid model_category, must be one of: %s", strings.Join(model.ValidModelCategories, ", "))
 +}
 diff --git a/dto/channel_settings.go b/dto/channel_settings.go
-index b6a1ab9..0cd8d3f 100644
+index b6a1ab9..50df046 100644
 --- a/dto/channel_settings.go
 +++ b/dto/channel_settings.go
-@@ -7,6 +7,24 @@ type ChannelSettings struct {
+@@ -7,6 +7,27 @@ type ChannelSettings struct {
  	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
  	SystemPrompt           string `json:"system_prompt,omitempty"`
  	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
@@ -3247,20 +3247,23 @@ index b6a1ab9..0cd8d3f 100644
 +	// Upstream error normalization. When nil, the global setting decides.
 +	NormalizeUpstreamErrors *bool `json:"normalize_upstream_errors,omitempty"`
 +
++	// Codex client identity support. When nil, infer from the upstream URL.
++	RequiresCodexIdentity *bool `json:"requires_codex_identity,omitempty"`
++
 +	// Auto-test settings
-+	AutoTestInterval         int    `json:"auto_test_interval,omitempty"`           // minutes, 0 = use global
-+	AutoTestRetryCount       int    `json:"auto_test_retry_count,omitempty"`        // retry attempts per test
-+	AutoTestRetryThreshold   int    `json:"auto_test_retry_threshold,omitempty"`    // disable after N failures
-+	AutoTestTimeWindowStart  string `json:"auto_test_time_window_start,omitempty"`  // "HH:MM"
-+	AutoTestTimeWindowEnd    string `json:"auto_test_time_window_end,omitempty"`    // "HH:MM"
-+	AutoTestTimezone         string `json:"auto_test_timezone,omitempty"`            // IANA timezone; empty = local
++	AutoTestInterval        int    `json:"auto_test_interval,omitempty"`          // minutes, 0 = use global
++	AutoTestRetryCount      int    `json:"auto_test_retry_count,omitempty"`       // retry attempts per test
++	AutoTestRetryThreshold  int    `json:"auto_test_retry_threshold,omitempty"`   // disable after N failures
++	AutoTestTimeWindowStart string `json:"auto_test_time_window_start,omitempty"` // "HH:MM"
++	AutoTestTimeWindowEnd   string `json:"auto_test_time_window_end,omitempty"`   // "HH:MM"
++	AutoTestTimezone        string `json:"auto_test_timezone,omitempty"`          // IANA timezone; empty = local
 +
 +	// Claude thinking passthrough support. When nil, infer from channel type.
 +	SupportsClaudeThinking *bool `json:"supports_claude_thinking,omitempty"`
  }
  
  type VertexKeyType string
-@@ -35,6 +53,7 @@ type ChannelOtherSettings struct {
+@@ -35,6 +56,7 @@ type ChannelOtherSettings struct {
  	DisableStore                          bool          `json:"disable_store,omitempty"`             // 是否禁用 store 透传（默认允许透传，禁用后可能导致 Codex 无法使用）
  	AllowIncludeObfuscation               bool          `json:"allow_include_obfuscation,omitempty"` // 是否允许 stream_options.include_obfuscation 透传（默认过滤以避免关闭流混淆保护）
  	AwsKeyType                            AwsKeyType    `json:"aws_key_type,omitempty"`
@@ -6950,7 +6953,7 @@ index 0000000..0b7e02c
 +	StripClaudeStreamChunk(chunk)
 +}
 diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
-index f945a83..2a63dec 100644
+index f945a83..1b9e2c8 100644
 --- a/relay/channel/api_request.go
 +++ b/relay/channel/api_request.go
 @@ -6,13 +6,16 @@ import (
@@ -7126,7 +7129,7 @@ index f945a83..2a63dec 100644
  const clientHeaderPlaceholderPrefix = "{client_header:"
  
  const (
-@@ -304,12 +449,40 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
+@@ -304,12 +449,60 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
  	}
  }
  
@@ -7148,6 +7151,19 @@ index f945a83..2a63dec 100644
 +	}
 +}
 +
++func shouldForceCodexIdentity(info *common.RelayInfo, upstreamURL string) bool {
++	if info == nil {
++		return true
++	}
++	if info.ChannelMeta == nil {
++		return true
++	}
++	if info.ChannelSetting.RequiresCodexIdentity != nil {
++		return *info.ChannelSetting.RequiresCodexIdentity
++	}
++	return true
++}
++
  func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
  	fullRequestURL, err := a.GetRequestURL(info)
  	if err != nil {
@@ -7156,7 +7172,14 @@ index f945a83..2a63dec 100644
  	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
 +
 +	// 应用客户端标识符注入
-+	processedBody, newContentLength, identityHeaders, identityErr := service.ApplyClientIdentityToRequestBody(c.Request.URL.Path, c.Request.Header, requestBody)
++	processedBody, newContentLength, identityHeaders, identityErr := service.ApplyClientIdentityToRequestBodyWithOptions(
++		c.Request.URL.Path,
++		c.Request.Header,
++		requestBody,
++		service.ClientIdentityOptions{
++			ForceCodexIdentity: shouldForceCodexIdentity(info, fullRequestURL),
++		},
++	)
 +	if identityErr != nil {
 +		logger.LogError(c, fmt.Sprintf("client identity injection failed: %s", identityErr.Error()))
 +	} else if newContentLength > 0 && processedBody != nil {
@@ -7167,7 +7190,7 @@ index f945a83..2a63dec 100644
  	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
  	if err != nil {
  		return nil, fmt.Errorf("new request failed: %w", err)
-@@ -320,6 +493,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -320,6 +513,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -7175,7 +7198,7 @@ index f945a83..2a63dec 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -327,6 +501,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -327,6 +521,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
@@ -7184,7 +7207,7 @@ index f945a83..2a63dec 100644
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -352,6 +528,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -352,6 +548,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -7192,7 +7215,7 @@ index f945a83..2a63dec 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -359,6 +536,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -359,6 +556,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
@@ -7200,7 +7223,7 @@ index f945a83..2a63dec 100644
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -376,6 +554,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -376,6 +574,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -7208,7 +7231,7 @@ index f945a83..2a63dec 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -385,6 +564,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -385,6 +584,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	for key, value := range headerOverride {
  		targetHeader.Set(key, value)
  	}
@@ -7216,7 +7239,7 @@ index f945a83..2a63dec 100644
  	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
  	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
  	if err != nil {
-@@ -396,6 +576,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -396,6 +596,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	return targetConn, nil
  }
  
@@ -7232,7 +7255,7 @@ index f945a83..2a63dec 100644
  	pingerCtx, stopPinger := context.WithCancel(context.Background())
  
 diff --git a/relay/channel/api_request_test.go b/relay/channel/api_request_test.go
-index f697f85..2a3dd4e 100644
+index f697f85..8051d53 100644
 --- a/relay/channel/api_request_test.go
 +++ b/relay/channel/api_request_test.go
 @@ -5,7 +5,10 @@ import (
@@ -7246,7 +7269,7 @@ index f697f85..2a3dd4e 100644
  	"github.com/gin-gonic/gin"
  	"github.com/stretchr/testify/require"
  )
-@@ -191,3 +194,68 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
+@@ -191,3 +194,97 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
  	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
  	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
  }
@@ -7314,6 +7337,35 @@ index f697f85..2a3dd4e 100644
 +
 +	applyManagedUpstreamUserAgent(req, info)
 +	require.Equal(t, "managed-codex-agent", req.Header.Get("User-Agent"))
++}
++
++func TestShouldForceCodexIdentityHonorsChannelSetting(t *testing.T) {
++	t.Parallel()
++
++	enabled := true
++	disabled := false
++
++	require.True(t, shouldForceCodexIdentity(&relaycommon.RelayInfo{
++		ChannelMeta: &relaycommon.ChannelMeta{
++			ChannelSetting: dto.ChannelSettings{RequiresCodexIdentity: &enabled},
++		},
++	}, "https://example.com/v1/chat/completions"))
++
++	require.False(t, shouldForceCodexIdentity(&relaycommon.RelayInfo{
++		ChannelMeta: &relaycommon.ChannelMeta{
++			ChannelSetting: dto.ChannelSettings{RequiresCodexIdentity: &disabled},
++		},
++	}, "https://new.sharedchat.cc/codex/v1/chat/completions"))
++}
++
++func TestShouldForceCodexIdentityDefaultsEnabled(t *testing.T) {
++	t.Parallel()
++
++	info := &relaycommon.RelayInfo{}
++
++	require.True(t, shouldForceCodexIdentity(info, "https://new.sharedchat.cc/codex/v1/chat/completions"))
++	require.True(t, shouldForceCodexIdentity(info, "https://example.com/backend-api/codex/responses"))
++	require.True(t, shouldForceCodexIdentity(info, "https://api.openai-compatible.test/v1/chat/completions"))
 +}
 diff --git a/relay/channel/claude/relay-claude.go b/relay/channel/claude/relay-claude.go
 index 6356cd3..a88589b 100644
@@ -8962,10 +9014,10 @@ index 0000000..e02c839
 +}
 diff --git a/service/client_identity.go b/service/client_identity.go
 new file mode 100644
-index 0000000..121dc5a
+index 0000000..72f7789
 --- /dev/null
 +++ b/service/client_identity.go
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,440 @@
 +package service
 +
 +import (
@@ -8985,6 +9037,18 @@ index 0000000..121dc5a
 +// ApplyClientIdentityToRequest 应用客户端标识符到请求
 +// 返回修改后的 body、是否修改标志和错误
 +func ApplyClientIdentityToRequest(path string, headers http.Header, body []byte) ([]byte, bool, error) {
++	return ApplyClientIdentityToRequestWithOptions(path, headers, body, ClientIdentityOptions{})
++}
++
++type ClientIdentityOptions struct {
++	ForceCodexIdentity bool
++}
++
++// ApplyClientIdentityToRequestWithOptions applies client identifiers to the
++// request. ForceCodexIdentity is used after channel selection for Codex-like
++// upstreams that require Codex client metadata even when the incoming endpoint
++// is /v1/chat/completions.
++func ApplyClientIdentityToRequestWithOptions(path string, headers http.Header, body []byte, options ClientIdentityOptions) ([]byte, bool, error) {
 +	setting := model.GetClientIdentitySetting()
 +	if !setting.Enabled {
 +		return body, false, nil
@@ -9006,7 +9070,8 @@ index 0000000..121dc5a
 +	changed := false
 +
 +	// 检测并应用 Codex 标识符
-+	if isCodexLikeRequest(path, headers, payload, setting.ApplyToAllOpenAIResponses) {
++	if (options.ForceCodexIdentity && isOpenAICodexIdentityEligibleRequest(path, payload)) ||
++		isCodexLikeRequest(path, headers, payload, setting.ApplyToAllOpenAIResponses) {
 +		if applyCodexIdentity(headers, payload, setting.Codex) {
 +			changed = true
 +		}
@@ -9038,6 +9103,27 @@ index 0000000..121dc5a
 +	}
 +
 +	return modifiedBody, true, nil
++}
++
++func isOpenAICodexIdentityEligibleRequest(path string, body map[string]interface{}) bool {
++	normalizedPath := strings.ToLower(path)
++	if strings.Contains(normalizedPath, "/v1/responses") ||
++		strings.Contains(normalizedPath, "/v1/chat/completions") ||
++		strings.Contains(normalizedPath, "/v1/completions") {
++		return true
++	}
++
++	if _, ok := body["messages"]; ok {
++		return true
++	}
++	if _, ok := body["input"]; ok {
++		return true
++	}
++	if _, ok := body["prompt"]; ok {
++		return true
++	}
++
++	return false
 +}
 +
 +// isCodexLikeRequest 检测是否为 Codex 类请求
@@ -9318,6 +9404,10 @@ index 0000000..121dc5a
 +
 +// ApplyClientIdentityToRequestBody 从 io.Reader 读取并应用标识符，返回新 Reader 与需要应用到上游请求的 header。
 +func ApplyClientIdentityToRequestBody(path string, headers http.Header, body io.Reader) (io.Reader, int64, http.Header, error) {
++	return ApplyClientIdentityToRequestBodyWithOptions(path, headers, body, ClientIdentityOptions{})
++}
++
++func ApplyClientIdentityToRequestBodyWithOptions(path string, headers http.Header, body io.Reader, options ClientIdentityOptions) (io.Reader, int64, http.Header, error) {
 +	if body == nil {
 +		return body, 0, nil, nil
 +	}
@@ -9331,7 +9421,7 @@ index 0000000..121dc5a
 +	originalHeaders := headers.Clone()
 +
 +	// 应用标识符
-+	modifiedBody, changed, err := ApplyClientIdentityToRequest(path, headers, bodyBytes)
++	modifiedBody, changed, err := ApplyClientIdentityToRequestWithOptions(path, headers, bodyBytes, options)
 +	headerPatch := changedIdentityHeaders(originalHeaders, headers)
 +	if err != nil || !changed {
 +		// 恢复原始 body
@@ -9524,10 +9614,10 @@ index 0000000..3e35295
 +}
 diff --git a/service/client_identity_test.go b/service/client_identity_test.go
 new file mode 100644
-index 0000000..da2b371
+index 0000000..7e9765d
 --- /dev/null
 +++ b/service/client_identity_test.go
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,197 @@
 +package service
 +
 +import (
@@ -9600,6 +9690,53 @@ index 0000000..da2b371
 +	}
 +	if !changed {
 +		t.Fatal("expected request body to change")
++	}
++
++	var payload map[string]any
++	if err := json.Unmarshal(modified, &payload); err != nil {
++		t.Fatal(err)
++	}
++	metadata := payload["client_metadata"].(map[string]any)
++	if got := metadata["x-codex-installation-id"]; got != "codex-fixed" {
++		t.Fatalf("codex installation id = %v, want codex-fixed", got)
++	}
++}
++
++func TestApplyClientIdentityDoesNotAddCodexIDToPlainChatByDefault(t *testing.T) {
++	setClientIdentityOptionForTest(t, baseClientIdentitySetting())
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	headers.Set("User-Agent", "codex-cli/0.137.0")
++	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`)
++
++	modified, changed, err := ApplyClientIdentityToRequest("/v1/chat/completions", headers, body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if changed {
++		t.Fatalf("plain chat request changed unexpectedly: %s", string(modified))
++	}
++}
++
++func TestApplyClientIdentityForcesCodexIDForCodexChatUpstream(t *testing.T) {
++	setClientIdentityOptionForTest(t, baseClientIdentitySetting())
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`)
++
++	modified, changed, err := ApplyClientIdentityToRequestWithOptions(
++		"/v1/chat/completions",
++		headers,
++		body,
++		ClientIdentityOptions{ForceCodexIdentity: true},
++	)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !changed {
++		t.Fatal("expected Codex identity to be added for forced chat request")
 +	}
 +
 +	var payload map[string]any
@@ -13498,7 +13635,7 @@ index d511128..bf7c879 100644
            >
              <Settings className='mr-1 h-3 w-3 shrink-0' />
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 6b26cd1..763b6d6 100644
+index 6b26cd1..a5b3742 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -112,6 +112,7 @@ import {
@@ -13509,15 +13646,17 @@ index 6b26cd1..763b6d6 100644
    refreshCodexCredential,
  } from '../../api'
  import {
-@@ -219,6 +220,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
+@@ -218,7 +219,9 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
+     values.thinking_to_content ||
      values.pass_through_body_enabled ||
      values.system_prompt_override ||
++    values.requires_codex_identity !== 'auto' ||
      values.claude_beta_query ||
 +    values.auto_test_and_recover_enabled === false ||
      values.upstream_model_update_check_enabled ||
      values.upstream_model_update_auto_sync_enabled ||
      values.upstream_model_update_ignored_models?.trim()
-@@ -318,6 +320,11 @@ export function ChannelMutateDrawer({
+@@ -318,6 +321,11 @@ export function ChannelMutateDrawer({
      queryFn: getGroups,
    })
  
@@ -13529,7 +13668,7 @@ index 6b26cd1..763b6d6 100644
    // Fetch all available models
    const { data: allModelsData } = useQuery({
      queryKey: ['channel_models'],
-@@ -434,6 +441,17 @@ export function ChannelMutateDrawer({
+@@ -434,6 +442,17 @@ export function ChannelMutateDrawer({
      }))
    }, [groupsData, currentGroups])
  
@@ -13547,7 +13686,7 @@ index 6b26cd1..763b6d6 100644
    // Parse current models as array
    const currentModelsArray = useMemo(
      () => parseModelsString(currentModels),
-@@ -2567,11 +2585,11 @@ export function ChannelMutateDrawer({
+@@ -2567,11 +2586,11 @@ export function ChannelMutateDrawer({
                            )}
                          />
  
@@ -13564,7 +13703,7 @@ index 6b26cd1..763b6d6 100644
                                <div className='space-y-0.5'>
                                  <FormLabel>{t('Auto Ban')}</FormLabel>
                                  <FormDescription>
-@@ -2586,10 +2604,258 @@ export function ChannelMutateDrawer({
+@@ -2586,10 +2605,299 @@ export function ChannelMutateDrawer({
                                    }
                                  />
                                </FormControl>
@@ -13671,6 +13810,47 @@ index 6b26cd1..763b6d6 100644
 +                                  onCheckedChange={field.onChange}
 +                                />
 +                              </FormControl>
++                            </FormItem>
++                          )}
++                        />
++
++                        <FormField
++                          control={form.control}
++                          name='requires_codex_identity'
++                          render={({ field }) => (
++                            <FormItem>
++                              <div className='space-y-2 rounded-md border p-3'>
++                                <FormLabel>{t('Require Codex identity')}</FormLabel>
++                                <FormDescription>
++                                  {t('Enabled by default for OpenAI-style requests. Force disabled only for channels that reject Codex client metadata.')}
++                                </FormDescription>
++                                <Select
++                                  value={field.value || 'auto'}
++                                  onValueChange={(value) =>
++                                    field.onChange(value ?? 'auto')
++                                  }
++                                >
++                                  <FormControl>
++                                    <SelectTrigger>
++                                      <SelectValue />
++                                    </SelectTrigger>
++                                  </FormControl>
++                                  <SelectContent>
++                                    <SelectGroup>
++                                      <SelectItem value='auto'>
++                                        {t('Auto infer')}
++                                      </SelectItem>
++                                      <SelectItem value='true'>
++                                        {t('Force enabled')}
++                                      </SelectItem>
++                                      <SelectItem value='false'>
++                                        {t('Force disabled')}
++                                      </SelectItem>
++                                    </SelectGroup>
++                                  </SelectContent>
++                                </Select>
++                              </div>
++                              <FormMessage />
 +                            </FormItem>
 +                          )}
 +                        />
@@ -13837,16 +14017,17 @@ index 5fd88d5..af187d1 100644
    TAG: 'Group channels by tag for batch operations',
    REMARK: 'Internal notes (not shown to users)',
 diff --git a/web/default/src/features/channels/lib/channel-form.ts b/web/default/src/features/channels/lib/channel-form.ts
-index 4f0e504..8960581 100644
+index 4f0e504..895879a 100644
 --- a/web/default/src/features/channels/lib/channel-form.ts
 +++ b/web/default/src/features/channels/lib/channel-form.ts
-@@ -182,6 +182,18 @@ export const channelFormSchema = z
+@@ -182,6 +182,19 @@ export const channelFormSchema = z
      pass_through_body_enabled: z.boolean().optional(),
      system_prompt: z.string().optional(),
      system_prompt_override: z.boolean().optional(),
 +    user_agent_id: z.number().optional(),
 +    user_agent_override: z.string().optional(),
 +    normalize_upstream_errors: z.boolean().optional(),
++    requires_codex_identity: z.enum(['auto', 'true', 'false']).optional(),
 +    supports_claude_thinking: z
 +      .enum(['auto', 'true', 'false'])
 +      .optional(),
@@ -13859,7 +14040,7 @@ index 4f0e504..8960581 100644
      // Type-specific settings (stored in settings JSON)
      is_enterprise_account: z.boolean().optional(), // OpenRouter specific
      vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
-@@ -195,6 +207,7 @@ export const channelFormSchema = z
+@@ -195,6 +208,7 @@ export const channelFormSchema = z
      allow_inference_geo: z.boolean().optional(), // OpenAI/Anthropic: inference geography
      allow_speed: z.boolean().optional(), // Anthropic: speed mode control
      claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
@@ -13867,34 +14048,38 @@ index 4f0e504..8960581 100644
      // Upstream model update settings (stored in settings JSON)
      upstream_model_update_check_enabled: z.boolean().optional(),
      upstream_model_update_auto_sync_enabled: z.boolean().optional(),
-@@ -262,6 +275,9 @@ export const channelFormSchema = z
+@@ -262,6 +276,12 @@ export const channelFormSchema = z
    })
  
  export type ChannelFormValues = z.infer<typeof channelFormSchema>
 +type ClaudeThinkingSupportMode = NonNullable<
 +  ChannelFormValues['supports_claude_thinking']
 +>
++type CodexIdentityMode = NonNullable<
++  ChannelFormValues['requires_codex_identity']
++>
  
  // ============================================================================
  // Default Form Values
-@@ -300,6 +316,16 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -300,6 +320,17 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    pass_through_body_enabled: false,
    system_prompt: '',
    system_prompt_override: false,
 +  user_agent_id: 0,
 +  user_agent_override: '',
 +  normalize_upstream_errors: true,
++  requires_codex_identity: 'auto',
 +  supports_claude_thinking: 'auto',
 +  auto_test_interval: 0,
-+  auto_test_retry_count: 1,
-+  auto_test_retry_threshold: 1,
-+  auto_test_time_window_start: '',
-+  auto_test_time_window_end: '',
-+  auto_test_timezone: '',
++  auto_test_retry_count: 2,
++  auto_test_retry_threshold: 2,
++  auto_test_time_window_start: '08:00',
++  auto_test_time_window_end: '18:00',
++  auto_test_timezone: 'Asia/Taipei',
    // Type-specific settings
    is_enterprise_account: false,
    vertex_key_type: 'json',
-@@ -313,6 +339,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -313,6 +344,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    allow_inference_geo: false,
    allow_speed: false,
    claude_beta_query: false,
@@ -13902,7 +14087,7 @@ index 4f0e504..8960581 100644
    upstream_model_update_check_enabled: false,
    upstream_model_update_auto_sync_enabled: false,
    upstream_model_update_ignored_models: '',
-@@ -329,13 +356,41 @@ export function transformChannelToFormDefaults(
+@@ -329,13 +361,43 @@ export function transformChannelToFormDefaults(
    channel: Channel
  ): ChannelFormValues {
    // Parse channel extra settings from setting field
@@ -13918,6 +14103,7 @@ index 4f0e504..8960581 100644
 +    | 'user_agent_id'
 +    | 'user_agent_override'
 +    | 'normalize_upstream_errors'
++    | 'requires_codex_identity'
 +    | 'supports_claude_thinking'
 +    | 'auto_test_interval'
 +    | 'auto_test_retry_count'
@@ -13935,37 +14121,42 @@ index 4f0e504..8960581 100644
 +    user_agent_id: 0,
 +    user_agent_override: '',
 +    normalize_upstream_errors: true,
++    requires_codex_identity: 'auto',
 +    supports_claude_thinking: 'auto',
 +    auto_test_interval: 0,
-+    auto_test_retry_count: 1,
-+    auto_test_retry_threshold: 1,
-+    auto_test_time_window_start: '',
-+    auto_test_time_window_end: '',
-+    auto_test_timezone: '',
++    auto_test_retry_count: 2,
++    auto_test_retry_threshold: 2,
++    auto_test_time_window_start: '08:00',
++    auto_test_time_window_end: '18:00',
++    auto_test_timezone: 'Asia/Taipei',
    }
  
    if (channel.setting) {
-@@ -348,6 +403,19 @@ export function transformChannelToFormDefaults(
+@@ -348,6 +410,23 @@ export function transformChannelToFormDefaults(
          pass_through_body_enabled: parsed.pass_through_body_enabled || false,
          system_prompt: parsed.system_prompt || '',
          system_prompt_override: parsed.system_prompt_override || false,
 +        user_agent_id: Number(parsed.user_agent_id || 0),
 +        user_agent_override: parsed.user_agent_override || '',
 +        normalize_upstream_errors: parsed.normalize_upstream_errors !== false,
++        requires_codex_identity:
++          typeof parsed.requires_codex_identity === 'boolean'
++            ? (String(parsed.requires_codex_identity) as CodexIdentityMode)
++            : 'auto',
 +        supports_claude_thinking:
 +          typeof parsed.supports_claude_thinking === 'boolean'
 +            ? (String(parsed.supports_claude_thinking) as ClaudeThinkingSupportMode)
 +            : 'auto',
 +        auto_test_interval: Number(parsed.auto_test_interval || 0),
-+        auto_test_retry_count: Number(parsed.auto_test_retry_count || 1),
-+        auto_test_retry_threshold: Number(parsed.auto_test_retry_threshold || 1),
-+        auto_test_time_window_start: parsed.auto_test_time_window_start || '',
-+        auto_test_time_window_end: parsed.auto_test_time_window_end || '',
-+        auto_test_timezone: parsed.auto_test_timezone || '',
++        auto_test_retry_count: Number(parsed.auto_test_retry_count || 2),
++        auto_test_retry_threshold: Number(parsed.auto_test_retry_threshold || 2),
++        auto_test_time_window_start: parsed.auto_test_time_window_start || '08:00',
++        auto_test_time_window_end: parsed.auto_test_time_window_end || '18:00',
++        auto_test_timezone: parsed.auto_test_timezone || 'Asia/Taipei',
        }
      } catch (error) {
        // eslint-disable-next-line no-console
-@@ -367,6 +435,7 @@ export function transformChannelToFormDefaults(
+@@ -367,6 +446,7 @@ export function transformChannelToFormDefaults(
    let allowInferenceGeo = false
    let allowSpeed = false
    let claudeBetaQuery = false
@@ -13973,7 +14164,7 @@ index 4f0e504..8960581 100644
    let upstreamModelUpdateCheckEnabled = false
    let upstreamModelUpdateAutoSyncEnabled = false
    let upstreamModelUpdateIgnoredModels = ''
-@@ -385,6 +454,8 @@ export function transformChannelToFormDefaults(
+@@ -385,6 +465,8 @@ export function transformChannelToFormDefaults(
        allowInferenceGeo = parsed.allow_inference_geo === true
        allowSpeed = parsed.allow_speed === true
        claudeBetaQuery = parsed.claude_beta_query === true
@@ -13982,7 +14173,7 @@ index 4f0e504..8960581 100644
        upstreamModelUpdateCheckEnabled =
          parsed.upstream_model_update_check_enabled === true
        upstreamModelUpdateAutoSyncEnabled =
-@@ -439,6 +510,7 @@ export function transformChannelToFormDefaults(
+@@ -439,6 +521,7 @@ export function transformChannelToFormDefaults(
      allow_inference_geo: allowInferenceGeo,
      allow_speed: allowSpeed,
      claude_beta_query: claudeBetaQuery,
@@ -13990,7 +14181,7 @@ index 4f0e504..8960581 100644
      allow_safety_identifier: allowSafetyIdentifier,
      upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
      upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
-@@ -450,13 +522,27 @@ export function transformChannelToFormDefaults(
+@@ -450,13 +533,32 @@ export function transformChannelToFormDefaults(
   * Build the setting JSON string from form extra settings
   */
  function buildSettingJSON(formData: ChannelFormValues): string {
@@ -14006,20 +14197,25 @@ index 4f0e504..8960581 100644
 +    user_agent_override: formData.user_agent_override || '',
 +    normalize_upstream_errors: formData.normalize_upstream_errors !== false,
 +    auto_test_interval: Number(formData.auto_test_interval || 0),
-+    auto_test_retry_count: Number(formData.auto_test_retry_count || 1),
-+    auto_test_retry_threshold: Number(formData.auto_test_retry_threshold || 1),
-+    auto_test_time_window_start: formData.auto_test_time_window_start || '',
-+    auto_test_time_window_end: formData.auto_test_time_window_end || '',
-+    auto_test_timezone: formData.auto_test_timezone || '',
++    auto_test_retry_count: Number(formData.auto_test_retry_count || 2),
++    auto_test_retry_threshold: Number(formData.auto_test_retry_threshold || 2),
++    auto_test_time_window_start: formData.auto_test_time_window_start || '08:00',
++    auto_test_time_window_end: formData.auto_test_time_window_end || '18:00',
++    auto_test_timezone: formData.auto_test_timezone || 'Asia/Taipei',
 +  }
 +  if (formData.supports_claude_thinking === 'true') {
 +    settingObj.supports_claude_thinking = true
 +  } else if (formData.supports_claude_thinking === 'false') {
 +    settingObj.supports_claude_thinking = false
++  }
++  if (formData.requires_codex_identity === 'true') {
++    settingObj.requires_codex_identity = true
++  } else if (formData.requires_codex_identity === 'false') {
++    settingObj.requires_codex_identity = false
    }
    return JSON.stringify(settingObj)
  }
-@@ -541,6 +627,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
+@@ -541,6 +643,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
      if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
    }
  
@@ -14030,10 +14226,22 @@ index 4f0e504..8960581 100644
    if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
      settingsObj.upstream_model_update_check_enabled =
 diff --git a/web/default/src/features/channels/types.ts b/web/default/src/features/channels/types.ts
-index a282053..b4df59d 100644
+index a282053..15d5ce4 100644
 --- a/web/default/src/features/channels/types.ts
 +++ b/web/default/src/features/channels/types.ts
-@@ -322,6 +322,28 @@ export interface ChannelFormData {
+@@ -86,6 +86,11 @@ export interface ChannelSettings {
+   pass_through_body_enabled?: boolean
+   system_prompt?: string
+   system_prompt_override?: boolean
++  user_agent_id?: number
++  user_agent_override?: string
++  normalize_upstream_errors?: boolean
++  requires_codex_identity?: boolean
++  supports_claude_thinking?: boolean
+ }
+ 
+ export interface ChannelOtherSettings {
+@@ -322,6 +327,29 @@ export interface ChannelFormData {
    multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
    multi_key_type?: 'random' | 'polling'
    batch_add_set_key_prefix_2_name?: boolean
@@ -14041,6 +14249,7 @@ index a282053..b4df59d 100644
 +  user_agent_id?: number
 +  user_agent_override?: string
 +  normalize_upstream_errors?: boolean
++  requires_codex_identity?: 'auto' | 'true' | 'false'
 +  supports_claude_thinking?: 'auto' | 'true' | 'false'
 +  auto_test_interval?: number
 +  auto_test_retry_count?: number
@@ -38976,10 +39185,10 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..58cb332 100644
+index c6ea6ac..1f61d8b 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
-@@ -101,6 +101,272 @@
+@@ -101,6 +101,280 @@
      "80,443,8080": "80,443,8080",
      "A billing multiplier. Lower ratios mean lower API call costs.": "计费乘数，倍率越低，API 调用费用越低。",
      "A focused home for keys, balance, routing, and service health.": "集中展示密钥、余额、路由和服务健康状态。",
@@ -39046,6 +39255,13 @@ index c6ea6ac..58cb332 100644
 +    "Global model configuration imported": "全局模型配置已导入",
 +    "Grok settings exported": "Grok 设置已导出",
 +    "Grok settings imported": "Grok 设置已导入",
++    "Auto detects Codex-like upstreams such as /codex. Force on for RawChat or Codex-compatible chat channels.": "自动识别 /codex 等 Codex 类上游。RawChat 或 Codex 兼容聊天渠道可强制开启。",
++    "Enabled by default for OpenAI-style requests. Force disabled only for channels that reject Codex client metadata.": "OpenAI 风格请求默认启用。只有拒绝 Codex 客户端元数据的渠道才需要强制关闭。",
++    "Auto infer": "自动推断",
++    "Force disabled": "强制关闭",
++    "Force enabled": "强制开启",
++    "Force supported": "强制支持",
++    "Force unsupported": "强制不支持",
 +    "Header navigation exported": "顶部导航已导出",
 +    "Header navigation imported": "顶部导航已导入",
 +    "Import API addresses JSON": "导入 API 地址 JSON",
@@ -39203,6 +39419,7 @@ index c6ea6ac..58cb332 100644
 +    "Rate limiting imported. Click Save to apply.": "已导入速率限制配置。点击保存后生效。",
 +    "Rate limits, sensitive words, SSRF, and error rules.": "速率限制、敏感词、SSRF 和错误规则。",
 +    "Return fixed client-facing error messages while keeping sanitized logs.": "向客户端返回固定错误文案，同时保留脱敏日志。",
++    "Require Codex identity": "要求 Codex 客户端标识",
 +    "SMTP Email JSON exported": "SMTP 邮件 JSON 已导出",
 +    "SMTP Email JSON exported and copied": "SMTP 邮件 JSON 已导出并复制到剪贴板",
 +    "SMTP Email imported. Click Save to apply.": "已导入 SMTP 邮件配置。点击保存后生效。",
@@ -39252,7 +39469,7 @@ index c6ea6ac..58cb332 100644
      "About": "关于",
      "About {{days}} days left": "约剩 {{days}} 天",
      "Accept Unpriced Models": "接受未定价模型",
-@@ -643,6 +909,7 @@
+@@ -643,6 +917,7 @@
      "Channel Affinity": "渠道亲和性",
      "Channel affinity reuses the last successful channel based on keys extracted from the request context or JSON body.": "渠道亲和性会基于从请求上下文或 JSON Body 提取的 Key，优先复用上一次成功的渠道。",
      "Channel Affinity: Upstream Cache Hit": "渠道亲和性：上游缓存命中",
@@ -39260,7 +39477,7 @@ index c6ea6ac..58cb332 100644
      "Channel copied successfully": "渠道复制成功",
      "Channel created successfully": "渠道创建成功",
      "Channel deleted successfully": "渠道删除成功",
-@@ -751,6 +1018,7 @@
+@@ -751,6 +1026,7 @@
      "Click to view image": "点击查看图片",
      "Client header value": "客户端请求头值",
      "Client ID": "Client ID",
@@ -39268,7 +39485,7 @@ index c6ea6ac..58cb332 100644
      "Client Secret": "Client Secret",
      "Close": "关闭",
      "Close dialog": "关闭对话框",
-@@ -1071,9 +1339,10 @@
+@@ -1071,9 +1347,10 @@
      "Daily uptime; {{incidents}} incidents totalling {{minutes}} minutes": "每日可用率；{{incidents}} 起事件，总计 {{minutes}} 分钟",
      "Dark": "深色",
      "Dashboard": "数据看板",
@@ -39281,7 +39498,7 @@ index c6ea6ac..58cb332 100644
      "Data directory:": "数据目录：",
      "Data is stored locally on this device. Use system backups to keep a safe copy.": "数据存储在此设备本地。请使用系统备份来保留安全副本。",
      "Data management and log viewing": "数据管理和日志查看",
-@@ -1362,7 +1631,7 @@
+@@ -1362,7 +1639,7 @@
      "Enable 2FA": "启用 2FA",
      "Enable All": "启用全部",
      "Enable check-in feature": "启用签到功能",
@@ -39290,7 +39507,7 @@ index c6ea6ac..58cb332 100644
      "Enable demo mode with limited functionality": "启用功能受限的演示模式",
      "Enable Discord OAuth": "启用 Discord OAuth",
      "Enable Disk Cache": "启用磁盘缓存",
-@@ -4273,7 +4542,7 @@
+@@ -4273,7 +4550,7 @@
      "User": "用户",
      "User {{id}}": "用户 {{id}}",
      "User Agreement": "用户协议",
