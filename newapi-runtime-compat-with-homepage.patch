@@ -28788,7 +28788,7 @@ index 8659e90..bf7c879 100644
            >
              <Settings className='mr-1 h-3 w-3 shrink-0' />
 diff --git web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 3ff0fad..9edeb25 100644
+index 3ff0fad..f55a856 100644
 --- web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -219,6 +219,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
@@ -28800,7 +28800,7 @@ index 3ff0fad..9edeb25 100644
      values.claude_beta_query ||
      values.auto_test_and_recover_enabled === false ||
      values.upstream_model_update_check_enabled ||
-@@ -2713,13 +2715,34 @@ export function ChannelMutateDrawer({
+@@ -2713,13 +2715,76 @@ export function ChannelMutateDrawer({
  
                          <FormField
                            control={form.control}
@@ -28832,13 +28832,55 @@ index 3ff0fad..9edeb25 100644
 +                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
 +                              <div className='space-y-0.5'>
 +                                <FormLabel>{t('Response proof validation')}</FormLabel>
++                                <FormDescription>
++                                  {t('Grey rollout only. The upstream must echo a hidden nonce at the beginning of normal text responses, otherwise the channel is blocked and marked risky.')}
++                                </FormDescription>
++                              </div>
++                              <FormControl>
++                                <Switch
++                                  checked={field.value === true}
++                                  onCheckedChange={field.onChange}
++                                />
++                              </FormControl>
++                            </FormItem>
++                          )}
++                        />
++
++                        <FormField
++                          control={form.control}
++                          name='anti_poison_canary_echo_enabled'
++                          render={({ field }) => (
++                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
++                              <div className='space-y-0.5'>
++                                <FormLabel>{t('Canary echo validation')}</FormLabel>
++                                <FormDescription>
++                                  {t('Inject per-request nonce into last user message; model must echo at end. Catches ad payloads that ignore user input.')}
++                                </FormDescription>
++                              </div>
++                              <FormControl>
++                                <Switch
++                                  checked={field.value === true}
++                                  onCheckedChange={field.onChange}
++                                />
++                              </FormControl>
++                            </FormItem>
++                          )}
++                        />
++
++                        <FormField
++                          control={form.control}
++                          name='anti_poison_shape_check_enabled'
++                          render={({ field }) => (
++                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
++                              <div className='space-y-0.5'>
++                                <FormLabel>{t('Response shape validation')}</FormLabel>
                                  <FormDescription>
 -                                  {t('Prefer this channel for Claude requests containing thinking blocks.')}
-+                                  {t('Grey rollout only. The upstream must echo a hidden nonce at the beginning of normal text responses, otherwise the channel is blocked and marked risky.')}
++                                  {t('Validate response id/model/object/finish_reason fingerprint. Catches malformed or mismatched responses.')}
                                  </FormDescription>
                                </div>
                                <FormControl>
-@@ -2731,6 +2754,88 @@ export function ChannelMutateDrawer({
+@@ -2731,6 +2796,88 @@ export function ChannelMutateDrawer({
                              </FormItem>
                            )}
                          />
@@ -28927,7 +28969,7 @@ index 3ff0fad..9edeb25 100644
                        </div>
  
                        <div className='grid gap-4 border-t pt-4 sm:grid-cols-3'>
-@@ -2739,7 +2844,7 @@ export function ChannelMutateDrawer({
+@@ -2739,7 +2886,7 @@ export function ChannelMutateDrawer({
                            name='auto_test_interval'
                            render={({ field }) => (
                              <FormItem>
@@ -28937,16 +28979,18 @@ index 3ff0fad..9edeb25 100644
                                  <Input
                                    type='number'
 diff --git web/default/src/features/channels/lib/channel-form.ts web/default/src/features/channels/lib/channel-form.ts
-index 621ad61..47bc2f4 100644
+index 621ad61..2795cd3 100644
 --- web/default/src/features/channels/lib/channel-form.ts
 +++ web/default/src/features/channels/lib/channel-form.ts
-@@ -185,7 +185,12 @@ export const channelFormSchema = z
+@@ -185,7 +185,14 @@ export const channelFormSchema = z
      user_agent_id: z.number().optional(),
      user_agent_override: z.string().optional(),
      normalize_upstream_errors: z.boolean().optional(),
 -    supports_claude_thinking: z.boolean().optional(),
 +    anti_poison_enabled: z.boolean().optional(),
 +    anti_poison_response_proof_enabled: z.boolean().optional(),
++    anti_poison_canary_echo_enabled: z.boolean().optional(),
++    anti_poison_shape_check_enabled: z.boolean().optional(),
 +    requires_codex_identity: z.enum(['auto', 'true', 'false']).optional(),
 +    supports_claude_thinking: z
 +      .enum(['auto', 'true', 'false'])
@@ -28954,7 +28998,7 @@ index 621ad61..47bc2f4 100644
      auto_test_interval: z.number().optional(),
      auto_test_retry_count: z.number().optional(),
      auto_test_retry_threshold: z.number().optional(),
-@@ -273,6 +278,12 @@ export const channelFormSchema = z
+@@ -273,6 +280,12 @@ export const channelFormSchema = z
    })
  
  export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -28967,13 +29011,15 @@ index 621ad61..47bc2f4 100644
  
  // ============================================================================
  // Default Form Values
-@@ -314,13 +325,16 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -314,13 +327,18 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    user_agent_id: 0,
    user_agent_override: '',
    normalize_upstream_errors: true,
 -  supports_claude_thinking: false,
 +  anti_poison_enabled: true,
 +  anti_poison_response_proof_enabled: false,
++  anti_poison_canary_echo_enabled: false,
++  anti_poison_shape_check_enabled: false,
 +  requires_codex_identity: 'auto',
 +  supports_claude_thinking: 'auto',
    auto_test_interval: 0,
@@ -28990,7 +29036,7 @@ index 621ad61..47bc2f4 100644
    // Type-specific settings
    is_enterprise_account: false,
    vertex_key_type: 'json',
-@@ -351,7 +365,28 @@ export function transformChannelToFormDefaults(
+@@ -351,7 +369,30 @@ export function transformChannelToFormDefaults(
    channel: Channel
  ): ChannelFormValues {
    // Parse channel extra settings from setting field
@@ -29008,6 +29054,8 @@ index 621ad61..47bc2f4 100644
 +    | 'normalize_upstream_errors'
 +    | 'anti_poison_enabled'
 +    | 'anti_poison_response_proof_enabled'
++    | 'anti_poison_canary_echo_enabled'
++    | 'anti_poison_shape_check_enabled'
 +    | 'requires_codex_identity'
 +    | 'supports_claude_thinking'
 +    | 'auto_test_interval'
@@ -29020,13 +29068,15 @@ index 621ad61..47bc2f4 100644
      force_format: false,
      thinking_to_content: false,
      proxy: '',
-@@ -361,13 +396,16 @@ export function transformChannelToFormDefaults(
+@@ -361,13 +402,18 @@ export function transformChannelToFormDefaults(
      user_agent_id: 0,
      user_agent_override: '',
      normalize_upstream_errors: true,
 -    supports_claude_thinking: false,
 +    anti_poison_enabled: true,
 +    anti_poison_response_proof_enabled: false,
++    anti_poison_canary_echo_enabled: false,
++    anti_poison_shape_check_enabled: false,
 +    requires_codex_identity: 'auto',
 +    supports_claude_thinking: 'auto',
      auto_test_interval: 0,
@@ -29043,7 +29093,7 @@ index 621ad61..47bc2f4 100644
    }
  
    if (channel.setting) {
-@@ -383,13 +421,23 @@ export function transformChannelToFormDefaults(
+@@ -383,13 +429,27 @@ export function transformChannelToFormDefaults(
          user_agent_id: Number(parsed.user_agent_id || 0),
          user_agent_override: parsed.user_agent_override || '',
          normalize_upstream_errors: parsed.normalize_upstream_errors !== false,
@@ -29051,6 +29101,10 @@ index 621ad61..47bc2f4 100644
 +        anti_poison_enabled: parsed.anti_poison_enabled !== false,
 +        anti_poison_response_proof_enabled:
 +          parsed.anti_poison_response_proof_enabled === true,
++        anti_poison_canary_echo_enabled:
++          parsed.anti_poison_canary_echo_enabled === true,
++        anti_poison_shape_check_enabled:
++          parsed.anti_poison_shape_check_enabled === true,
 +        requires_codex_identity:
 +          typeof parsed.requires_codex_identity === 'boolean'
 +            ? (String(parsed.requires_codex_identity) as CodexIdentityMode)
@@ -29073,7 +29127,7 @@ index 621ad61..47bc2f4 100644
        }
      } catch (error) {
        // eslint-disable-next-line no-console
-@@ -496,7 +544,7 @@ export function transformChannelToFormDefaults(
+@@ -496,7 +556,7 @@ export function transformChannelToFormDefaults(
   * Build the setting JSON string from form extra settings
   */
  function buildSettingJSON(formData: ChannelFormValues): string {
@@ -29082,7 +29136,7 @@ index 621ad61..47bc2f4 100644
      force_format: formData.force_format || false,
      thinking_to_content: formData.thinking_to_content || false,
      proxy: formData.proxy || '',
-@@ -506,13 +554,25 @@ function buildSettingJSON(formData: ChannelFormValues): string {
+@@ -506,13 +566,29 @@ function buildSettingJSON(formData: ChannelFormValues): string {
      user_agent_id: formData.user_agent_id ? Number(formData.user_agent_id) : undefined,
      user_agent_override: formData.user_agent_override || '',
      normalize_upstream_errors: formData.normalize_upstream_errors !== false,
@@ -29090,6 +29144,10 @@ index 621ad61..47bc2f4 100644
 +    anti_poison_enabled: formData.anti_poison_enabled !== false,
 +    anti_poison_response_proof_enabled:
 +      formData.anti_poison_response_proof_enabled === true,
++    anti_poison_canary_echo_enabled:
++      formData.anti_poison_canary_echo_enabled === true,
++    anti_poison_shape_check_enabled:
++      formData.anti_poison_shape_check_enabled === true,
      auto_test_interval: Number(formData.auto_test_interval || 0),
 -    auto_test_retry_count: Number(formData.auto_test_retry_count || 1),
 -    auto_test_retry_threshold: Number(formData.auto_test_retry_threshold || 1),
@@ -29115,10 +29173,10 @@ index 621ad61..47bc2f4 100644
    return JSON.stringify(settingObj)
  }
 diff --git web/default/src/features/channels/types.ts web/default/src/features/channels/types.ts
-index ba8f2c6..0a5985a 100644
+index ba8f2c6..ad33bc3 100644
 --- web/default/src/features/channels/types.ts
 +++ web/default/src/features/channels/types.ts
-@@ -86,6 +86,13 @@ export interface ChannelSettings {
+@@ -86,6 +86,15 @@ export interface ChannelSettings {
    pass_through_body_enabled?: boolean
    system_prompt?: string
    system_prompt_override?: boolean
@@ -29127,18 +29185,22 @@ index ba8f2c6..0a5985a 100644
 +  normalize_upstream_errors?: boolean
 +  anti_poison_enabled?: boolean
 +  anti_poison_response_proof_enabled?: boolean
++  anti_poison_canary_echo_enabled?: boolean
++  anti_poison_shape_check_enabled?: boolean
 +  requires_codex_identity?: boolean
 +  supports_claude_thinking?: boolean
  }
  
  export interface ChannelOtherSettings {
-@@ -326,7 +333,10 @@ export interface ChannelFormData {
+@@ -326,7 +335,12 @@ export interface ChannelFormData {
    user_agent_id?: number
    user_agent_override?: string
    normalize_upstream_errors?: boolean
 -  supports_claude_thinking?: boolean
 +  anti_poison_enabled?: boolean
 +  anti_poison_response_proof_enabled?: boolean
++  anti_poison_canary_echo_enabled?: boolean
++  anti_poison_shape_check_enabled?: boolean
 +  requires_codex_identity?: 'auto' | 'true' | 'false'
 +  supports_claude_thinking?: 'auto' | 'true' | 'false'
    auto_test_interval?: number
