@@ -6871,10 +6871,10 @@ index 0000000..9e14a1f
 +}
 diff --git a/relay/antipoison/config.go b/relay/antipoison/config.go
 new file mode 100644
-index 0000000..7d92e81
+index 0000000..d1fedd6
 --- /dev/null
 +++ b/relay/antipoison/config.go
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,47 @@
 +package antipoison
 +
 +import (
@@ -6893,6 +6893,7 @@ index 0000000..7d92e81
 +		StringProtection: global.StringProtection,
 +		StripOutput:      global.StripGuardOutput,
 +		MaxScanBytes:     global.MaxGuardScanBytes,
++		ResponseProof:    global.ResponseProofEnabled,
 +	}
 +	if s.AntiPoisonEnabled != nil {
 +		cfg.Enabled = *s.AntiPoisonEnabled
@@ -6918,14 +6919,15 @@ index 0000000..7d92e81
 +		StringProtection: global.StringProtection,
 +		StripOutput:      global.StripGuardOutput,
 +		MaxScanBytes:     global.MaxGuardScanBytes,
++		ResponseProof:    global.ResponseProofEnabled,
 +	}.Normalized()
 +}
 diff --git a/relay/antipoison/guard.go b/relay/antipoison/guard.go
 new file mode 100644
-index 0000000..d5e93f1
+index 0000000..3c43ef0
 --- /dev/null
 +++ b/relay/antipoison/guard.go
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,234 @@
 +// Package antipoison implements an optional, per-channel defense against
 +// tool-call poisoning for relayed model traffic. It is modeled on the
 +// AllApiDeck anti-poison contract: the gateway injects a guard instruction so
@@ -6969,6 +6971,7 @@ index 0000000..d5e93f1
 +	StringProtection bool
 +	StripOutput      bool
 +	MaxScanBytes     int
++	ResponseProof    bool
 +}
 +
 +// Normalized returns a config with defaults applied.
@@ -7161,10 +7164,10 @@ index 0000000..d5e93f1
 +}
 diff --git a/relay/antipoison/guard_test.go b/relay/antipoison/guard_test.go
 new file mode 100644
-index 0000000..8440372
+index 0000000..a216f1e
 --- /dev/null
 +++ b/relay/antipoison/guard_test.go
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,305 @@
 +package antipoison
 +
 +import (
@@ -7405,12 +7408,77 @@ index 0000000..8440372
 +		t.Fatalf("expected missing guard error")
 +	}
 +}
++
++func TestValidateAndStripResponseProof(t *testing.T) {
++	marker := responseProofOpenTag + `{"nonce":"n1"}` + responseProofCloseTag
++	cleaned, err := ValidateAndStripResponseProof(marker+"actual answer", "n1", Config{Enabled: true, MaxScanBytes: 1024})
++	if err != nil {
++		t.Fatalf("unexpected proof error: %v", err)
++	}
++	if cleaned != "actual answer" {
++		t.Fatalf("cleaned = %q", cleaned)
++	}
++}
++
++func TestValidateAndStripResponseProofRejectsWrongNonce(t *testing.T) {
++	marker := responseProofOpenTag + `{"nonce":"bad"}` + responseProofCloseTag
++	_, err := ValidateAndStripResponseProof(marker+"actual answer", "good", Config{Enabled: true, MaxScanBytes: 1024})
++	if err == nil {
++		t.Fatalf("expected nonce mismatch")
++	}
++}
++
++func TestValidateAndStripResponseProofRequiresBeginning(t *testing.T) {
++	marker := responseProofOpenTag + `{"nonce":"n1"}` + responseProofCloseTag
++	_, err := ValidateAndStripResponseProof("ad first "+marker+"actual answer", "n1", Config{Enabled: true, MaxScanBytes: 1024})
++	if err == nil {
++		t.Fatalf("expected proof not at beginning")
++	}
++}
++
++func TestProofStreamValidatorSplitMarker(t *testing.T) {
++	v := NewProofStreamValidator("n1", Config{Enabled: true, MaxScanBytes: 1024})
++	if out, hold, err := v.ProcessText(responseProofOpenTag + `{"nonce"`); err != nil || !hold || out != "" {
++		t.Fatalf("first chunk out=%q hold=%v err=%v", out, hold, err)
++	}
++	out, hold, err := v.ProcessText(`:"n1"}` + responseProofCloseTag + "hello")
++	if err != nil {
++		t.Fatalf("unexpected proof error: %v", err)
++	}
++	if hold {
++		t.Fatalf("second chunk should release")
++	}
++	if out != "hello" {
++		t.Fatalf("out=%q", out)
++	}
++	if !v.Verified() {
++		t.Fatalf("validator not verified")
++	}
++}
++
++func TestProofStreamValidatorFinalMissing(t *testing.T) {
++	v := NewProofStreamValidator("n1", Config{Enabled: true, MaxScanBytes: 1024})
++	if out, hold, err := v.ProcessText("advertisement"); err != nil || !hold || out != "" {
++		t.Fatalf("chunk out=%q hold=%v err=%v", out, hold, err)
++	}
++	if err := v.Finalize(); err == nil {
++		t.Fatalf("expected missing proof")
++	}
++}
++
++func TestProofStreamValidatorRejectsTextBeforeMarker(t *testing.T) {
++	v := NewProofStreamValidator("n1", Config{Enabled: true, MaxScanBytes: 1024})
++	_, _, err := v.ProcessText("ad " + responseProofOpenTag + `{"nonce":"n1"}` + responseProofCloseTag)
++	if err == nil {
++		t.Fatalf("expected proof not at beginning")
++	}
++}
 diff --git a/relay/antipoison/openai.go b/relay/antipoison/openai.go
 new file mode 100644
-index 0000000..06d6dce
+index 0000000..c7fef98
 --- /dev/null
 +++ b/relay/antipoison/openai.go
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,241 @@
 +package antipoison
 +
 +import (
@@ -7458,22 +7526,7 @@ index 0000000..06d6dce
 +	}
 +	prefix := RandomPrefix()
 +	info.AntiPoisonGuardPrefix = prefix
-+	systemRole := req.GetSystemRoleName()
-+	guardPrompt := BuildGuardPrompt(prefix)
-+	for i := range req.Messages {
-+		if req.Messages[i].Role != systemRole {
-+			continue
-+		}
-+		if req.Messages[i].IsStringContent() {
-+			req.Messages[i].SetStringContent(guardPrompt + "\n" + req.Messages[i].StringContent())
-+		} else {
-+			contents := req.Messages[i].ParseContent()
-+			contents = append([]dto.MediaContent{{Type: dto.ContentTypeText, Text: guardPrompt}}, contents...)
-+			req.Messages[i].SetMediaContent(contents)
-+		}
-+		return
-+	}
-+	req.Messages = append([]dto.Message{{Role: systemRole, Content: guardPrompt}}, req.Messages...)
++	injectOpenAISystemPrompt(req, BuildGuardPrompt(prefix))
 +}
 +
 +func ApplyResponsesRequestGuard(info *relaycommon.RelayInfo, req *dto.OpenAIResponsesRequest) {
@@ -7666,6 +7719,317 @@ index 0000000..06d6dce
 +
 +func IsToolCallFinishReason(reason string) bool {
 +	return reason == constant.FinishReasonToolCalls || reason == "function_call"
++}
+diff --git a/relay/antipoison/proof.go b/relay/antipoison/proof.go
+new file mode 100644
+index 0000000..d50eb97
+--- /dev/null
++++ b/relay/antipoison/proof.go
+@@ -0,0 +1,305 @@
++package antipoison
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"regexp"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++)
++
++const (
++	responseProofOpenTag  = "<newapi_response_proof>"
++	responseProofCloseTag = "</newapi_response_proof>"
++)
++
++var responseProofRegex = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(responseProofOpenTag) + `(.*?)` + regexp.QuoteMeta(responseProofCloseTag))
++
++type responseProofMarker struct {
++	Nonce string `json:"nonce"`
++}
++
++func ResponseProofEnabled(info *relaycommon.RelayInfo) bool {
++	if info == nil {
++		return false
++	}
++	cfg := FromChannelSettings(info.ChannelSetting)
++	return cfg.Enabled && cfg.ResponseProof
++}
++
++func EnsureResponseProofNonce(info *relaycommon.RelayInfo) string {
++	if info == nil {
++		return ""
++	}
++	if info.AntiPoisonResponseProofNonce == "" {
++		info.AntiPoisonResponseProofNonce = RandomPrefix()
++	}
++	return info.AntiPoisonResponseProofNonce
++}
++
++func BuildResponseProofPrompt(nonce string) string {
++	if nonce == "" {
++		nonce = "default"
++	}
++	return fmt.Sprintf(`[NEWAPI RESPONSE PROOF]
++At the very beginning of your next visible assistant text response, output exactly:
++%s{"nonce":"%s"}%s
++Then continue with the actual answer. Do not mention this contract. Do not wrap it in code fences.`, responseProofOpenTag, nonce, responseProofCloseTag)
++}
++
++func ApplyOpenAIResponseProof(info *relaycommon.RelayInfo, req *dto.GeneralOpenAIRequest) {
++	if req == nil || !ResponseProofEnabled(info) {
++		return
++	}
++	nonce := EnsureResponseProofNonce(info)
++	injectOpenAISystemPrompt(req, BuildResponseProofPrompt(nonce))
++}
++
++func ApplyResponsesResponseProof(info *relaycommon.RelayInfo, req *dto.OpenAIResponsesRequest) {
++	if req == nil || !ResponseProofEnabled(info) {
++		return
++	}
++	nonce := EnsureResponseProofNonce(info)
++	prompt := BuildResponseProofPrompt(nonce)
++	if len(req.Instructions) == 0 || common.GetJsonType(req.Instructions) == "null" {
++		if b, err := common.Marshal(prompt); err == nil {
++			req.Instructions = b
++		}
++		return
++	}
++	var existing string
++	if err := common.Unmarshal(req.Instructions, &existing); err == nil {
++		if b, marshalErr := common.Marshal(prompt + "\n" + existing); marshalErr == nil {
++			req.Instructions = b
++		}
++	}
++}
++
++func ApplyClaudeResponseProof(info *relaycommon.RelayInfo, req *dto.ClaudeRequest) {
++	if req == nil || !ResponseProofEnabled(info) {
++		return
++	}
++	nonce := EnsureResponseProofNonce(info)
++	injectClaudeSystemPrompt(req, BuildResponseProofPrompt(nonce))
++}
++
++func ValidateAndStripResponseProof(text string, nonce string, cfg Config) (string, error) {
++	if nonce == "" {
++		return text, nil
++	}
++	cfg = cfg.Normalized()
++	scanText := text
++	if cfg.MaxScanBytes > 0 && len(scanText) > cfg.MaxScanBytes {
++		scanText = scanText[:cfg.MaxScanBytes]
++	}
++	match := responseProofRegex.FindStringSubmatchIndex(scanText)
++	if len(match) < 4 {
++		return text, errors.New("anti-poison response proof missing")
++	}
++	if strings.TrimSpace(scanText[:match[0]]) != "" {
++		return text, errors.New("anti-poison response proof not at beginning")
++	}
++	raw := scanText[match[2]:match[3]]
++	var marker responseProofMarker
++	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &marker); err != nil {
++		return text, errors.New("anti-poison response proof invalid")
++	}
++	if marker.Nonce != nonce {
++		return text, errors.New("anti-poison response proof nonce mismatch")
++	}
++	cleaned := text[match[1]:]
++	return cleaned, nil
++}
++
++func ValidateAndStripOpenAIResponseProof(resp *dto.OpenAITextResponse, cfg Config, nonce string) error {
++	if resp == nil || nonce == "" {
++		return nil
++	}
++	sawChoice := false
++	for i := range resp.Choices {
++		sawChoice = true
++		msg := &resp.Choices[i].Message
++		if !msg.IsStringContent() {
++			continue
++		}
++		text := msg.StringContent()
++		if strings.TrimSpace(text) == "" {
++			continue
++		}
++		cleaned, err := ValidateAndStripResponseProof(text, nonce, cfg)
++		if err != nil {
++			return err
++		}
++		msg.SetStringContent(cleaned)
++		return nil
++	}
++	if sawChoice {
++		return nil
++	}
++	return errors.New("anti-poison response proof missing")
++}
++
++func ValidateAndStripResponsesResponseProof(resp *dto.OpenAIResponsesResponse, cfg Config, nonce string) error {
++	if resp == nil || nonce == "" {
++		return nil
++	}
++	sawOutput := false
++	for i := range resp.Output {
++		sawOutput = true
++		for j := range resp.Output[i].Content {
++			if strings.TrimSpace(resp.Output[i].Content[j].Text) == "" {
++				continue
++			}
++			cleaned, err := ValidateAndStripResponseProof(resp.Output[i].Content[j].Text, nonce, cfg)
++			if err != nil {
++				return err
++			}
++			resp.Output[i].Content[j].Text = cleaned
++			return nil
++		}
++	}
++	if sawOutput {
++		return nil
++	}
++	return errors.New("anti-poison response proof missing")
++}
++
++func ValidateAndStripClaudeResponseProof(resp *dto.ClaudeResponse, cfg Config, nonce string) error {
++	if resp == nil || nonce == "" {
++		return nil
++	}
++	sawContent := false
++	for i := range resp.Content {
++		sawContent = true
++		if resp.Content[i].Type != "text" {
++			continue
++		}
++		text := resp.Content[i].GetText()
++		if strings.TrimSpace(text) == "" {
++			continue
++		}
++		cleaned, err := ValidateAndStripResponseProof(text, nonce, cfg)
++		if err != nil {
++			return err
++		}
++		resp.Content[i].SetText(cleaned)
++		return nil
++	}
++	if sawContent {
++		return nil
++	}
++	return errors.New("anti-poison response proof missing")
++}
++
++type ProofStreamValidator struct {
++	nonce       string
++	cfg         Config
++	buffer      strings.Builder
++	verified    bool
++	scanned     int
++	seenContent bool
++}
++
++func NewProofStreamValidator(nonce string, cfg Config) *ProofStreamValidator {
++	if nonce == "" {
++		return nil
++	}
++	return &ProofStreamValidator{nonce: nonce, cfg: cfg.Normalized()}
++}
++
++func (v *ProofStreamValidator) Verified() bool {
++	return v != nil && v.verified
++}
++
++func (v *ProofStreamValidator) ProcessText(delta string) (emit string, hold bool, err error) {
++	if v == nil || v.nonce == "" || v.verified {
++		return delta, false, nil
++	}
++	if delta == "" {
++		return "", true, nil
++	}
++	v.seenContent = true
++	v.buffer.WriteString(delta)
++	v.scanned += len(delta)
++	text := v.buffer.String()
++	match := responseProofRegex.FindStringSubmatchIndex(text)
++	if len(match) >= 4 {
++		if strings.TrimSpace(text[:match[0]]) != "" {
++			return "", true, errors.New("anti-poison response proof not at beginning")
++		}
++		raw := text[match[2]:match[3]]
++		var marker responseProofMarker
++		if unmarshalErr := json.Unmarshal([]byte(strings.TrimSpace(raw)), &marker); unmarshalErr != nil {
++			return "", true, errors.New("anti-poison response proof invalid")
++		}
++		if marker.Nonce != v.nonce {
++			return "", true, errors.New("anti-poison response proof nonce mismatch")
++		}
++		v.verified = true
++		return text[match[1]:], false, nil
++	}
++	if v.cfg.MaxScanBytes > 0 && v.scanned > v.cfg.MaxScanBytes {
++		return "", true, errors.New("anti-poison response proof missing")
++	}
++	return "", true, nil
++}
++
++func (v *ProofStreamValidator) Finalize() error {
++	if v == nil || v.nonce == "" || v.verified {
++		return nil
++	}
++	if !v.seenContent {
++		return nil
++	}
++	return errors.New("anti-poison response proof missing")
++}
++
++func ResponseProofFailureError() error {
++	return FixedClientError()
++}
++
++func injectOpenAISystemPrompt(req *dto.GeneralOpenAIRequest, prompt string) {
++	systemRole := req.GetSystemRoleName()
++	for i := range req.Messages {
++		if req.Messages[i].Role != systemRole {
++			continue
++		}
++		if req.Messages[i].IsStringContent() {
++			req.Messages[i].SetStringContent(prompt + "\n" + req.Messages[i].StringContent())
++		} else {
++			contents := req.Messages[i].ParseContent()
++			contents = append([]dto.MediaContent{{Type: dto.ContentTypeText, Text: prompt}}, contents...)
++			req.Messages[i].SetMediaContent(contents)
++		}
++		return
++	}
++	req.Messages = append([]dto.Message{{Role: systemRole, Content: prompt}}, req.Messages...)
++}
++
++func injectClaudeSystemPrompt(req *dto.ClaudeRequest, prompt string) {
++	if req.System == nil {
++		req.SetStringSystem(prompt)
++		return
++	}
++	if req.IsStringSystem() {
++		existing := req.GetStringSystem()
++		if existing == "" {
++			req.SetStringSystem(prompt)
++		} else {
++			req.SetStringSystem(prompt + "\n" + existing)
++		}
++		return
++	}
++	systemContents := req.ParseSystem()
++	newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
++	newSystem.SetText(prompt)
++	if len(systemContents) == 0 {
++		req.System = []dto.ClaudeMediaMessage{newSystem}
++	} else {
++		req.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
++	}
 +}
 diff --git a/relay/antipoison/protect.go b/relay/antipoison/protect.go
 new file mode 100644
@@ -8269,7 +8633,7 @@ index f697f85..8051d53 100644
 +	require.True(t, shouldForceCodexIdentity(info, "https://api.openai-compatible.test/v1/chat/completions"))
 +}
 diff --git a/relay/channel/claude/relay-claude.go b/relay/channel/claude/relay-claude.go
-index 6356cd3..a88589b 100644
+index 6356cd3..7c186e8 100644
 --- a/relay/channel/claude/relay-claude.go
 +++ b/relay/channel/claude/relay-claude.go
 @@ -11,6 +11,7 @@ import (
@@ -8280,7 +8644,19 @@ index 6356cd3..a88589b 100644
  	"github.com/QuantumNous/new-api/relay/channel/openrouter"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/relay/helper"
-@@ -790,6 +791,11 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+@@ -587,6 +588,11 @@ type ClaudeResponseInfo struct {
+ 	Done         bool
+ }
+ 
++type claudePendingStreamData struct {
++	response dto.ClaudeResponse
++	data     string
++}
++
+ func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
+ 	if usage == nil {
+ 		return 0
+@@ -790,6 +796,11 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
  	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
  		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
  	}
@@ -8292,10 +8668,106 @@ index 6356cd3..a88589b 100644
  	if claudeResponse.StopReason != "" {
  		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
  	}
-@@ -897,6 +903,13 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+@@ -827,6 +838,28 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+ 	return nil
+ }
+ 
++func prepareClaudeStreamResponseProof(claudeResponse *dto.ClaudeResponse, data string, proof *antipoison.ProofStreamValidator) (string, bool, *types.NewAPIError) {
++	if proof == nil || proof.Verified() || claudeResponse == nil {
++		return data, false, nil
++	}
++	if claudeResponse.Type != "content_block_delta" || claudeResponse.Delta == nil || claudeResponse.Delta.Type != "text_delta" {
++		return data, false, nil
++	}
++	cleaned, hold, err := proof.ProcessText(claudeResponse.Delta.GetText())
++	if err != nil {
++		return "", true, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
++	}
++	if hold {
++		return "", true, nil
++	}
++	claudeResponse.Delta.SetText(cleaned)
++	cleanData, err := common.Marshal(claudeResponse)
++	if err != nil {
++		return data, false, types.NewError(err, types.ErrorCodeBadResponseBody)
++	}
++	return string(cleanData), false, nil
++}
++
+ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+ 	if claudeInfo.Usage.PromptTokens == 0 {
+ 		//上游出错
+@@ -874,7 +907,41 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
+ 		Usage:        &dto.Usage{},
+ 	}
+ 	var err *types.NewAPIError
++	var responseProof *antipoison.ProofStreamValidator
++	var pendingClaudeData []claudePendingStreamData
++	if info.AntiPoisonResponseProofNonce != "" {
++		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
++	}
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
++		if responseProof != nil && !responseProof.Verified() {
++			var claudeResponse dto.ClaudeResponse
++			if unmarshalErr := common.UnmarshalJsonStr(data, &claudeResponse); unmarshalErr != nil {
++				err = types.NewError(unmarshalErr, types.ErrorCodeBadResponseBody)
++				sr.Stop(err)
++				return
++			}
++			cleanData, hold, proofErr := prepareClaudeStreamResponseProof(&claudeResponse, data, responseProof)
++			if proofErr != nil {
++				err = proofErr
++				sr.Stop(proofErr)
++				return
++			}
++			if hold {
++				if cleanData != "" {
++					pendingClaudeData = append(pendingClaudeData, claudePendingStreamData{response: claudeResponse, data: cleanData})
++				}
++				return
++			}
++			for _, pending := range pendingClaudeData {
++				err = HandleStreamResponseData(c, info, claudeInfo, pending.data)
++				if err != nil {
++					sr.Stop(err)
++					return
++				}
++			}
++			pendingClaudeData = nil
++			data = cleanData
++		}
+ 		err = HandleStreamResponseData(c, info, claudeInfo, data)
+ 		if err != nil {
+ 			sr.Stop(err)
+@@ -883,6 +950,12 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if responseProof != nil {
++		if proofErr := responseProof.Finalize(); proofErr != nil {
++			logger.LogError(c, "anti-poison claude proof stream validation failed: "+proofErr.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
+ 
+ 	HandleStreamFinalResponse(c, info, claudeInfo)
+ 	return claudeInfo.Usage, nil
+@@ -897,6 +970,25 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
  	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
  		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
  	}
++
++	if info.AntiPoisonResponseProofNonce != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if err := antipoison.ValidateAndStripClaudeResponseProof(&claudeResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			logger.LogError(c, "anti-poison claude proof validation failed: "+err.Error())
++			return types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++		data, err = common.Marshal(claudeResponse)
++		if err != nil {
++			return types.NewError(err, types.ErrorCodeBadResponseBody)
++		}
++	}
 +
 +	// Anti-poison: validate guard coverage and strip markers from the response
 +	// before returning to the client. Stored prefix from request-side injection.
@@ -8366,10 +8838,10 @@ index 581ae19..b619fd7 100644
  			usage, err = OaiResponsesHandler(c, info, resp)
  		}
 diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
-index 2c07522..a0f15eb 100644
+index 2c07522..34d8ed6 100644
 --- a/relay/channel/openai/chat_via_responses.go
 +++ b/relay/channel/openai/chat_via_responses.go
-@@ -4,6 +4,7 @@ import (
+@@ -4,12 +4,14 @@ import (
  	"fmt"
  	"io"
  	"net/http"
@@ -8377,7 +8849,28 @@ index 2c07522..a0f15eb 100644
  	"strings"
  	"time"
  
-@@ -86,6 +87,54 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/dto"
+ 	"github.com/QuantumNous/new-api/logger"
++	"github.com/QuantumNous/new-api/relay/antipoison"
+ 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+ 	"github.com/QuantumNous/new-api/relay/helper"
+ 	"github.com/QuantumNous/new-api/service"
+@@ -58,6 +60,13 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+ 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+ 	}
++	if info.AntiPoisonResponseProofNonce != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			logger.LogError(c, "anti-poison responses-to-chat proof validation failed: "+err.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
+ 
+ 	chatId := helper.GetResponseID(c)
+ 	chatResp, usage, err := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatId)
+@@ -86,6 +95,54 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
  		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
  	}
  
@@ -8432,7 +8925,19 @@ index 2c07522..a0f15eb 100644
  	service.IOCopyBytesGracefully(c, resp, responseBody)
  	return usage, nil
  }
-@@ -115,6 +164,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+@@ -110,11 +167,19 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		sawToolCall bool
+ 		streamErr   *types.NewAPIError
+ 	)
++	var responseProof *antipoison.ProofStreamValidator
++	if info.AntiPoisonResponseProofNonce != "" {
++		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
++	}
++	var antiPoisonMarkers []string
++	var antiPoisonTools []string
++	antiPoisonToolSeen := map[string]bool{}
+ 
+ 	toolCallIndexByID := make(map[string]int)
  	toolCallNameByID := make(map[string]string)
  	toolCallArgsByID := make(map[string]string)
  	toolCallNameSent := make(map[string]bool)
@@ -8440,7 +8945,7 @@ index 2c07522..a0f15eb 100644
  	toolCallCanonicalIDByItemID := make(map[string]string)
  	hasSentReasoningSummary := false
  	needsReasoningSummarySeparator := false
-@@ -230,6 +280,23 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+@@ -230,6 +295,23 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
  		return true
  	}
  
@@ -8464,7 +8969,7 @@ index 2c07522..a0f15eb 100644
  	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
  		if callID == "" {
  			return true
-@@ -253,6 +320,13 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+@@ -253,6 +335,13 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
  		if toolCallNameByID[callID] != "" {
  			name = toolCallNameByID[callID]
  		}
@@ -8478,7 +8983,7 @@ index 2c07522..a0f15eb 100644
  
  		tool := dto.ToolCallResponse{
  			ID:   callID,
-@@ -267,20 +341,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+@@ -267,20 +356,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
  			toolCallNameSent[callID] = true
  		}
  
@@ -8500,7 +9005,7 @@ index 2c07522..a0f15eb 100644
  		if !sendChatChunk(chunk) {
  			return false
  		}
-@@ -296,6 +357,46 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+@@ -296,6 +372,46 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
  		return true
  	}
  
@@ -8547,18 +9052,135 @@ index 2c07522..a0f15eb 100644
  	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
  		if streamErr != nil {
  			sr.Stop(streamErr)
-@@ -475,6 +576,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
- 				}
+@@ -358,15 +474,33 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 		//	}
+ 
+ 		case "response.output_text.delta":
+-			if !sendStartIfNeeded() {
+-				sr.Stop(streamErr)
+-				return
+-			}
+-
+ 			if streamResp.Delta != "" {
+-				outputText.WriteString(streamResp.Delta)
+-				usageText.WriteString(streamResp.Delta)
+ 				delta := streamResp.Delta
++				if info.AntiPoisonGuardPrefix != "" {
++					cleaned, markers := antipoison.StripResponsesTextDelta(delta, antipoison.ResponseGuardConfig(info))
++					if len(markers) > 0 {
++						antiPoisonMarkers = append(antiPoisonMarkers, markers...)
++						delta = cleaned
++					}
++				}
++				if responseProof != nil && !responseProof.Verified() {
++					cleaned, hold, proofErr := responseProof.ProcessText(delta)
++					if proofErr != nil {
++						streamErr = types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++						sr.Stop(streamErr)
++						return
++					}
++					if hold {
++						return
++					}
++					delta = cleaned
++				}
++				if !sendStartIfNeeded() {
++					sr.Stop(streamErr)
++					return
++				}
++				outputText.WriteString(delta)
++				usageText.WriteString(delta)
+ 				chunk := &dto.ChatCompletionsStreamResponse{
+ 					Id:      responseId,
+ 					Object:  "chat.completion.chunk",
+@@ -406,6 +540,16 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 			name := strings.TrimSpace(streamResp.Item.Name)
+ 			if name != "" {
+ 				toolCallNameByID[callID] = name
++				if info.AntiPoisonGuardPrefix != "" {
++					key := callID
++					if key == "" {
++						key = name
++					}
++					if !antiPoisonToolSeen[key] {
++						antiPoisonToolSeen[key] = true
++						antiPoisonTools = append(antiPoisonTools, name)
++					}
++				}
  			}
  
+ 			newArgs := streamResp.Item.ArgumentsString()
+@@ -473,13 +617,50 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 						usage.CompletionTokenDetails.ReasoningTokens = streamResp.Response.Usage.CompletionTokenDetails.ReasoningTokens
+ 					}
+ 				}
++				if info.AntiPoisonGuardPrefix != "" {
++					for _, out := range streamResp.Response.Output {
++						if out.Type == "function_call" && strings.TrimSpace(out.Name) != "" {
++							name := strings.TrimSpace(out.Name)
++							key := strings.TrimSpace(out.CallId)
++							if key == "" {
++								key = strings.TrimSpace(out.ID)
++							}
++							if key == "" {
++								key = name
++							}
++							if !antiPoisonToolSeen[key] {
++								antiPoisonToolSeen[key] = true
++								antiPoisonTools = append(antiPoisonTools, name)
++							}
++						}
++					}
++				}
+ 			}
+ 
+-			if !sendStartIfNeeded() {
 +			if !flushClaudeToolCallArguments() {
-+				sr.Stop(streamErr)
-+				return
-+			}
- 			if !sendStartIfNeeded() {
  				sr.Stop(streamErr)
  				return
-@@ -525,6 +630,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 			}
+ 			if !sentStop {
++				if responseProof != nil {
++					if proofErr := responseProof.Finalize(); proofErr != nil {
++						streamErr = types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++						sr.Stop(streamErr)
++						return
++					}
++				}
++				if info.AntiPoisonGuardPrefix != "" {
++					cfg := antipoison.ResponseGuardConfig(info)
++					if guardErr := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); guardErr != nil {
++						streamErr = types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
++						sr.Stop(streamErr)
++						return
++					}
++				}
++				if !sendStartIfNeeded() {
++					sr.Stop(streamErr)
++					return
++				}
+ 				if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+ 					info.ClaudeConvertInfo.Usage = usage
+ 				}
+@@ -514,6 +695,17 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 	if streamErr != nil {
+ 		return nil, streamErr
+ 	}
++	if responseProof != nil {
++		if proofErr := responseProof.Finalize(); proofErr != nil {
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
++	if info.AntiPoisonGuardPrefix != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if guardErr := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); guardErr != nil {
++			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
+ 
+ 	if usage.TotalTokens == 0 {
+ 		usage = service.ResponseText2Usage(c, usageText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+@@ -525,6 +717,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
  		}
  	}
  	if !sentStop {
@@ -8569,7 +9191,7 @@ index 2c07522..a0f15eb 100644
  			info.ClaudeConvertInfo.Usage = usage
  		}
 diff --git a/relay/channel/openai/relay-openai.go b/relay/channel/openai/relay-openai.go
-index d6a354f..c008505 100644
+index d6a354f..7c72a0b 100644
 --- a/relay/channel/openai/relay-openai.go
 +++ b/relay/channel/openai/relay-openai.go
 @@ -10,6 +10,7 @@ import (
@@ -8580,17 +9202,95 @@ index d6a354f..c008505 100644
  	"github.com/QuantumNous/new-api/relay/channel/openrouter"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/relay/helper"
-@@ -121,6 +122,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -103,6 +104,59 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
+ 	return helper.ObjectData(c, lastStreamResponse)
+ }
+ 
++func stripOpenAIStreamResponseProof(data string, proof *antipoison.ProofStreamValidator) (string, bool, error) {
++	if proof == nil || proof.Verified() || data == "" {
++		return data, false, nil
++	}
++	var chunk dto.ChatCompletionsStreamResponse
++	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
++		return data, true, err
++	}
++	changed := false
++	for i := range chunk.Choices {
++		delta := &chunk.Choices[i].Delta
++		if delta.Content == nil {
++			continue
++		}
++		cleaned, hold, err := proof.ProcessText(delta.GetContentString())
++		if err != nil {
++			return "", true, err
++		}
++		if hold {
++			return "", true, nil
++		}
++		delta.SetContentString(cleaned)
++		changed = true
++	}
++	if !changed && !proof.Verified() {
++		return data, false, nil
++	}
++	if !changed {
++		return data, false, nil
++	}
++	b, err := common.Marshal(chunk)
++	if err != nil {
++		return data, false, err
++	}
++	return string(b), false, nil
++}
++
++func openAIStreamChunkHasVisibleText(data string) bool {
++	if data == "" {
++		return false
++	}
++	var chunk dto.ChatCompletionsStreamResponse
++	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
++		return false
++	}
++	for _, choice := range chunk.Choices {
++		if strings.TrimSpace(choice.Delta.GetContentString()) != "" {
++			return true
++		}
++	}
++	return false
++}
++
+ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+ 	if resp == nil || resp.Body == nil {
+ 		logger.LogError(c, "invalid response or response body")
+@@ -121,18 +175,64 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
  	var usage = &dto.Usage{}
  	var lastStreamData string
  	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 +	var antiPoisonMarkers []string
 +	var antiPoisonTools []string
++	var responseProof *antipoison.ProofStreamValidator
++	var pendingStreamData []string
++	if info.AntiPoisonResponseProofNonce != "" {
++		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
++	}
  
  	// 检查是否为音频模型
  	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
-@@ -133,6 +136,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+ 
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+ 		if lastStreamData != "" {
+-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+-				common.SysLog("error handling stream format: " + err.Error())
+-				sr.Error(err)
++			if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
++				pendingStreamData = append(pendingStreamData, lastStreamData)
++			} else {
++				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
++					common.SysLog("error handling stream format: " + err.Error())
++					sr.Error(err)
++				}
  			}
++			lastStreamData = ""
  		}
  		if len(data) > 0 {
 +			if info.AntiPoisonGuardPrefix != "" {
@@ -8605,13 +9305,41 @@ index d6a354f..c008505 100644
 +					antiPoisonTools = append(antiPoisonTools, tools...)
 +				}
 +			}
++			if responseProof != nil && !responseProof.Verified() {
++				cleanData, hold, proofErr := stripOpenAIStreamResponseProof(data, responseProof)
++				if proofErr != nil {
++					logger.LogError(c, "anti-poison response proof stream validation failed: "+proofErr.Error())
++					sr.Stop(proofErr)
++					return
++				}
++				if hold {
++					if cleanData != "" {
++						pendingStreamData = append(pendingStreamData, cleanData)
++					}
++					return
++				}
++				data = cleanData
++				for _, pending := range pendingStreamData {
++					if err := HandleStreamFormat(c, info, pending, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
++						common.SysLog("error handling buffered stream format: " + err.Error())
++						sr.Error(err)
++					}
++				}
++				pendingStreamData = nil
++			}
  			// 对音频模型，保存倒数第二个stream data
  			if isAudioModel && lastStreamData != "" {
  				secondLastStreamData = lastStreamData
-@@ -145,6 +160,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -145,6 +245,19 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
  			}
  		}
  	})
++	if responseProof != nil {
++		if err := responseProof.Finalize(); err != nil {
++			logger.LogError(c, "anti-poison response proof stream validation failed: "+err.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -8622,10 +9350,34 @@ index d6a354f..c008505 100644
  
  	// 对音频模型，从倒数第二个stream data中提取usage信息
  	if isAudioModel && secondLastStreamData != "" {
-@@ -222,6 +244,17 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
+@@ -173,7 +286,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+ 
+ 	if info.RelayFormat == types.RelayFormatOpenAI {
+ 		if shouldSendLastResp {
+-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
++			if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
++				pendingStreamData = append(pendingStreamData, lastStreamData)
++			} else {
++				_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
++			}
+ 		}
+ 	}
+ 
+@@ -222,6 +339,28 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
  	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
++	if info.AntiPoisonResponseProofNonce != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if err := antipoison.ValidateAndStripOpenAIResponseProof(&simpleResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			logger.LogError(c, "anti-poison response proof validation failed: "+err.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++		responseBody, err = common.Marshal(simpleResponse)
++		if err != nil {
++			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
++		}
++	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripOpenAIResponse(&simpleResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -8641,7 +9393,7 @@ index d6a354f..c008505 100644
  	for _, choice := range simpleResponse.Choices {
  		if choice.FinishReason == constant.FinishReasonContentFilter {
 diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
-index 2665b8d..8d978d5 100644
+index 2665b8d..5d1a17e 100644
 --- a/relay/channel/openai/relay_responses.go
 +++ b/relay/channel/openai/relay_responses.go
 @@ -1,6 +1,7 @@
@@ -8660,10 +9412,33 @@ index 2665b8d..8d978d5 100644
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/relay/helper"
  	"github.com/QuantumNous/new-api/service"
-@@ -33,6 +35,17 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
+@@ -17,6 +19,11 @@ import (
+ 	"github.com/gin-gonic/gin"
+ )
+ 
++type responsesPendingStreamData struct {
++	response dto.ResponsesStreamResponse
++	data     string
++}
++
+ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+ 	defer service.CloseResponseBodyGracefully(resp)
+ 
+@@ -33,6 +40,28 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
  	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
++	if info.AntiPoisonResponseProofNonce != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			logger.LogError(c, "anti-poison responses proof validation failed: "+err.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++		responseBody, err = common.Marshal(responsesResponse)
++		if err != nil {
++			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
++		}
++	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripResponsesResponse(&responsesResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -8678,7 +9453,7 @@ index 2665b8d..8d978d5 100644
  
  	if responsesResponse.HasImageGenerationCall() {
  		c.Set("image_generation_call", true)
-@@ -68,6 +81,174 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
+@@ -68,6 +97,181 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
  	return &usage, nil
  }
  
@@ -8794,6 +9569,13 @@ index 2665b8d..8d978d5 100644
 +			return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 +		}
 +	}
++	if info != nil && info.AntiPoisonResponseProofNonce != "" {
++		cfg := antipoison.ResponseGuardConfig(info)
++		if err := antipoison.ValidateAndStripResponsesResponseProof(finalResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			logger.LogError(c, "anti-poison aggregated responses proof validation failed: "+err.Error())
++			return nil, nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
 +	usage := responsesUsageFromResponse(info, finalResp, outputText.String())
 +	if finalResp.Usage == nil {
 +		finalResp.Usage = usage
@@ -8853,19 +9635,26 @@ index 2665b8d..8d978d5 100644
  func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
  	if resp == nil || resp.Body == nil {
  		logger.LogError(c, "invalid response or response body")
-@@ -78,6 +259,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+@@ -78,6 +282,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
  
  	var usage = &dto.Usage{}
  	var responseTextBuilder strings.Builder
 +	var antiPoisonMarkers []string
 +	var antiPoisonTools []string
++	antiPoisonToolSeen := map[string]bool{}
++	var responseProof *antipoison.ProofStreamValidator
++	var pendingResponsesData []responsesPendingStreamData
++	if info.AntiPoisonResponseProofNonce != "" {
++		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
++	}
  
  	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
  
-@@ -88,6 +271,37 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+@@ -88,7 +300,89 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
  			sr.Error(err)
  			return
  		}
+-		sendResponsesStreamData(c, streamResponse, data)
 +		if info.AntiPoisonGuardPrefix != "" {
 +			switch streamResponse.Type {
 +			case "response.output_text.delta":
@@ -8884,26 +9673,84 @@ index 2665b8d..8d978d5 100644
 +			case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
 +				if streamResponse.Item != nil && streamResponse.Item.Type == "function_call" {
 +					if strings.TrimSpace(streamResponse.Item.Name) != "" {
-+						antiPoisonTools = append(antiPoisonTools, streamResponse.Item.Name)
++						name := strings.TrimSpace(streamResponse.Item.Name)
++						key := strings.TrimSpace(streamResponse.Item.CallId)
++						if key == "" {
++							key = strings.TrimSpace(streamResponse.Item.ID)
++						}
++						if key == "" {
++							key = name
++						}
++						if !antiPoisonToolSeen[key] {
++							antiPoisonToolSeen[key] = true
++							antiPoisonTools = append(antiPoisonTools, name)
++						}
 +					}
 +				}
 +			case "response.completed":
 +				if streamResponse.Response != nil {
 +					for _, out := range streamResponse.Response.Output {
 +						if out.Type == "function_call" && strings.TrimSpace(out.Name) != "" {
-+							antiPoisonTools = append(antiPoisonTools, out.Name)
++							name := strings.TrimSpace(out.Name)
++							key := strings.TrimSpace(out.CallId)
++							if key == "" {
++								key = strings.TrimSpace(out.ID)
++							}
++							if key == "" {
++								key = name
++							}
++							if !antiPoisonToolSeen[key] {
++								antiPoisonToolSeen[key] = true
++								antiPoisonTools = append(antiPoisonTools, name)
++							}
 +						}
 +					}
 +				}
 +			}
 +		}
- 		sendResponsesStreamData(c, streamResponse, data)
++		if responseProof != nil && !responseProof.Verified() {
++			cleanData, hold, proofErr := stripResponsesStreamResponseProof(data, &streamResponse, responseProof)
++			if proofErr != nil {
++				logger.LogError(c, "anti-poison responses proof stream validation failed: "+proofErr.Error())
++				sr.Stop(proofErr)
++				return
++			}
++			if hold {
++				if cleanData != "" {
++					pendingResponsesData = append(pendingResponsesData, responsesPendingStreamData{response: streamResponse, data: cleanData})
++				}
++				return
++			} else {
++				data = cleanData
++				for _, pending := range pendingResponsesData {
++					sendResponsesStreamData(c, pending.response, pending.data)
++				}
++				pendingResponsesData = nil
++				if data != "" {
++					if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
++						logger.LogError(c, "failed to unmarshal proof-cleaned responses stream response: "+err.Error())
++						sr.Stop(err)
++						return
++					}
++					sendResponsesStreamData(c, streamResponse, data)
++				}
++			}
++		} else {
++			sendResponsesStreamData(c, streamResponse, data)
++		}
  		switch streamResponse.Type {
  		case "response.completed":
-@@ -129,6 +343,13 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 			if streamResponse.Response != nil {
+@@ -129,6 +423,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
  			}
  		}
  	})
++	if responseProof != nil {
++		if err := responseProof.Finalize(); err != nil {
++			logger.LogError(c, "anti-poison responses proof stream validation failed: "+err.Error())
++			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++		}
++	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -8914,6 +9761,32 @@ index 2665b8d..8d978d5 100644
  
  	if usage.CompletionTokens == 0 {
  		// 计算输出文本的 token 数量
+@@ -148,3 +455,25 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 
+ 	return usage, nil
+ }
++
++func stripResponsesStreamResponseProof(data string, streamResponse *dto.ResponsesStreamResponse, proof *antipoison.ProofStreamValidator) (string, bool, error) {
++	if proof == nil || proof.Verified() || data == "" || streamResponse == nil {
++		return data, false, nil
++	}
++	if streamResponse.Type != "response.output_text.delta" {
++		return data, false, nil
++	}
++	cleaned, hold, err := proof.ProcessText(streamResponse.Delta)
++	if err != nil {
++		return "", true, err
++	}
++	if hold {
++		return "", true, nil
++	}
++	streamResponse.Delta = cleaned
++	b, err := common.Marshal(streamResponse)
++	if err != nil {
++		return data, false, err
++	}
++	return string(b), false, nil
++}
 diff --git a/relay/chat_completions_via_responses.go b/relay/chat_completions_via_responses.go
 index c47da1f..6049a56 100644
 --- a/relay/chat_completions_via_responses.go
@@ -9088,7 +9961,7 @@ index 0000000..0410334
 +	return nil
 +}
 diff --git a/relay/claude_handler.go b/relay/claude_handler.go
-index 7ec934f..509f94d 100644
+index 7ec934f..e2b1559 100644
 --- a/relay/claude_handler.go
 +++ b/relay/claude_handler.go
 @@ -11,6 +11,7 @@ import (
@@ -9107,13 +9980,14 @@ index 7ec934f..509f94d 100644
  
  	claudeReq, ok := info.Request.(*dto.ClaudeRequest)
  
-@@ -128,9 +130,14 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
+@@ -128,9 +130,15 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
  		}
  	}
  
 +	// Anti-poison: optionally inject a guard contract into the system prompt so
 +	// the model marks each real tool call. Defaults to off; only runs when the
 +	// channel enables it. Stored on RelayInfo for response-side validation.
++	antipoison.ApplyClaudeResponseProof(info, request)
 +	applyClaudeAntiPoisonRequest(c, info, request)
 +
  	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
@@ -9124,7 +9998,7 @@ index 7ec934f..509f94d 100644
  		if convErr != nil {
  			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
-index 2f7afd3..5519584 100644
+index 2f7afd3..0c01d65 100644
 --- a/relay/common/relay_info.go
 +++ b/relay/common/relay_info.go
 @@ -40,6 +40,8 @@ type ClaudeConvertInfo struct {
@@ -9136,7 +10010,7 @@ index 2f7afd3..5519584 100644
  
  	ToolCallBaseIndex      int
  	ToolCallMaxIndexOffset int
-@@ -153,6 +155,18 @@ type RelayInfo struct {
+@@ -153,6 +155,22 @@ type RelayInfo struct {
  	RuntimeHeadersOverride                map[string]interface{}
  	UseRuntimeHeadersOverride             bool
  	ParamOverrideAudit                    []string
@@ -9152,6 +10026,10 @@ index 2f7afd3..5519584 100644
 +	// AntiPoisonGuardPrefix is retained for older patch compatibility. The
 +	// current upstream-error normalization path does not inject guard prompts.
 +	AntiPoisonGuardPrefix string
++	// AntiPoisonResponseProofNonce is a per-request nonce that normal text
++	// responses must echo in a hidden proof marker before any text is released
++	// downstream. It is independent from the tool-call guard prefix.
++	AntiPoisonResponseProofNonce string
  
  	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
  	// body. It is set when the body is wrapped in a BodyStorage (see
@@ -9260,7 +10138,7 @@ index 4a31cb7..fd917ca 100644
  		{StreamEndReasonScannerErr, false},
  		{StreamEndReasonPanic, false},
 diff --git a/relay/compatible_handler.go b/relay/compatible_handler.go
-index a68cfe7..cd84e77 100644
+index a68cfe7..cae8cb8 100644
 --- a/relay/compatible_handler.go
 +++ b/relay/compatible_handler.go
 @@ -10,6 +10,7 @@ import (
@@ -9279,15 +10157,16 @@ index a68cfe7..cd84e77 100644
  
  	textReq, ok := info.Request.(*dto.GeneralOpenAIRequest)
  	if !ok {
-@@ -38,6 +40,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
+@@ -38,6 +40,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
  	if request.WebSearchOptions != nil {
  		c.Set("chat_completion_web_search_context_size", request.WebSearchOptions.SearchContextSize)
  	}
++	antipoison.ApplyOpenAIResponseProof(info, request)
 +	antipoison.ApplyOpenAIRequestGuard(info, request)
  
  	err = helper.ModelMappedHelper(c, info, request)
  	if err != nil {
-@@ -74,7 +77,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
+@@ -74,7 +78,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
  	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
  		!passThroughGlobal &&
  		!info.ChannelSetting.PassThroughBodyEnabled &&
@@ -9602,7 +10481,7 @@ index 2581b28..b2272f0 100644
  	textRequest := &dto.GeneralOpenAIRequest{}
  	err := common.UnmarshalBodyReusable(c, textRequest)
 diff --git a/relay/responses_handler.go b/relay/responses_handler.go
-index 010c38b..3633115 100644
+index 010c38b..a8d5c05 100644
 --- a/relay/responses_handler.go
 +++ b/relay/responses_handler.go
 @@ -10,6 +10,7 @@ import (
@@ -9621,7 +10500,7 @@ index 010c38b..3633115 100644
  	if info.RelayMode == relayconstant.RelayModeResponsesCompact {
  		switch info.ApiType {
  		case appconstant.APITypeOpenAI, appconstant.APITypeCodex:
-@@ -60,6 +62,18 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
+@@ -60,6 +62,19 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
  		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
  	}
  
@@ -9629,6 +10508,7 @@ index 010c38b..3633115 100644
 +		request.Stream = common.GetPointer(true)
 +		c.Set("responses_upstream_stream", true)
 +	}
++	antipoison.ApplyResponsesResponseProof(info, request)
 +	antipoison.ApplyResponsesRequestGuard(info, request)
 +	if result := service.SanitizeResponsesReasoningContent(request); result.Changed {
 +		logger.LogInfo(c, fmt.Sprintf(
@@ -12006,10 +12886,10 @@ index 0000000..bd53a63
 +}
 diff --git a/setting/operation_setting/anti_poison_setting.go b/setting/operation_setting/anti_poison_setting.go
 new file mode 100644
-index 0000000..aa7bf73
+index 0000000..d232e81
 --- /dev/null
 +++ b/setting/operation_setting/anti_poison_setting.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,39 @@
 +package operation_setting
 +
 +import "github.com/QuantumNous/new-api/setting/config"
@@ -12017,6 +12897,7 @@ index 0000000..aa7bf73
 +type AntiPoisonSetting struct {
 +	Enabled                  bool   `json:"enabled"`
 +	ChannelTestNonceEnabled  bool   `json:"channel_test_nonce_enabled"`
++	ResponseProofEnabled     bool   `json:"response_proof_enabled"`
 +	ToolCallGuardEnabled     bool   `json:"tool_call_guard_enabled"`
 +	ToolCallGuardStrict      bool   `json:"tool_call_guard_strict"`
 +	FailureMode              string `json:"failure_mode"`
@@ -12031,6 +12912,7 @@ index 0000000..aa7bf73
 +var antiPoisonSetting = AntiPoisonSetting{
 +	Enabled:                  true,
 +	ChannelTestNonceEnabled:  true,
++	ResponseProofEnabled:     true,
 +	ToolCallGuardEnabled:     true,
 +	ToolCallGuardStrict:      true,
 +	FailureMode:              "warn",
