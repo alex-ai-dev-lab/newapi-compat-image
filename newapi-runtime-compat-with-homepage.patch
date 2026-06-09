@@ -12886,7 +12886,7 @@ index 0000000..bd53a63
 +}
 diff --git a/setting/operation_setting/anti_poison_setting.go b/setting/operation_setting/anti_poison_setting.go
 new file mode 100644
-index 0000000..d232e81
+index 0000000..d064eee
 --- /dev/null
 +++ b/setting/operation_setting/anti_poison_setting.go
 @@ -0,0 +1,39 @@
@@ -12915,7 +12915,7 @@ index 0000000..d232e81
 +	ResponseProofEnabled:     true,
 +	ToolCallGuardEnabled:     true,
 +	ToolCallGuardStrict:      true,
-+	FailureMode:              "warn",
++	FailureMode:              "block",
 +	StripGuardOutput:         true,
 +	MaxGuardScanBytes:        65536,
 +	DownstreamProofHeader:    false,
