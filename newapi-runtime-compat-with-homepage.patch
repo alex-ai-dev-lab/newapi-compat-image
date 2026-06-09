@@ -14675,7 +14675,7 @@ index d511128..bf7c879 100644
            >
              <Settings className='mr-1 h-3 w-3 shrink-0' />
 diff --git a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
-index 6b26cd1..a5b3742 100644
+index 6b26cd1..0ee74e1 100644
 --- a/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 +++ b/web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx
 @@ -112,6 +112,7 @@ import {
@@ -14686,17 +14686,18 @@ index 6b26cd1..a5b3742 100644
    refreshCodexCredential,
  } from '../../api'
  import {
-@@ -218,7 +219,9 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
+@@ -218,7 +219,10 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
      values.thinking_to_content ||
      values.pass_through_body_enabled ||
      values.system_prompt_override ||
++    values.anti_poison_enabled === false ||
 +    values.requires_codex_identity !== 'auto' ||
      values.claude_beta_query ||
 +    values.auto_test_and_recover_enabled === false ||
      values.upstream_model_update_check_enabled ||
      values.upstream_model_update_auto_sync_enabled ||
      values.upstream_model_update_ignored_models?.trim()
-@@ -318,6 +321,11 @@ export function ChannelMutateDrawer({
+@@ -318,6 +322,11 @@ export function ChannelMutateDrawer({
      queryFn: getGroups,
    })
  
@@ -14708,7 +14709,7 @@ index 6b26cd1..a5b3742 100644
    // Fetch all available models
    const { data: allModelsData } = useQuery({
      queryKey: ['channel_models'],
-@@ -434,6 +442,17 @@ export function ChannelMutateDrawer({
+@@ -434,6 +443,17 @@ export function ChannelMutateDrawer({
      }))
    }, [groupsData, currentGroups])
  
@@ -14726,7 +14727,7 @@ index 6b26cd1..a5b3742 100644
    // Parse current models as array
    const currentModelsArray = useMemo(
      () => parseModelsString(currentModels),
-@@ -2567,11 +2586,11 @@ export function ChannelMutateDrawer({
+@@ -2567,11 +2587,11 @@ export function ChannelMutateDrawer({
                            )}
                          />
  
@@ -14743,7 +14744,7 @@ index 6b26cd1..a5b3742 100644
                                <div className='space-y-0.5'>
                                  <FormLabel>{t('Auto Ban')}</FormLabel>
                                  <FormDescription>
-@@ -2586,10 +2605,299 @@ export function ChannelMutateDrawer({
+@@ -2586,10 +2606,320 @@ export function ChannelMutateDrawer({
                                    }
                                  />
                                </FormControl>
@@ -14842,6 +14843,27 @@ index 6b26cd1..a5b3742 100644
 +                                <FormLabel>{t('Normalize upstream errors')}</FormLabel>
 +                                <FormDescription>
 +                                  {t('Return fixed client-facing error messages while keeping sanitized logs.')}
++                                </FormDescription>
++                              </div>
++                              <FormControl>
++                                <Switch
++                                  checked={field.value !== false}
++                                  onCheckedChange={field.onChange}
++                                />
++                              </FormControl>
++                            </FormItem>
++                          )}
++                        />
++
++                        <FormField
++                          control={form.control}
++                          name='anti_poison_enabled'
++                          render={({ field }) => (
++                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
++                              <div className='space-y-0.5'>
++                                <FormLabel>{t('Anti-Poison validation')}</FormLabel>
++                                <FormDescription>
++                                  {t('Enabled by default. Disable only for channels that cannot follow guard validation.')}
 +                                </FormDescription>
 +                              </div>
 +                              <FormControl>
@@ -15057,16 +15079,17 @@ index 5fd88d5..af187d1 100644
    TAG: 'Group channels by tag for batch operations',
    REMARK: 'Internal notes (not shown to users)',
 diff --git a/web/default/src/features/channels/lib/channel-form.ts b/web/default/src/features/channels/lib/channel-form.ts
-index 4f0e504..895879a 100644
+index 4f0e504..4287129 100644
 --- a/web/default/src/features/channels/lib/channel-form.ts
 +++ b/web/default/src/features/channels/lib/channel-form.ts
-@@ -182,6 +182,19 @@ export const channelFormSchema = z
+@@ -182,6 +182,20 @@ export const channelFormSchema = z
      pass_through_body_enabled: z.boolean().optional(),
      system_prompt: z.string().optional(),
      system_prompt_override: z.boolean().optional(),
 +    user_agent_id: z.number().optional(),
 +    user_agent_override: z.string().optional(),
 +    normalize_upstream_errors: z.boolean().optional(),
++    anti_poison_enabled: z.boolean().optional(),
 +    requires_codex_identity: z.enum(['auto', 'true', 'false']).optional(),
 +    supports_claude_thinking: z
 +      .enum(['auto', 'true', 'false'])
@@ -15080,7 +15103,7 @@ index 4f0e504..895879a 100644
      // Type-specific settings (stored in settings JSON)
      is_enterprise_account: z.boolean().optional(), // OpenRouter specific
      vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
-@@ -195,6 +208,7 @@ export const channelFormSchema = z
+@@ -195,6 +209,7 @@ export const channelFormSchema = z
      allow_inference_geo: z.boolean().optional(), // OpenAI/Anthropic: inference geography
      allow_speed: z.boolean().optional(), // Anthropic: speed mode control
      claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
@@ -15088,7 +15111,7 @@ index 4f0e504..895879a 100644
      // Upstream model update settings (stored in settings JSON)
      upstream_model_update_check_enabled: z.boolean().optional(),
      upstream_model_update_auto_sync_enabled: z.boolean().optional(),
-@@ -262,6 +276,12 @@ export const channelFormSchema = z
+@@ -262,6 +277,12 @@ export const channelFormSchema = z
    })
  
  export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -15101,13 +15124,14 @@ index 4f0e504..895879a 100644
  
  // ============================================================================
  // Default Form Values
-@@ -300,6 +320,17 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -300,6 +321,18 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    pass_through_body_enabled: false,
    system_prompt: '',
    system_prompt_override: false,
 +  user_agent_id: 0,
 +  user_agent_override: '',
 +  normalize_upstream_errors: true,
++  anti_poison_enabled: true,
 +  requires_codex_identity: 'auto',
 +  supports_claude_thinking: 'auto',
 +  auto_test_interval: 0,
@@ -15119,7 +15143,7 @@ index 4f0e504..895879a 100644
    // Type-specific settings
    is_enterprise_account: false,
    vertex_key_type: 'json',
-@@ -313,6 +344,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
+@@ -313,6 +346,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
    allow_inference_geo: false,
    allow_speed: false,
    claude_beta_query: false,
@@ -15127,7 +15151,7 @@ index 4f0e504..895879a 100644
    upstream_model_update_check_enabled: false,
    upstream_model_update_auto_sync_enabled: false,
    upstream_model_update_ignored_models: '',
-@@ -329,13 +361,43 @@ export function transformChannelToFormDefaults(
+@@ -329,13 +363,45 @@ export function transformChannelToFormDefaults(
    channel: Channel
  ): ChannelFormValues {
    // Parse channel extra settings from setting field
@@ -15143,6 +15167,7 @@ index 4f0e504..895879a 100644
 +    | 'user_agent_id'
 +    | 'user_agent_override'
 +    | 'normalize_upstream_errors'
++    | 'anti_poison_enabled'
 +    | 'requires_codex_identity'
 +    | 'supports_claude_thinking'
 +    | 'auto_test_interval'
@@ -15161,6 +15186,7 @@ index 4f0e504..895879a 100644
 +    user_agent_id: 0,
 +    user_agent_override: '',
 +    normalize_upstream_errors: true,
++    anti_poison_enabled: true,
 +    requires_codex_identity: 'auto',
 +    supports_claude_thinking: 'auto',
 +    auto_test_interval: 0,
@@ -15172,13 +15198,14 @@ index 4f0e504..895879a 100644
    }
  
    if (channel.setting) {
-@@ -348,6 +410,23 @@ export function transformChannelToFormDefaults(
+@@ -348,6 +414,24 @@ export function transformChannelToFormDefaults(
          pass_through_body_enabled: parsed.pass_through_body_enabled || false,
          system_prompt: parsed.system_prompt || '',
          system_prompt_override: parsed.system_prompt_override || false,
 +        user_agent_id: Number(parsed.user_agent_id || 0),
 +        user_agent_override: parsed.user_agent_override || '',
 +        normalize_upstream_errors: parsed.normalize_upstream_errors !== false,
++        anti_poison_enabled: parsed.anti_poison_enabled !== false,
 +        requires_codex_identity:
 +          typeof parsed.requires_codex_identity === 'boolean'
 +            ? (String(parsed.requires_codex_identity) as CodexIdentityMode)
@@ -15196,7 +15223,7 @@ index 4f0e504..895879a 100644
        }
      } catch (error) {
        // eslint-disable-next-line no-console
-@@ -367,6 +446,7 @@ export function transformChannelToFormDefaults(
+@@ -367,6 +451,7 @@ export function transformChannelToFormDefaults(
    let allowInferenceGeo = false
    let allowSpeed = false
    let claudeBetaQuery = false
@@ -15204,7 +15231,7 @@ index 4f0e504..895879a 100644
    let upstreamModelUpdateCheckEnabled = false
    let upstreamModelUpdateAutoSyncEnabled = false
    let upstreamModelUpdateIgnoredModels = ''
-@@ -385,6 +465,8 @@ export function transformChannelToFormDefaults(
+@@ -385,6 +470,8 @@ export function transformChannelToFormDefaults(
        allowInferenceGeo = parsed.allow_inference_geo === true
        allowSpeed = parsed.allow_speed === true
        claudeBetaQuery = parsed.claude_beta_query === true
@@ -15213,7 +15240,7 @@ index 4f0e504..895879a 100644
        upstreamModelUpdateCheckEnabled =
          parsed.upstream_model_update_check_enabled === true
        upstreamModelUpdateAutoSyncEnabled =
-@@ -439,6 +521,7 @@ export function transformChannelToFormDefaults(
+@@ -439,6 +526,7 @@ export function transformChannelToFormDefaults(
      allow_inference_geo: allowInferenceGeo,
      allow_speed: allowSpeed,
      claude_beta_query: claudeBetaQuery,
@@ -15221,7 +15248,7 @@ index 4f0e504..895879a 100644
      allow_safety_identifier: allowSafetyIdentifier,
      upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
      upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
-@@ -450,13 +533,32 @@ export function transformChannelToFormDefaults(
+@@ -450,13 +538,33 @@ export function transformChannelToFormDefaults(
   * Build the setting JSON string from form extra settings
   */
  function buildSettingJSON(formData: ChannelFormValues): string {
@@ -15236,6 +15263,7 @@ index 4f0e504..895879a 100644
 +    user_agent_id: formData.user_agent_id ? Number(formData.user_agent_id) : undefined,
 +    user_agent_override: formData.user_agent_override || '',
 +    normalize_upstream_errors: formData.normalize_upstream_errors !== false,
++    anti_poison_enabled: formData.anti_poison_enabled !== false,
 +    auto_test_interval: Number(formData.auto_test_interval || 0),
 +    auto_test_retry_count: Number(formData.auto_test_retry_count || 2),
 +    auto_test_retry_threshold: Number(formData.auto_test_retry_threshold || 2),
@@ -15255,7 +15283,7 @@ index 4f0e504..895879a 100644
    }
    return JSON.stringify(settingObj)
  }
-@@ -541,6 +643,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
+@@ -541,6 +649,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
      if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
    }
  
@@ -15266,22 +15294,23 @@ index 4f0e504..895879a 100644
    if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
      settingsObj.upstream_model_update_check_enabled =
 diff --git a/web/default/src/features/channels/types.ts b/web/default/src/features/channels/types.ts
-index a282053..15d5ce4 100644
+index a282053..ce53786 100644
 --- a/web/default/src/features/channels/types.ts
 +++ b/web/default/src/features/channels/types.ts
-@@ -86,6 +86,11 @@ export interface ChannelSettings {
+@@ -86,6 +86,12 @@ export interface ChannelSettings {
    pass_through_body_enabled?: boolean
    system_prompt?: string
    system_prompt_override?: boolean
 +  user_agent_id?: number
 +  user_agent_override?: string
 +  normalize_upstream_errors?: boolean
++  anti_poison_enabled?: boolean
 +  requires_codex_identity?: boolean
 +  supports_claude_thinking?: boolean
  }
  
  export interface ChannelOtherSettings {
-@@ -322,6 +327,29 @@ export interface ChannelFormData {
+@@ -322,6 +328,30 @@ export interface ChannelFormData {
    multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
    multi_key_type?: 'random' | 'polling'
    batch_add_set_key_prefix_2_name?: boolean
@@ -15289,6 +15318,7 @@ index a282053..15d5ce4 100644
 +  user_agent_id?: number
 +  user_agent_override?: string
 +  normalize_upstream_errors?: boolean
++  anti_poison_enabled?: boolean
 +  requires_codex_identity?: 'auto' | 'true' | 'false'
 +  supports_claude_thinking?: 'auto' | 'true' | 'false'
 +  auto_test_interval?: number
