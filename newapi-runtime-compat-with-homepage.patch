@@ -8356,10 +8356,10 @@ index 0000000..07c016f
 +	MaxGuardScanBytes        int    `json:"max_guard_scan_bytes"`
 +	DownstreamProofHeader    bool   `json:"downstream_proof_header"`
 +	// Canary echo: inject an invisible nonce into the last user message and
-+	// require the model to echo it at the end of its reply. Defaults to off.
++	// require the model to echo it at the end of its reply. Defaults to on.
 +	CanaryEchoEnabled bool `json:"canary_echo_enabled"`
 +	// Shape check: validate response id/model/object/finish_reason fingerprint
-+	// against the protocol's known shape. Defaults to off.
++	// against the protocol's known shape. Defaults to on.
 +	ShapeCheckEnabled bool `json:"shape_check_enabled"`
 +}
 +
@@ -8374,8 +8374,8 @@ index 0000000..07c016f
 +	MaxGuardScanBytes:        65536,
 +	DownstreamProofHeader:    false,
 +	SignedHeaderAuditEnabled: false,
-+	CanaryEchoEnabled:        false,
-+	ShapeCheckEnabled:        false,
++	CanaryEchoEnabled:        true,
++	ShapeCheckEnabled:        true,
 +}
 +
 +func init() {
@@ -29018,8 +29018,8 @@ index 621ad61..2795cd3 100644
 -  supports_claude_thinking: false,
 +  anti_poison_enabled: true,
 +  anti_poison_response_proof_enabled: false,
-+  anti_poison_canary_echo_enabled: false,
-+  anti_poison_shape_check_enabled: false,
++  anti_poison_canary_echo_enabled: true,
++  anti_poison_shape_check_enabled: true,
 +  requires_codex_identity: 'auto',
 +  supports_claude_thinking: 'auto',
    auto_test_interval: 0,
@@ -29075,8 +29075,8 @@ index 621ad61..2795cd3 100644
 -    supports_claude_thinking: false,
 +    anti_poison_enabled: true,
 +    anti_poison_response_proof_enabled: false,
-+    anti_poison_canary_echo_enabled: false,
-+    anti_poison_shape_check_enabled: false,
++    anti_poison_canary_echo_enabled: true,
++    anti_poison_shape_check_enabled: true,
 +    requires_codex_identity: 'auto',
 +    supports_claude_thinking: 'auto',
      auto_test_interval: 0,
@@ -29102,9 +29102,9 @@ index 621ad61..2795cd3 100644
 +        anti_poison_response_proof_enabled:
 +          parsed.anti_poison_response_proof_enabled === true,
 +        anti_poison_canary_echo_enabled:
-+          parsed.anti_poison_canary_echo_enabled === true,
++          parsed.anti_poison_canary_echo_enabled !== false,
 +        anti_poison_shape_check_enabled:
-+          parsed.anti_poison_shape_check_enabled === true,
++          parsed.anti_poison_shape_check_enabled !== false,
 +        requires_codex_identity:
 +          typeof parsed.requires_codex_identity === 'boolean'
 +            ? (String(parsed.requires_codex_identity) as CodexIdentityMode)
