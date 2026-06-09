@@ -206,7 +206,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..dceb62f 100644
+index 037b849..e2ac890 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -2,6 +2,8 @@ package controller
@@ -246,7 +246,7 @@ index 037b849..dceb62f 100644
 +}
 +
 +func channelTestNoncePrompt(nonce string) string {
-+	return "Reply exactly this text and nothing else: " + nonce
++	return "Reply with exactly this token and nothing else. Do not add quotes, markdown, spaces, or punctuation:\n" + nonce
 +}
 +
  func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -444,7 +444,7 @@ index 037b849..dceb62f 100644
  func validateStreamTestResponseBody(respBody []byte) error {
  	b := bytes.TrimSpace(respBody)
  	if len(b) == 0 {
-@@ -653,18 +755,62 @@ func validateStreamTestResponseBody(respBody []byte) error {
+@@ -653,18 +755,137 @@ func validateStreamTestResponseBody(respBody []byte) error {
  	return errors.New("stream response body does not contain a valid stream event")
  }
  
@@ -487,7 +487,82 @@ index 037b849..dceb62f 100644
 +	if expectedNonce == "" {
 +		return true
 +	}
-+	return strings.Contains(string(respBody), expectedNonce)
++	raw := string(respBody)
++	if strings.Contains(raw, expectedNonce) {
++		return true
++	}
++	text := extractChannelTestResponseText(respBody)
++	if strings.Contains(text, expectedNonce) {
++		return true
++	}
++	return strings.Contains(normalizeChannelTestNonceText(text), normalizeChannelTestNonceText(expectedNonce))
++}
++
++func normalizeChannelTestNonceText(text string) string {
++	var b strings.Builder
++	b.Grow(len(text))
++	for _, r := range text {
++		if r >= 'a' && r <= 'z' {
++			r -= 'a' - 'A'
++		}
++		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
++			b.WriteRune(r)
++		}
++	}
++	return b.String()
++}
++
++func extractChannelTestResponseText(respBody []byte) string {
++	b := bytes.TrimSpace(respBody)
++	if len(b) == 0 {
++		return ""
++	}
++	var out strings.Builder
++	appendJSONTextFields := func(payload []byte) {
++		for _, path := range []string{
++			"choices.#.delta.content",
++			"choices.#.text",
++			"choices.#.message.content",
++			"delta",
++			"content.#.text",
++			"message.content.#.text",
++			"output.#.content.#.text",
++			"output.#.content.#.text.value",
++			"response.output_text.delta",
++			"response.delta",
++		} {
++			result := gjson.GetBytes(payload, path)
++			if !result.Exists() {
++				continue
++			}
++			if result.IsArray() {
++				result.ForEach(func(_, value gjson.Result) bool {
++					out.WriteString(value.String())
++					return true
++				})
++				continue
++			}
++			out.WriteString(result.String())
++		}
++	}
++
++	if len(b) > 0 && (b[0] == '{' || b[0] == '[') {
++		appendJSONTextFields(b)
++		return out.String()
++	}
++
++	for _, line := range bytes.Split(b, []byte{'\n'}) {
++		line = bytes.TrimSpace(line)
++		if len(line) == 0 || !bytes.HasPrefix(line, []byte("data:")) {
++			continue
++		}
++		payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
++		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
++			continue
++		}
++		appendJSONTextFields(payload)
++	}
++	return out.String()
 +}
 +
  func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
@@ -509,7 +584,7 @@ index 037b849..dceb62f 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -696,8 +842,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
+@@ -696,8 +917,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
  	return message
  }
  
@@ -528,7 +603,7 @@ index 037b849..dceb62f 100644
  
  	// 根据端点类型构建不同的测试请求
  	if endpointType != "" {
-@@ -728,7 +883,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -728,7 +958,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  			// 返回 OpenAIResponsesRequest
  			return &dto.OpenAIResponsesRequest{
  				Model:  model,
@@ -537,7 +612,7 @@ index 037b849..dceb62f 100644
  				Stream: lo.ToPtr(isStream),
  			}
  		case constant.EndpointTypeOpenAIResponseCompact:
-@@ -749,7 +904,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -749,7 +979,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  				Messages: []dto.Message{
  					{
  						Role:    "user",
@@ -546,7 +621,7 @@ index 037b849..dceb62f 100644
  					},
  				},
  				MaxTokens: lo.ToPtr(maxTokens),
-@@ -794,7 +949,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -794,7 +1024,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  	if strings.Contains(strings.ToLower(model), "codex") {
  		return &dto.OpenAIResponsesRequest{
  			Model:  model,
@@ -555,7 +630,7 @@ index 037b849..dceb62f 100644
  			Stream: lo.ToPtr(isStream),
  		}
  	}
-@@ -806,7 +961,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -806,7 +1036,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  		Messages: []dto.Message{
  			{
  				Role:    "user",
@@ -564,7 +639,7 @@ index 037b849..dceb62f 100644
  			},
  		},
  	}
-@@ -923,7 +1078,12 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +1153,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -578,7 +653,7 @@ index 037b849..dceb62f 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-@@ -989,22 +1149,8 @@ func AutomaticallyTestChannels() {
+@@ -989,22 +1224,8 @@ func AutomaticallyTestChannels() {
  		return
  	}
  	autoTestChannelsOnce.Do(func() {
@@ -605,7 +680,7 @@ index 037b849..dceb62f 100644
  	})
  }
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
-index 0254080..9c4e5a5 100644
+index 0254080..f8ebae1 100644
 --- a/controller/channel_test_internal_test.go
 +++ b/controller/channel_test_internal_test.go
 @@ -5,7 +5,9 @@ import (
@@ -618,7 +693,7 @@ index 0254080..9c4e5a5 100644
  	"github.com/QuantumNous/new-api/pkg/billingexpr"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/types"
-@@ -80,3 +82,78 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
+@@ -80,3 +82,104 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
  	require.NoError(t, err)
  	require.Equal(t, 2, userID)
  }
@@ -689,6 +764,32 @@ index 0254080..9c4e5a5 100644
 +
 +func TestValidateTestResponseBodyAcceptsNonce(t *testing.T) {
 +	body := []byte(`data: {"choices":[{"delta":{"content":"NEWAPI_TEST_deadbeef"},"index":0}]}
++
++data: [DONE]
++`)
++
++	err := validateTestResponseBody(body, true, "NEWAPI_TEST_deadbeef")
++
++	require.NoError(t, err)
++}
++
++func TestValidateTestResponseBodyAcceptsSplitNonceAcrossSSEEvents(t *testing.T) {
++	body := []byte(`data: {"choices":[{"delta":{"content":"NEWAPI_"},"index":0}]}
++
++data: {"choices":[{"delta":{"content":"TEST_dead"},"index":0}]}
++
++data: {"choices":[{"delta":{"content":"beef"},"index":0}]}
++
++data: [DONE]
++`)
++
++	err := validateTestResponseBody(body, true, "NEWAPI_TEST_deadbeef")
++
++	require.NoError(t, err)
++}
++
++func TestValidateTestResponseBodyAcceptsNonceWithMinorFormatting(t *testing.T) {
++	body := []byte(`data: {"choices":[{"delta":{"content":"NEWAPI TEST deadbeef"},"index":0}]}
 +
 +data: [DONE]
 +`)
