@@ -10093,6 +10093,205 @@ index 581ae19..b619fd7 100644
  		} else {
  			usage, err = OaiResponsesHandler(c, info, resp)
  		}
+diff --git a/relay/channel/openai/canary_stream.go b/relay/channel/openai/canary_stream.go
+new file mode 100644
+index 0000000..6b06704
+--- /dev/null
++++ b/relay/channel/openai/canary_stream.go
+@@ -0,0 +1,126 @@
++package openai
++
++import (
++	"fmt"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/relay/antipoison"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++)
++
++type openAIStreamCanaryBuffer struct {
++	nonce   string
++	cfg     antipoison.Config
++	chunks  []string
++	text    strings.Builder
++	sawText bool
++}
++
++func newOpenAIStreamCanaryBuffer(info *relaycommon.RelayInfo) *openAIStreamCanaryBuffer {
++	if info == nil || info.AntiPoisonCanaryNonce == "" {
++		return nil
++	}
++	cfg := antipoison.ResponseGuardConfig(info)
++	if !cfg.Enabled || !cfg.CanaryEcho {
++		return nil
++	}
++	return &openAIStreamCanaryBuffer{
++		nonce: info.AntiPoisonCanaryNonce,
++		cfg:   cfg,
++	}
++}
++
++func (b *openAIStreamCanaryBuffer) Add(data string) error {
++	if b == nil || data == "" {
++		return nil
++	}
++	b.chunks = append(b.chunks, data)
++
++	var chunk dto.ChatCompletionsStreamResponse
++	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
++		return err
++	}
++	for _, choice := range chunk.Choices {
++		if choice.Delta.Content == nil {
++			continue
++		}
++		text := choice.Delta.GetContentString()
++		if text == "" {
++			continue
++		}
++		b.sawText = true
++		b.text.WriteString(text)
++	}
++	return nil
++}
++
++func (b *openAIStreamCanaryBuffer) Finalize() ([]string, error) {
++	if b == nil {
++		return nil, nil
++	}
++	if !b.sawText {
++		return append([]string(nil), b.chunks...), nil
++	}
++
++	cleaned, err := antipoison.ValidateAndStripCanary(b.text.String(), b.nonce, b.cfg)
++	if err != nil {
++		if b.cfg.FailureMode == antipoison.FailureModeWarn {
++			common.SysLog("canary stream validation warning: " + err.Error())
++			return append([]string(nil), b.chunks...), nil
++		}
++		return nil, err
++	}
++	return rewriteOpenAIStreamChunksText(b.chunks, cleaned)
++}
++
++func rewriteOpenAIStreamChunksText(chunks []string, cleanedText string) ([]string, error) {
++	out := make([]string, 0, len(chunks))
++	remaining := cleanedText
++
++	for _, data := range chunks {
++		var chunk dto.ChatCompletionsStreamResponse
++		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
++			return nil, err
++		}
++
++		changed := false
++		for i := range chunk.Choices {
++			delta := &chunk.Choices[i].Delta
++			if delta.Content == nil {
++				continue
++			}
++			original := delta.GetContentString()
++			if original == "" {
++				continue
++			}
++
++			next := ""
++			if len(remaining) >= len(original) {
++				next = remaining[:len(original)]
++				remaining = remaining[len(original):]
++			} else {
++				next = remaining
++				remaining = ""
++			}
++			delta.SetContentString(next)
++			changed = true
++		}
++
++		if !changed {
++			out = append(out, data)
++			continue
++		}
++		encoded, err := common.Marshal(chunk)
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, string(encoded))
++	}
++
++	if remaining != "" {
++		return nil, fmt.Errorf("canary stream rewrite left %d bytes unassigned", len(remaining))
++	}
++	return out, nil
++}
+diff --git a/relay/channel/openai/canary_stream_test.go b/relay/channel/openai/canary_stream_test.go
+new file mode 100644
+index 0000000..7f448bf
+--- /dev/null
++++ b/relay/channel/openai/canary_stream_test.go
+@@ -0,0 +1,61 @@
++package openai
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/relay/antipoison"
++)
++
++func TestOpenAIStreamCanaryBufferStripsSplitMarker(t *testing.T) {
++	buf := &openAIStreamCanaryBuffer{
++		nonce: "deadbeef",
++		cfg: antipoison.Config{
++			Enabled:     true,
++			CanaryEcho:  true,
++			FailureMode: antipoison.FailureModeBlock,
++		}.Normalized(),
++	}
++
++	chunks := []string{
++		`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"}}]}`,
++		`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hello "}}]}`,
++		`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"world <<NEWAPI_CAN"}}]}`,
++		`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"ARY_deadbeef>>"}}]}`,
++		`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
++	}
++	for _, chunk := range chunks {
++		if err := buf.Add(chunk); err != nil {
++			t.Fatalf("Add() error = %v", err)
++		}
++	}
++
++	cleaned, err := buf.Finalize()
++	if err != nil {
++		t.Fatalf("Finalize() error = %v", err)
++	}
++	body := strings.Join(cleaned, "\n")
++	if strings.Contains(body, "NEWAPI_CANARY") {
++		t.Fatalf("canary marker leaked in cleaned stream: %s", body)
++	}
++	if !strings.Contains(body, `"content":"hello "`) || !strings.Contains(body, `"content":"world "`) {
++		t.Fatalf("expected visible content to be preserved, got: %s", body)
++	}
++}
++
++func TestOpenAIStreamCanaryBufferBlocksMissingMarker(t *testing.T) {
++	buf := &openAIStreamCanaryBuffer{
++		nonce: "deadbeef",
++		cfg: antipoison.Config{
++			Enabled:     true,
++			CanaryEcho:  true,
++			FailureMode: antipoison.FailureModeBlock,
++		}.Normalized(),
++	}
++	if err := buf.Add(`{"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"OpenAI Chat 接口未开启，QQ群广告"}}]}`); err != nil {
++		t.Fatalf("Add() error = %v", err)
++	}
++	if _, err := buf.Finalize(); err == nil {
++		t.Fatal("Finalize() error = nil, want canary marker missing")
++	}
++}
 diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
 index 2c07522..88675d0 100644
 --- a/relay/channel/openai/chat_via_responses.go
@@ -10447,7 +10646,7 @@ index 2c07522..88675d0 100644
  			info.ClaudeConvertInfo.Usage = usage
  		}
 diff --git a/relay/channel/openai/relay-openai.go b/relay/channel/openai/relay-openai.go
-index d6a354f..00d384e 100644
+index d6a354f..689bfe6 100644
 --- a/relay/channel/openai/relay-openai.go
 +++ b/relay/channel/openai/relay-openai.go
 @@ -10,6 +10,7 @@ import (
@@ -10518,13 +10717,14 @@ index d6a354f..00d384e 100644
  func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
  	if resp == nil || resp.Body == nil {
  		logger.LogError(c, "invalid response or response body")
-@@ -121,18 +175,64 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -121,18 +175,71 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
  	var usage = &dto.Usage{}
  	var lastStreamData string
  	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 +	var antiPoisonMarkers []string
 +	var antiPoisonTools []string
 +	var responseProof *antipoison.ProofStreamValidator
++	var canaryBuffer = newOpenAIStreamCanaryBuffer(info)
 +	var pendingStreamData []string
 +	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
@@ -10538,7 +10738,13 @@ index d6a354f..00d384e 100644
 -			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 -				common.SysLog("error handling stream format: " + err.Error())
 -				sr.Error(err)
-+			if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
++			if canaryBuffer != nil {
++				if err := canaryBuffer.Add(lastStreamData); err != nil {
++					logger.LogError(c, "anti-poison canary stream parse failed: "+err.Error())
++					sr.Stop(err)
++					return
++				}
++			} else if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
 +				pendingStreamData = append(pendingStreamData, lastStreamData)
 +			} else {
 +				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
@@ -10586,16 +10792,10 @@ index d6a354f..00d384e 100644
  			// 对音频模型，保存倒数第二个stream data
  			if isAudioModel && lastStreamData != "" {
  				secondLastStreamData = lastStreamData
-@@ -145,6 +245,19 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -145,6 +252,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
  			}
  		}
  	})
-+	if responseProof != nil {
-+		if err := responseProof.Finalize(); err != nil {
-+			logger.LogError(c, "anti-poison response proof stream validation failed: "+err.Error())
-+			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
-+		}
-+	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -10606,9 +10806,41 @@ index d6a354f..00d384e 100644
  
  	// 对音频模型，从倒数第二个stream data中提取usage信息
  	if isAudioModel && secondLastStreamData != "" {
-@@ -173,7 +286,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -171,9 +285,42 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+ 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
+ 	}
  
- 	if info.RelayFormat == types.RelayFormatOpenAI {
+-	if info.RelayFormat == types.RelayFormatOpenAI {
++	if canaryBuffer != nil {
++		if lastStreamData != "" {
++			if err := canaryBuffer.Add(lastStreamData); err != nil {
++				logger.LogError(c, "anti-poison canary stream parse failed: "+err.Error())
++				return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
++			}
++		}
++		cleanChunks, err := canaryBuffer.Finalize()
++		if err != nil {
++			logger.LogError(c, "anti-poison canary stream validation failed: "+err.Error())
++			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
++		}
++		if info.RelayFormat == types.RelayFormatOpenAI && !shouldSendLastResp && len(cleanChunks) > 0 {
++			cleanChunks = cleanChunks[:len(cleanChunks)-1]
++		}
++		for _, cleanData := range cleanChunks {
++			if err := HandleStreamFormat(c, info, cleanData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
++				logger.LogError(c, "error replaying canary-validated stream: "+err.Error())
++				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
++			}
++		}
++	} else {
++		if responseProof != nil {
++			if err := responseProof.Finalize(); err != nil {
++				logger.LogError(c, "anti-poison response proof stream validation failed: "+err.Error())
++				return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
++			}
++		}
++	}
++	if canaryBuffer == nil && info.RelayFormat == types.RelayFormatOpenAI {
  		if shouldSendLastResp {
 -			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 +			if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
@@ -10619,7 +10851,7 @@ index d6a354f..00d384e 100644
  		}
  	}
  
-@@ -222,6 +339,43 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
+@@ -222,6 +369,43 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
  	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
