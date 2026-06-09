@@ -206,7 +206,7 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..820e8c3 100644
+index 037b849..fb5ad40 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -2,6 +2,8 @@ package controller
@@ -424,36 +424,7 @@ index 037b849..820e8c3 100644
  	if isStream {
  		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
  	}
-@@ -631,6 +711,28 @@ func detectErrorFromTestResponseBody(respBody []byte) error {
- 	return nil
- }
- 
-+func detectPoisonedSuccessFromTestResponseBody(respBody []byte) error {
-+	text := strings.ToLower(string(respBody))
-+	if strings.TrimSpace(text) == "" {
-+		return nil
-+	}
-+
-+	markers := []string{
-+		"接口未开启",
-+		"多多转发分享",
-+		"免费公益官网",
-+		"qq群",
-+		"qq 群",
-+		"icodex.pro",
-+	}
-+	for _, marker := range markers {
-+		if strings.Contains(text, marker) {
-+			return errors.New("upstream returned promotional or disabled-interface content")
-+		}
-+	}
-+	return nil
-+}
-+
- func validateStreamTestResponseBody(respBody []byte) error {
- 	b := bytes.TrimSpace(respBody)
- 	if len(b) == 0 {
-@@ -653,18 +755,137 @@ func validateStreamTestResponseBody(respBody []byte) error {
+@@ -653,18 +733,134 @@ func validateStreamTestResponseBody(respBody []byte) error {
  	return errors.New("stream response body does not contain a valid stream event")
  }
  
@@ -462,9 +433,6 @@ index 037b849..820e8c3 100644
  	if bodyErr := detectErrorFromTestResponseBody(respBody); bodyErr != nil {
  		return bodyErr
  	}
-+	if poisonErr := detectPoisonedSuccessFromTestResponseBody(respBody); poisonErr != nil {
-+		return poisonErr
-+	}
 +	if expectedNonce != "" {
 +		if !responseBodyContainsTestNonce(respBody, expectedNonce) {
 +			return fmt.Errorf("channel test nonce mismatch: expected %s", expectedNonce)
@@ -593,7 +561,7 @@ index 037b849..820e8c3 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -696,8 +917,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
+@@ -696,8 +892,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
  	return message
  }
  
@@ -612,7 +580,7 @@ index 037b849..820e8c3 100644
  
  	// 根据端点类型构建不同的测试请求
  	if endpointType != "" {
-@@ -728,7 +958,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -728,7 +933,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  			// 返回 OpenAIResponsesRequest
  			return &dto.OpenAIResponsesRequest{
  				Model:  model,
@@ -621,7 +589,7 @@ index 037b849..820e8c3 100644
  				Stream: lo.ToPtr(isStream),
  			}
  		case constant.EndpointTypeOpenAIResponseCompact:
-@@ -749,7 +979,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -749,7 +954,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  				Messages: []dto.Message{
  					{
  						Role:    "user",
@@ -630,7 +598,7 @@ index 037b849..820e8c3 100644
  					},
  				},
  				MaxTokens: lo.ToPtr(maxTokens),
-@@ -794,7 +1024,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -794,7 +999,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  	if strings.Contains(strings.ToLower(model), "codex") {
  		return &dto.OpenAIResponsesRequest{
  			Model:  model,
@@ -639,7 +607,7 @@ index 037b849..820e8c3 100644
  			Stream: lo.ToPtr(isStream),
  		}
  	}
-@@ -806,7 +1036,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -806,7 +1011,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  		Messages: []dto.Message{
  			{
  				Role:    "user",
@@ -648,7 +616,7 @@ index 037b849..820e8c3 100644
  			},
  		},
  	}
-@@ -923,7 +1153,12 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +1128,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -662,7 +630,25 @@ index 037b849..820e8c3 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-@@ -989,22 +1224,8 @@ func AutomaticallyTestChannels() {
+@@ -936,7 +1146,7 @@ func testAllChannels(notify bool) error {
+ 			newAPIError := result.newAPIError
+ 			// request error disables the channel
+ 			if newAPIError != nil {
+-				shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
++				shouldBanChannel = service.IsAntiPoisonValidationError(result.newAPIError) || service.ShouldDisableChannel(result.newAPIError)
+ 			}
+ 
+ 			// 当错误检查通过，才检查响应时间
+@@ -949,7 +1159,7 @@ func testAllChannels(notify bool) error {
+ 			}
+ 
+ 			// disable channel
+-			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
++			if isChannelEnabled && shouldBanChannel && (channel.GetAutoBan() || service.IsAntiPoisonValidationError(newAPIError)) {
+ 				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+ 			}
+ 
+@@ -989,22 +1199,8 @@ func AutomaticallyTestChannels() {
  		return
  	}
  	autoTestChannelsOnce.Do(func() {
@@ -835,10 +821,10 @@ index 0254080..03d957f 100644
 +}
 diff --git a/controller/channel_test_scheduler.go b/controller/channel_test_scheduler.go
 new file mode 100644
-index 0000000..786ecbd
+index 0000000..6b979c1
 --- /dev/null
 +++ b/controller/channel_test_scheduler.go
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,276 @@
 +package controller
 +
 +import (
@@ -1019,11 +1005,12 @@ index 0000000..786ecbd
 +	}
 +
 +	// Cycle failed. Decide whether to disable based on consecutive-failure threshold.
-+	if isChannelEnabled && service.ShouldDisableChannel(lastResult.newAPIError) {
++	if isChannelEnabled && (service.IsAntiPoisonValidationError(lastResult.newAPIError) || service.ShouldDisableChannel(lastResult.newAPIError)) {
 +		failures := testTracking.recordFailure(channel.Id)
 +		logger.LogInfo(nil, fmt.Sprintf("channel %d (%s) auto-test failed (%d/%d consecutive)",
 +			channel.Id, channel.Name, failures, retryThreshold))
-+		if failures >= retryThreshold && channel.GetAutoBan() {
++		antiPoisonRisk := service.IsAntiPoisonValidationError(lastResult.newAPIError)
++		if antiPoisonRisk || (failures >= retryThreshold && channel.GetAutoBan()) {
 +			processChannelError(lastResult.context,
 +				*types.NewChannelError(channel.Id, channel.Type, channel.Name,
 +					channel.ChannelInfo.IsMultiKey,
@@ -2514,7 +2501,7 @@ index 1f57bcc..30dd6da 100644
  	c.JSON(http.StatusOK, gin.H{
  		"success": true,
 diff --git a/controller/relay.go b/controller/relay.go
-index 1d14dcc..4df8198 100644
+index 1d14dcc..beefc7a 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -15,6 +15,7 @@ import (
@@ -2572,14 +2559,14 @@ index 1d14dcc..4df8198 100644
 -		TokenGroup: relayInfo.TokenGroup,
 -		ModelName:  relayInfo.OriginModelName,
 -		Retry:      common.GetPointer(0),
-+		Ctx:                              c,
-+		TokenGroup:                       relayInfo.TokenGroup,
-+		ModelName:                        relayInfo.OriginModelName,
-+		Retry:                            common.GetPointer(0),
-+		ExcludedChannelIds:               make(map[int]bool),
-+		PreferredChannelId:               relayInfo.EncryptedReasoningAffinityChannelId,
-+		RequireClaudeThinkingSupport:     relayInfo.ClaudeThinkingPreferSupportedChannel,
-+		RequireOpenAIResponsesSupport:    relayFormat == types.RelayFormatOpenAIResponses || relayFormat == types.RelayFormatOpenAIResponsesCompaction,
++		Ctx:                           c,
++		TokenGroup:                    relayInfo.TokenGroup,
++		ModelName:                     relayInfo.OriginModelName,
++		Retry:                         common.GetPointer(0),
++		ExcludedChannelIds:            make(map[int]bool),
++		PreferredChannelId:            relayInfo.EncryptedReasoningAffinityChannelId,
++		RequireClaudeThinkingSupport:  relayInfo.ClaudeThinkingPreferSupportedChannel,
++		RequireOpenAIResponsesSupport: relayFormat == types.RelayFormatOpenAIResponses || relayFormat == types.RelayFormatOpenAIResponsesCompaction,
  	}
  	relayInfo.RetryIndex = 0
  	relayInfo.LastError = nil
@@ -2847,7 +2834,7 @@ index 1d14dcc..4df8198 100644
  		return false
  	}
  	if types.IsChannelError(openaiErr) {
-@@ -347,12 +572,243 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,17 +572,253 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -3091,6 +3078,36 @@ index 1d14dcc..4df8198 100644
  func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
  	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
  	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
+ 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
+-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
++	antiPoisonRisk := service.IsAntiPoisonValidationError(err)
++	if antiPoisonRisk {
++		gopool.Go(func() {
++			service.DisableChannelForAntiPoisonRisk(channelError, err.ErrorWithStatusCode())
++		})
++	} else if service.ShouldDisableChannel(err) && channelError.AutoBan {
+ 		gopool.Go(func() {
+ 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+ 		})
+@@ -381,8 +842,18 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
+ 		other["channel_id"] = channelId
+ 		other["channel_name"] = c.GetString("channel_name")
+ 		other["channel_type"] = c.GetInt("channel_type")
++		if antiPoisonRisk {
++			other["anti_poison_risk"] = true
++			other["admin_action"] = "manual_disabled_channel"
++			other["risk_reason"] = err.MaskSensitiveErrorWithStatusCode()
++		}
+ 		adminInfo := make(map[string]interface{})
+ 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
++		if antiPoisonRisk {
++			adminInfo["anti_poison_risk"] = true
++			adminInfo["manual_disabled_channel"] = channelError.ChannelId
++			adminInfo["risk_action"] = "manual_disabled"
++		}
+ 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
+ 		if isMultiKey {
+ 			adminInfo["is_multi_key"] = true
 diff --git a/controller/stats.go b/controller/stats.go
 new file mode 100644
 index 0000000..c696946
@@ -3776,7 +3793,7 @@ index 1d7c53f..f3d86db 100644
  	models_ := strings.Split(channel.Models, ",")
  	groups_ := strings.Split(channel.Group, ",")
 diff --git a/model/channel.go b/model/channel.go
-index 78a1477..2372569 100644
+index 78a1477..aba12aa 100644
 --- a/model/channel.go
 +++ b/model/channel.go
 @@ -342,6 +342,13 @@ func (channel *Channel) GetAutoBan() bool {
@@ -3793,6 +3810,80 @@ index 78a1477..2372569 100644
  func (channel *Channel) Save() error {
  	return DB.Save(channel).Error
  }
+@@ -778,6 +785,73 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
+ 	return true
+ }
+ 
++func MarkChannelAntiPoisonRisk(channelId int, usingKey string, reason string) bool {
++	reason = strings.TrimSpace(reason)
++	if reason == "" {
++		reason = "anti-poison validation failed"
++	}
++	statusReason := "anti-poison risk: " + reason
++
++	if common.MemoryCacheEnabled {
++		channelStatusLock.Lock()
++
++		channelCache, _ := CacheGetChannel(channelId)
++		if channelCache != nil {
++			if channelCache.ChannelInfo.IsMultiKey {
++				pollingLock := GetChannelPollingLock(channelId)
++				pollingLock.Lock()
++				handlerMultiKeyUpdate(channelCache, usingKey, common.ChannelStatusManuallyDisabled, statusReason)
++				channelCache.Status = common.ChannelStatusManuallyDisabled
++				pollingLock.Unlock()
++			} else {
++				channelCache.Status = common.ChannelStatusManuallyDisabled
++			}
++			CacheUpdateChannelStatus(channelId, common.ChannelStatusManuallyDisabled)
++		}
++		channelStatusLock.Unlock()
++	}
++
++	channel, err := GetChannelById(channelId, true)
++	if err != nil {
++		return false
++	}
++
++	now := common.GetTimestamp()
++	if channel.ChannelInfo.IsMultiKey {
++		beforeStatus := channel.Status
++		pollingLock := GetChannelPollingLock(channelId)
++		pollingLock.Lock()
++		handlerMultiKeyUpdate(channel, usingKey, common.ChannelStatusManuallyDisabled, statusReason)
++		channel.Status = common.ChannelStatusManuallyDisabled
++		pollingLock.Unlock()
++		if beforeStatus != channel.Status {
++			if err := UpdateAbilityStatus(channelId, channel.Status == common.ChannelStatusEnabled); err != nil {
++				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
++			}
++		}
++	} else {
++		channel.Status = common.ChannelStatusManuallyDisabled
++	}
++
++	info := channel.GetOtherInfo()
++	info["status_reason"] = statusReason
++	info["status_time"] = now
++	info["risk_status"] = "anti_poison"
++	info["risk_reason"] = reason
++	info["risk_time"] = now
++	info["risk_action"] = "manual_disabled"
++	channel.SetOtherInfo(info)
++
++	if err := channel.SaveWithoutKey(); err != nil {
++		common.SysLog(fmt.Sprintf("failed to mark channel anti-poison risk: channel_id=%d, error=%v", channel.Id, err))
++		return false
++	}
++	if err := UpdateAbilityStatus(channelId, false); err != nil {
++		common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
++	}
++	return true
++}
++
+ func EnableChannelByTag(tag string) error {
+ 	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusEnabled).Error
+ 	if err != nil {
 diff --git a/model/channel_cache.go b/model/channel_cache.go
 index 03740d2..8909b7d 100644
 --- a/model/channel_cache.go
@@ -10618,10 +10709,44 @@ index 381d2cc..b195864 100644
  		tokenRoute.Use(middleware.UserAuth())
  		{
 diff --git a/service/channel.go b/service/channel.go
-index 856e2cd..9dc7755 100644
+index 856e2cd..e9d7a7f 100644
 --- a/service/channel.go
 +++ b/service/channel.go
-@@ -58,6 +58,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
+@@ -42,6 +42,33 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
+ 	}
+ }
+ 
++func DisableChannelForAntiPoisonRisk(channelError types.ChannelError, reason string) {
++	reason = strings.TrimSpace(reason)
++	if reason == "" {
++		reason = "anti-poison validation failed"
++	}
++	common.SysLog(fmt.Sprintf("通道「%s」（#%d）命中防投毒校验，已标记风险并切换为手动禁用，原因：%s",
++		channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(reason)))
++
++	success := model.MarkChannelAntiPoisonRisk(channelError.ChannelId, channelError.UsingKey, reason)
++	if success {
++		subject := fmt.Sprintf("通道「%s」（#%d）命中防投毒风险", channelError.ChannelName, channelError.ChannelId)
++		content := fmt.Sprintf("通道「%s」（#%d）命中防投毒校验，系统已将其切换为手动禁用。原因：%s\n\n请在渠道列表查看风险标记，并在错误日志中按渠道 ID 或请求 ID 查看详细上下文。",
++			channelError.ChannelName, channelError.ChannelId, reason)
++		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusManuallyDisabled), subject, content)
++	}
++}
++
++func IsAntiPoisonValidationError(err *types.NewAPIError) bool {
++	if err == nil {
++		return false
++	}
++	if err.GetErrorCode() == types.ErrorCodeAntiPoisonValidationFailed {
++		return true
++	}
++	return strings.Contains(strings.ToLower(err.Error()), "anti-poison validation failed")
++}
++
+ func ShouldDisableChannel(err *types.NewAPIError) bool {
+ 	if !common.AutomaticDisableChannelEnabled {
+ 		return false
+@@ -58,6 +85,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
  	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
  		return true
  	}
@@ -10631,7 +10756,7 @@ index 856e2cd..9dc7755 100644
  
  	lowerMessage := strings.ToLower(err.Error())
  	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
-@@ -71,7 +74,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+@@ -71,7 +101,7 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
  	if newAPIError != nil {
  		return false
  	}
@@ -12593,6 +12718,43 @@ index 0000000..ad51883
 +		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
 +	))
 +}
+diff --git a/service/error_test.go b/service/error_test.go
+index 9f19bfb..4399c48 100644
+--- a/service/error_test.go
++++ b/service/error_test.go
+@@ -150,6 +150,32 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
+ 	require.Contains(t, logBuffer.String(), body)
+ }
+ 
++func TestIsAntiPoisonValidationErrorDoesNotMatchUpstreamAuthError(t *testing.T) {
++	err := types.NewOpenAIError(
++		fmt.Errorf(`bad response status code 401, message: Invalid API key provided., body: {"error":{"message":"Invalid API key provided.","type":"invalid_request_error","param":null,"code":"invalid_api_key"}}`),
++		types.ErrorCodeBadResponseStatusCode,
++		http.StatusUnauthorized,
++	)
++
++	require.False(t, IsAntiPoisonValidationError(err))
++}
++
++func TestIsAntiPoisonValidationErrorMatchesGuardFailures(t *testing.T) {
++	byCode := types.NewOpenAIError(
++		fmt.Errorf("upstream response proof missing"),
++		types.ErrorCodeAntiPoisonValidationFailed,
++		http.StatusInternalServerError,
++	)
++	byMessage := types.NewOpenAIError(
++		fmt.Errorf("anti-poison validation failed: response proof missing"),
++		types.ErrorCodeBadResponse,
++		http.StatusInternalServerError,
++	)
++
++	require.True(t, IsAntiPoisonValidationError(byCode))
++	require.True(t, IsAntiPoisonValidationError(byMessage))
++}
++
+ func withDebugEnabled(t *testing.T, enabled bool) {
+ 	t.Helper()
+ 
 diff --git a/service/openai_chat_responses_mode.go b/service/openai_chat_responses_mode.go
 index c66c33c..71f2110 100644
 --- a/service/openai_chat_responses_mode.go
@@ -15661,6 +15823,129 @@ index 6e92519..d7119ce 100644
  // ============================================================================
  // Channel Operations
  // ============================================================================
+diff --git a/web/default/src/features/channels/components/channels-columns.tsx b/web/default/src/features/channels/components/channels-columns.tsx
+index 0d79c1d..6725c88 100644
+--- a/web/default/src/features/channels/components/channels-columns.tsx
++++ b/web/default/src/features/channels/components/channels-columns.tsx
+@@ -98,6 +98,26 @@ function parseIonetMeta(otherInfo: string | null | undefined): null | {
+   return null
+ }
+ 
++function parseChannelRiskMeta(otherInfo: string | null | undefined): null | {
++  risk_status?: string
++  risk_reason?: string
++  risk_time?: number
++  risk_action?: string
++  status_reason?: string
++  status_time?: number
++} {
++  if (!otherInfo) return null
++  try {
++    const parsed = JSON.parse(otherInfo)
++    if (parsed && typeof parsed === 'object') {
++      return parsed
++    }
++  } catch {
++    return null
++  }
++  return null
++}
++
+ /**
+  * Render limited items with "and X more" indicator
+  */
+@@ -535,6 +555,11 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
+         const settings = parseChannelSettings(channel.setting)
+         const isPassThrough = settings.pass_through_body_enabled === true
+         const hasParamOverride = Boolean(channel.param_override?.trim())
++        const riskMeta = parseChannelRiskMeta(channel.other_info)
++        const antiPoisonRisk = riskMeta?.risk_status === 'anti_poison'
++        const riskTime = riskMeta?.risk_time
++          ? formatTimestampToDate(riskMeta.risk_time)
++          : ''
+ 
+         return (
+           <div className='flex items-center gap-2'>
+@@ -561,6 +586,35 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
+                     </Tooltip>
+                   </TooltipProvider>
+                 )}
++                {antiPoisonRisk && (
++                  <TooltipProvider delay={100}>
++                    <Tooltip>
++                      <TooltipTrigger
++                        render={
++                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-destructive' />
++                        }
++                      ></TooltipTrigger>
++                      <TooltipContent side='top' className='max-w-xs'>
++                        <div className='space-y-1 text-xs'>
++                          <div>{t('Anti-poison risk detected')}</div>
++                          {riskMeta?.risk_reason && (
++                            <div>
++                              {t('Reason:')} {riskMeta.risk_reason}
++                            </div>
++                          )}
++                          {riskTime && (
++                            <div>
++                              {t('Time:')} {riskTime}
++                            </div>
++                          )}
++                          <div className='text-muted-foreground'>
++                            {t('Channel was switched to manual disabled')}
++                          </div>
++                        </div>
++                      </TooltipContent>
++                    </Tooltip>
++                  </TooltipProvider>
++                )}
+                 {hasParamOverride && (
+                   <TooltipProvider delay={100}>
+                     <Tooltip>
+@@ -771,6 +825,43 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
+           isMultiKey && keySize > 0
+             ? `${t(config.label)} (${enabledCount}/${keySize})`
+             : t(config.label)
++        const riskMeta = parseChannelRiskMeta(channel.other_info)
++        const antiPoisonRisk = riskMeta?.risk_status === 'anti_poison'
++        const riskTime = riskMeta?.risk_time
++          ? formatTimestampToDate(riskMeta.risk_time)
++          : ''
++
++        if (antiPoisonRisk) {
++          return (
++            <TooltipProvider delay={100}>
++              <Tooltip>
++                <TooltipTrigger render={<span />}>
++                  <StatusBadge
++                    label={t('Anti-poison Risk')}
++                    variant='danger'
++                    size='sm'
++                    copyable={false}
++                  />
++                </TooltipTrigger>
++                <TooltipContent side='top' className='max-w-xs'>
++                  <div className='space-y-1 text-xs'>
++                    <div>{t('Channel was switched to manual disabled')}</div>
++                    {riskMeta?.risk_reason && (
++                      <div>
++                        {t('Reason:')} {riskMeta.risk_reason}
++                      </div>
++                    )}
++                    {riskTime && (
++                      <div>
++                        {t('Time:')} {riskTime}
++                      </div>
++                    )}
++                  </div>
++                </TooltipContent>
++              </Tooltip>
++            </TooltipProvider>
++          )
++        }
+ 
+         // Auto-disabled: show reason and time tooltip
+         if (status === 3) {
 diff --git a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 index d511128..bf7c879 100644
 --- a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
@@ -41692,7 +41977,7 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..1f61d8b 100644
+index c6ea6ac..4585c98 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
 @@ -101,6 +101,280 @@
@@ -42014,6 +42299,15 @@ index c6ea6ac..1f61d8b 100644
      "Enable demo mode with limited functionality": "启用功能受限的演示模式",
      "Enable Discord OAuth": "启用 Discord OAuth",
      "Enable Disk Cache": "启用磁盘缓存",
+@@ -1772,7 +2049,7 @@
+     "footer.columns.related.links.oneApi": "One API",
+     "footer.columns.related.title": "相关项目",
+     "footer.defaultCopyright": "版权所有。",
+-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
++    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
+     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
+     "Force a syntactically valid JSON response": "强制返回语法合法的 JSON",
 @@ -4273,7 +4550,7 @@
      "User": "用户",
      "User {{id}}": "用户 {{id}}",
@@ -42023,6 +42317,17 @@ index c6ea6ac..1f61d8b 100644
      "User Consumption Ranking": "用户消耗排行",
      "User Consumption Trend": "用户消耗趋势",
      "User created successfully": "用户创建成功",
+@@ -4518,6 +4795,9 @@
+     "Zero retention": "零数据保留",
+     "Zhipu": "智谱",
+     "Zhipu V4": "智谱 V4",
+-    "Zoom": "缩放"
++    "Zoom": "缩放",
++    "Anti-poison risk detected": "检测到防投毒风险",
++    "Anti-poison Risk": "防投毒风险",
++    "Channel was switched to manual disabled": "渠道已切换为手动禁用"
+   }
+ }
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
 new file mode 100644
 index 0000000..518b785
