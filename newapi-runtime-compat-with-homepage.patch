@@ -11870,7 +11870,7 @@ index 0000000..bd53a63
 +}
 diff --git a/setting/operation_setting/anti_poison_setting.go b/setting/operation_setting/anti_poison_setting.go
 new file mode 100644
-index 0000000..8a983e2
+index 0000000..aa7bf73
 --- /dev/null
 +++ b/setting/operation_setting/anti_poison_setting.go
 @@ -0,0 +1,37 @@
@@ -11897,7 +11897,7 @@ index 0000000..8a983e2
 +	ChannelTestNonceEnabled:  true,
 +	ToolCallGuardEnabled:     true,
 +	ToolCallGuardStrict:      true,
-+	FailureMode:              "block",
++	FailureMode:              "warn",
 +	StripGuardOutput:         true,
 +	MaxGuardScanBytes:        65536,
 +	DownstreamProofHeader:    false,
@@ -39069,7 +39069,7 @@ index 0000000..d47f4d4
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/security/index.tsx b/web/default/src/features/system-settings/security/index.tsx
-index 7e07834..d7fd224 100644
+index 7e07834..68e9f05 100644
 --- a/web/default/src/features/system-settings/security/index.tsx
 +++ b/web/default/src/features/system-settings/security/index.tsx
 @@ -41,6 +41,17 @@ const defaultSecuritySettings: SecuritySettings = {
@@ -39080,7 +39080,7 @@ index 7e07834..d7fd224 100644
 +  'anti_poison_setting.channel_test_nonce_enabled': true,
 +  'anti_poison_setting.tool_call_guard_enabled': true,
 +  'anti_poison_setting.tool_call_guard_strict': true,
-+  'anti_poison_setting.failure_mode': 'block',
++  'anti_poison_setting.failure_mode': 'warn',
 +  'anti_poison_setting.string_protection': false,
 +  'anti_poison_setting.strip_guard_output': true,
 +  'anti_poison_setting.signed_header_audit_enabled': false,
@@ -39091,7 +39091,7 @@ index 7e07834..d7fd224 100644
  
  export function SecuritySettings() {
 diff --git a/web/default/src/features/system-settings/security/section-registry.tsx b/web/default/src/features/system-settings/security/section-registry.tsx
-index e63f883..53065f3 100644
+index e63f883..e1eff1d 100644
 --- a/web/default/src/features/system-settings/security/section-registry.tsx
 +++ b/web/default/src/features/system-settings/security/section-registry.tsx
 @@ -21,6 +21,14 @@ import { SensitiveWordsSection } from '../request-limits/sensitive-words-section
@@ -39104,7 +39104,7 @@ index e63f883..53065f3 100644
 +type AntiPoisonFailureMode = 'block' | 'warn'
 +
 +function normalizeAntiPoisonFailureMode(value: string): AntiPoisonFailureMode {
-+  return value === 'warn' ? 'warn' : 'block'
++  return value === 'block' ? 'block' : 'warn'
 +}
  
  const SECURITY_SECTIONS = [
