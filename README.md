@@ -49,6 +49,7 @@
 - Client Identity 管理：
   - 入口：`系统设置 -> 模型相关 -> Client Identity`
   - Codex：强制写入 `client_metadata.x-codex-installation-id`
+  - OpenAI 风格请求默认应用 Codex identity，包括 `/v1/responses`、`/v1/chat/completions`、`/v1/completions`；渠道高级设置可三态控制，未配置/自动 = 开启，只有明确强制关闭才不注入。
   - Claude：强制写入 `metadata.user_id.device_id`、`metadata.user_id.session_id`，并同步 `X-Claude-Code-Session-Id`
   - Generic：可配置任意 JSON body 字段或 header 字段，适配后续其他厂商。
   - 支持手动生成、立即轮换、按周/月/年自动轮换。
@@ -61,6 +62,7 @@
   - 支持规则 JSON 导出和追加导入；导入不会覆盖或删除现有规则，也不会导入上游正文透传/跳过监控这类不安全开关。
 - 定时渠道测试：
   - 每渠道可设置启用、间隔分钟、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
+  - 默认参与测试，默认测试窗口为 `08:00-18:00`（`Asia/Taipei`），每轮尝试 2 次，连续失败 2 轮后自动禁用；渠道单独配置会覆盖默认值。
   - 支持跨天窗口，例如 `23:00-07:00`。
 - 官方价格同步：
   - 入口：`系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync`
@@ -98,6 +100,7 @@
 | 命令面板直达 | `Operations Center`、`Dashboard Defaults`、`Appearance`、`Announcements`、`API Addresses`、`FAQ`、`Uptime Kuma`、`Chat Presets`、`Drawing`、`System Information`、`System Notice`、`Header Navigation`、`Sidebar Modules`、`System Settings Navigation`、`Performance Settings`、`Monitoring & Alerts`、`Global Model Configuration`、`Claude Settings`、`Gemini Settings`、`Grok Settings`、`Channel Affinity`；支持用 `json` / `import` / `export` 搜索可迁移配置 |
 | UA 管理 | `系统设置 -> 模型相关 -> User-Agent Management` |
 | Client Identity | `系统设置 -> 模型相关 -> Client Identity`，支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
+| 渠道 Codex identity | `渠道 -> 编辑渠道 -> 高级设置 -> Require Codex identity`，默认自动/启用；只有强制关闭时该渠道不注入 Codex 客户端标识 |
 | 官方价格同步 | `系统设置 -> 模型相关 -> Model Pricing -> Upstream Sync`；仅新增缺失模型，不覆盖已有价格；自动任务启用后每天 07:00 执行 |
 | 模型价格/倍率迁移 | `系统设置 -> 模型相关 -> Model Pricing` 支持模型价格、倍率、分组倍率、工具价格 JSON 导入/导出；官方价格同步动作不参与导入/导出 |
 | 模型运行配置迁移 | `系统设置 -> 模型相关 -> Global Model Configuration`、`Claude`、`Gemini`、`Grok`、`Channel Affinity` 支持 JSON 导入/导出；导入仅更新当前表单，需保存后写入后台 |
