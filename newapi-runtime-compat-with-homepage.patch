@@ -2501,7 +2501,7 @@ index 1f57bcc..30dd6da 100644
  	c.JSON(http.StatusOK, gin.H{
  		"success": true,
 diff --git a/controller/relay.go b/controller/relay.go
-index 1d14dcc..beefc7a 100644
+index 1d14dcc..6354601 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -15,6 +15,7 @@ import (
@@ -2834,7 +2834,7 @@ index 1d14dcc..beefc7a 100644
  		return false
  	}
  	if types.IsChannelError(openaiErr) {
-@@ -347,17 +572,253 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,23 +572,259 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -3089,6 +3089,13 @@ index 1d14dcc..beefc7a 100644
  		gopool.Go(func() {
  			service.DisableChannel(channelError, err.ErrorWithStatusCode())
  		})
+ 	}
+ 
+-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
++	if (constant.ErrorLogEnabled || antiPoisonRisk) && types.IsRecordErrorLog(err) {
+ 		// 保存错误日志到mysql中
+ 		userId := c.GetInt("id")
+ 		tokenName := c.GetString("token_name")
 @@ -381,8 +842,18 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
  		other["channel_id"] = channelId
  		other["channel_name"] = c.GetString("channel_name")
