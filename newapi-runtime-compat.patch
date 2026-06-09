@@ -8731,7 +8731,7 @@ index f697f85..8051d53 100644
 +	require.True(t, shouldForceCodexIdentity(info, "https://api.openai-compatible.test/v1/chat/completions"))
 +}
 diff --git a/relay/channel/claude/relay-claude.go b/relay/channel/claude/relay-claude.go
-index 6356cd3..7c186e8 100644
+index 6356cd3..be835a7 100644
 --- a/relay/channel/claude/relay-claude.go
 +++ b/relay/channel/claude/relay-claude.go
 @@ -11,6 +11,7 @@ import (
@@ -8801,7 +8801,7 @@ index 6356cd3..7c186e8 100644
  	var err *types.NewAPIError
 +	var responseProof *antipoison.ProofStreamValidator
 +	var pendingClaudeData []claudePendingStreamData
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
 +	}
  	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -8855,7 +8855,7 @@ index 6356cd3..7c186e8 100644
  		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
  	}
 +
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripClaudeResponseProof(&claudeResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
 +			logger.LogError(c, "anti-poison claude proof validation failed: "+err.Error())
@@ -8936,7 +8936,7 @@ index 581ae19..b619fd7 100644
  			usage, err = OaiResponsesHandler(c, info, resp)
  		}
 diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
-index 2c07522..34d8ed6 100644
+index 2c07522..88675d0 100644
 --- a/relay/channel/openai/chat_via_responses.go
 +++ b/relay/channel/openai/chat_via_responses.go
 @@ -4,12 +4,14 @@ import (
@@ -8958,7 +8958,7 @@ index 2c07522..34d8ed6 100644
  	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
 +			logger.LogError(c, "anti-poison responses-to-chat proof validation failed: "+err.Error())
@@ -9028,7 +9028,7 @@ index 2c07522..34d8ed6 100644
  		streamErr   *types.NewAPIError
  	)
 +	var responseProof *antipoison.ProofStreamValidator
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
 +	}
 +	var antiPoisonMarkers []string
@@ -9289,7 +9289,7 @@ index 2c07522..34d8ed6 100644
  			info.ClaudeConvertInfo.Usage = usage
  		}
 diff --git a/relay/channel/openai/relay-openai.go b/relay/channel/openai/relay-openai.go
-index d6a354f..7c72a0b 100644
+index d6a354f..e5a8665 100644
 --- a/relay/channel/openai/relay-openai.go
 +++ b/relay/channel/openai/relay-openai.go
 @@ -10,6 +10,7 @@ import (
@@ -9368,7 +9368,7 @@ index d6a354f..7c72a0b 100644
 +	var antiPoisonTools []string
 +	var responseProof *antipoison.ProofStreamValidator
 +	var pendingStreamData []string
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
 +	}
  
@@ -9465,7 +9465,7 @@ index d6a354f..7c72a0b 100644
  	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripOpenAIResponseProof(&simpleResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
 +			logger.LogError(c, "anti-poison response proof validation failed: "+err.Error())
@@ -9491,7 +9491,7 @@ index d6a354f..7c72a0b 100644
  	for _, choice := range simpleResponse.Choices {
  		if choice.FinishReason == constant.FinishReasonContentFilter {
 diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
-index 2665b8d..5d1a17e 100644
+index 2665b8d..45ffe9b 100644
 --- a/relay/channel/openai/relay_responses.go
 +++ b/relay/channel/openai/relay_responses.go
 @@ -1,6 +1,7 @@
@@ -9526,7 +9526,7 @@ index 2665b8d..5d1a17e 100644
  	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
 +			logger.LogError(c, "anti-poison responses proof validation failed: "+err.Error())
@@ -9667,7 +9667,7 @@ index 2665b8d..5d1a17e 100644
 +			return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 +		}
 +	}
-+	if info != nil && info.AntiPoisonResponseProofNonce != "" {
++	if info != nil && info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		cfg := antipoison.ResponseGuardConfig(info)
 +		if err := antipoison.ValidateAndStripResponsesResponseProof(finalResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
 +			logger.LogError(c, "anti-poison aggregated responses proof validation failed: "+err.Error())
@@ -9742,7 +9742,7 @@ index 2665b8d..5d1a17e 100644
 +	antiPoisonToolSeen := map[string]bool{}
 +	var responseProof *antipoison.ProofStreamValidator
 +	var pendingResponsesData []responsesPendingStreamData
-+	if info.AntiPoisonResponseProofNonce != "" {
++	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
 +	}
  
@@ -13053,9 +13053,101 @@ index 0000000..bd53a63
 +		{"type":"reasoning","id":"rs_1","summary":[]}
 +	]`, string(req.Input))
 +}
+diff --git a/setting/config/config.go b/setting/config/config.go
+index a82d934..68fe772 100644
+--- a/setting/config/config.go
++++ b/setting/config/config.go
+@@ -47,6 +47,18 @@ func (cm *ConfigManager) LoadFromDB(options map[string]string) error {
+ 		prefix := name + "."
+ 		configMap := make(map[string]string)
+ 
++		// Newer settings pages may persist a whole JSON object under the
++		// module name (for example "anti_poison_setting"). Load that first,
++		// then let dot-expanded keys below override it for compatibility.
++		if raw, ok := options[name]; ok && strings.TrimSpace(raw) != "" {
++			trimmed := strings.TrimSpace(raw)
++			if strings.HasPrefix(trimmed, "{") {
++				if err := json.Unmarshal([]byte(trimmed), config); err != nil {
++					common.SysError("failed to load json config " + name + ": " + err.Error())
++				}
++			}
++		}
++
+ 		// 收集属于此配置的所有选项
+ 		for key, value := range options {
+ 			if strings.HasPrefix(key, prefix) {
+diff --git a/setting/config/config_test.go b/setting/config/config_test.go
+index 8c70a5a..5f3d83f 100644
+--- a/setting/config/config_test.go
++++ b/setting/config/config_test.go
+@@ -10,6 +10,64 @@ type testConfigWithMap struct {
+ 	Name  string            `json:"name"`
+ }
+ 
++type testConfigWithBooleans struct {
++	Enabled              bool   `json:"enabled"`
++	ResponseProofEnabled bool   `json:"response_proof_enabled"`
++	Name                 string `json:"name"`
++}
++
++func TestLoadFromDB_LoadsWholeJSONOption(t *testing.T) {
++	manager := NewConfigManager()
++	cfg := &testConfigWithBooleans{
++		Enabled:              true,
++		ResponseProofEnabled: true,
++		Name:                 "default",
++	}
++	manager.Register("anti_poison_setting", cfg)
++
++	err := manager.LoadFromDB(map[string]string{
++		"anti_poison_setting": `{"enabled":true,"response_proof_enabled":false,"name":"json"}`,
++	})
++	if err != nil {
++		t.Fatalf("LoadFromDB failed: %v", err)
++	}
++
++	if !cfg.Enabled {
++		t.Fatalf("Enabled = false, want true")
++	}
++	if cfg.ResponseProofEnabled {
++		t.Fatalf("ResponseProofEnabled = true, want false from whole JSON option")
++	}
++	if cfg.Name != "json" {
++		t.Fatalf("Name = %q, want json", cfg.Name)
++	}
++}
++
++func TestLoadFromDB_DotOptionOverridesWholeJSONOption(t *testing.T) {
++	manager := NewConfigManager()
++	cfg := &testConfigWithBooleans{}
++	manager.Register("anti_poison_setting", cfg)
++
++	err := manager.LoadFromDB(map[string]string{
++		"anti_poison_setting":                        `{"enabled":true,"response_proof_enabled":true,"name":"json"}`,
++		"anti_poison_setting.response_proof_enabled": "false",
++		"anti_poison_setting.name":                   "dot",
++	})
++	if err != nil {
++		t.Fatalf("LoadFromDB failed: %v", err)
++	}
++
++	if !cfg.Enabled {
++		t.Fatalf("Enabled = false, want true from whole JSON option")
++	}
++	if cfg.ResponseProofEnabled {
++		t.Fatalf("ResponseProofEnabled = true, want false from dot override")
++	}
++	if cfg.Name != "dot" {
++		t.Fatalf("Name = %q, want dot override", cfg.Name)
++	}
++}
++
+ func TestUpdateConfigFromMap_MapReplacement(t *testing.T) {
+ 	cfg := &testConfigWithMap{
+ 		Modes: map[string]string{
 diff --git a/setting/operation_setting/anti_poison_setting.go b/setting/operation_setting/anti_poison_setting.go
 new file mode 100644
-index 0000000..d064eee
+index 0000000..89e1c01
 --- /dev/null
 +++ b/setting/operation_setting/anti_poison_setting.go
 @@ -0,0 +1,39 @@
@@ -13081,7 +13173,7 @@ index 0000000..d064eee
 +var antiPoisonSetting = AntiPoisonSetting{
 +	Enabled:                  true,
 +	ChannelTestNonceEnabled:  true,
-+	ResponseProofEnabled:     true,
++	ResponseProofEnabled:     false,
 +	ToolCallGuardEnabled:     true,
 +	ToolCallGuardStrict:      true,
 +	FailureMode:              "block",
@@ -39349,10 +39441,10 @@ index d730960..65f9815 100644
  }
 diff --git a/web/default/src/features/system-settings/security/anti-poison-guard-section.tsx b/web/default/src/features/system-settings/security/anti-poison-guard-section.tsx
 new file mode 100644
-index 0000000..d47f4d4
+index 0000000..be5cc20
 --- /dev/null
 +++ b/web/default/src/features/system-settings/security/anti-poison-guard-section.tsx
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,354 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -39408,6 +39500,7 @@ index 0000000..d47f4d4
 +const antiPoisonSchema = z.object({
 +  'anti_poison_setting.enabled': z.boolean(),
 +  'anti_poison_setting.channel_test_nonce_enabled': z.boolean(),
++  'anti_poison_setting.response_proof_enabled': z.boolean(),
 +  'anti_poison_setting.tool_call_guard_enabled': z.boolean(),
 +  'anti_poison_setting.tool_call_guard_strict': z.boolean(),
 +  'anti_poison_setting.failure_mode': z.enum(['block', 'warn']),
@@ -39505,6 +39598,27 @@ index 0000000..d47f4d4
 +                  <FormLabel>{t('Tool Call Guard')}</FormLabel>
 +                  <FormDescription>
 +                    {t('Require guarded tool calls on tool-enabled requests')}
++                  </FormDescription>
++                </SettingsSwitchContent>
++                <FormControl>
++                  <Switch
++                    checked={field.value}
++                    onCheckedChange={field.onChange}
++                  />
++                </FormControl>
++              </SettingsSwitchItem>
++            )}
++          />
++
++          <FormField
++            control={form.control}
++            name='anti_poison_setting.response_proof_enabled'
++            render={({ field }) => (
++              <SettingsSwitchItem>
++                <SettingsSwitchContent>
++                  <FormLabel>{t('Response Proof')}</FormLabel>
++                  <FormDescription>
++                    {t('Experimental normal text proof, disabled by default')}
 +                  </FormDescription>
 +                </SettingsSwitchContent>
 +                <FormControl>
@@ -39686,15 +39800,16 @@ index 0000000..d47f4d4
 +  )
 +}
 diff --git a/web/default/src/features/system-settings/security/index.tsx b/web/default/src/features/system-settings/security/index.tsx
-index 7e07834..68e9f05 100644
+index 7e07834..bca2ec6 100644
 --- a/web/default/src/features/system-settings/security/index.tsx
 +++ b/web/default/src/features/system-settings/security/index.tsx
-@@ -41,6 +41,17 @@ const defaultSecuritySettings: SecuritySettings = {
+@@ -41,6 +41,18 @@ const defaultSecuritySettings: SecuritySettings = {
    'fetch_setting.ip_list': [],
    'fetch_setting.allowed_ports': [],
    'fetch_setting.apply_ip_filter_for_domain': false,
 +  'anti_poison_setting.enabled': true,
 +  'anti_poison_setting.channel_test_nonce_enabled': true,
++  'anti_poison_setting.response_proof_enabled': false,
 +  'anti_poison_setting.tool_call_guard_enabled': true,
 +  'anti_poison_setting.tool_call_guard_strict': true,
 +  'anti_poison_setting.failure_mode': 'warn',
@@ -39708,7 +39823,7 @@ index 7e07834..68e9f05 100644
  
  export function SecuritySettings() {
 diff --git a/web/default/src/features/system-settings/security/section-registry.tsx b/web/default/src/features/system-settings/security/section-registry.tsx
-index e63f883..e1eff1d 100644
+index e63f883..690aca9 100644
 --- a/web/default/src/features/system-settings/security/section-registry.tsx
 +++ b/web/default/src/features/system-settings/security/section-registry.tsx
 @@ -21,6 +21,14 @@ import { SensitiveWordsSection } from '../request-limits/sensitive-words-section
@@ -39726,7 +39841,7 @@ index e63f883..e1eff1d 100644
  
  const SECURITY_SECTIONS = [
    {
-@@ -77,6 +85,45 @@ const SECURITY_SECTIONS = [
+@@ -77,6 +85,47 @@ const SECURITY_SECTIONS = [
        />
      ),
    },
@@ -39745,6 +39860,8 @@ index e63f883..e1eff1d 100644
 +            settings['anti_poison_setting.enabled'],
 +          'anti_poison_setting.channel_test_nonce_enabled':
 +            settings['anti_poison_setting.channel_test_nonce_enabled'],
++          'anti_poison_setting.response_proof_enabled':
++            settings['anti_poison_setting.response_proof_enabled'] ?? false,
 +          'anti_poison_setting.tool_call_guard_enabled':
 +            settings['anti_poison_setting.tool_call_guard_enabled'],
 +          'anti_poison_setting.tool_call_guard_strict':
@@ -40518,7 +40635,7 @@ index 6cea57a..eb912af 100644
        )
      },
 diff --git a/web/default/src/features/system-settings/types.ts b/web/default/src/features/system-settings/types.ts
-index 2122268..e675efd 100644
+index 2122268..9753c98 100644
 --- a/web/default/src/features/system-settings/types.ts
 +++ b/web/default/src/features/system-settings/types.ts
 @@ -69,6 +69,9 @@ export type SiteSettings = {
@@ -40572,12 +40689,13 @@ index 2122268..e675efd 100644
    Chats: string
    DrawingEnabled: boolean
    MjNotifyEnabled: boolean
-@@ -324,6 +354,17 @@ export type SecuritySettings = {
+@@ -324,6 +354,18 @@ export type SecuritySettings = {
    'fetch_setting.ip_list': string[]
    'fetch_setting.allowed_ports': number[]
    'fetch_setting.apply_ip_filter_for_domain': boolean
 +  'anti_poison_setting.enabled': boolean
 +  'anti_poison_setting.channel_test_nonce_enabled': boolean
++  'anti_poison_setting.response_proof_enabled': boolean
 +  'anti_poison_setting.tool_call_guard_enabled': boolean
 +  'anti_poison_setting.tool_call_guard_strict': boolean
 +  'anti_poison_setting.failure_mode': string
@@ -40590,7 +40708,7 @@ index 2122268..e675efd 100644
  }
  
  export type UpstreamChannel = {
-@@ -375,6 +416,30 @@ export type FetchUpstreamRatiosRequest = {
+@@ -375,6 +417,30 @@ export type FetchUpstreamRatiosRequest = {
    timeout: number
  }
  
@@ -41291,7 +41409,7 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..4585c98 100644
+index c6ea6ac..09330ac 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
 @@ -101,6 +101,280 @@
@@ -41631,7 +41749,7 @@ index c6ea6ac..4585c98 100644
      "User Consumption Ranking": "用户消耗排行",
      "User Consumption Trend": "用户消耗趋势",
      "User created successfully": "用户创建成功",
-@@ -4518,6 +4795,9 @@
+@@ -4518,6 +4795,11 @@
      "Zero retention": "零数据保留",
      "Zhipu": "智谱",
      "Zhipu V4": "智谱 V4",
@@ -41639,7 +41757,9 @@ index c6ea6ac..4585c98 100644
 +    "Zoom": "缩放",
 +    "Anti-poison risk detected": "检测到防投毒风险",
 +    "Anti-poison Risk": "防投毒风险",
-+    "Channel was switched to manual disabled": "渠道已切换为手动禁用"
++    "Channel was switched to manual disabled": "渠道已切换为手动禁用",
++    "Response Proof": "响应证明",
++    "Experimental normal text proof, disabled by default": "普通文本响应证明仍属实验功能，默认关闭"
    }
  }
 diff --git a/web/default/src/lib/dashboard-defaults.ts b/web/default/src/lib/dashboard-defaults.ts
