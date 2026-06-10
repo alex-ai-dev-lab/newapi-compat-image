@@ -35,6 +35,7 @@
 - Claude Messages / Claude Code 兼容：
   - Claude attribution 与部分工具调用历史兼容修补。
   - Claude thinking 请求优先选择支持 thinking 的渠道。
+  - Claude thinking 会话在命中 channel affinity 时会同时固定 multi-key index；未命中缓存时按 affinity key 稳定选择 enabled key，避免同一段 `thinking.signature` 被发到不同上游 key 后返回 `Invalid signature in thinking block`。
   - 渠道 thinking 支持开关是三态：自动推断、强制支持、强制不支持；未配置时按渠道类型推断。
   - 无 thinking 兼容渠道时，发送前清洗 `thinking` / `redacted_thinking` block 和 request `thinking` 参数。
 
@@ -60,6 +61,9 @@
   - DB 规则只能选择固定内置消息或管理员写入的 `custom_message`；不会透传上游错误正文。
   - 后台日志保留上游错误预览，但做脱敏。
   - 支持规则 JSON 导出和追加导入；导入不会覆盖或删除现有规则，也不会导入上游正文透传/跳过监控这类不安全开关。
+- 防投毒 canary：
+  - OpenAI-compatible 流式路径会缓存启用 canary 的响应，聚合后验证并移除 `<<NEWAPI_CANARY_...>>`，再回放给下游。
+  - canary nonce 格式统一跟随 `RandomPrefix()`：8 random bytes 的 16 位小写 hex；校验正则不再写死 `{8}`，避免上游已回显 16 位 marker 时误判为 missing/mismatch。
 - 定时渠道测试：
   - 每渠道可设置启用、间隔分钟、每轮尝试次数、连续失败禁用阈值、测试时间段、时区。
   - 默认参与测试，默认测试窗口为 `08:00-18:00`（`Asia/Taipei`），每轮尝试 2 次，连续失败 2 轮后自动禁用；渠道单独配置会覆盖默认值。
