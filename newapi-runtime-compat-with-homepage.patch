@@ -9820,7 +9820,7 @@ index 0000000..be285bf
 +	return hex.EncodeToString(mac.Sum(nil))
 +}
 diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
-index f945a83..1b9e2c8 100644
+index f945a83..4131523 100644
 --- a/relay/channel/api_request.go
 +++ b/relay/channel/api_request.go
 @@ -6,13 +6,16 @@ import (
@@ -9996,7 +9996,7 @@ index f945a83..1b9e2c8 100644
  const clientHeaderPlaceholderPrefix = "{client_header:"
  
  const (
-@@ -304,12 +449,60 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
+@@ -304,12 +449,82 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
  	}
  }
  
@@ -10020,15 +10020,37 @@ index f945a83..1b9e2c8 100644
 +
 +func shouldForceCodexIdentity(info *common.RelayInfo, upstreamURL string) bool {
 +	if info == nil {
-+		return true
++		return false
 +	}
 +	if info.ChannelMeta == nil {
-+		return true
++		return false
 +	}
 +	if info.ChannelSetting.RequiresCodexIdentity != nil {
 +		return *info.ChannelSetting.RequiresCodexIdentity
 +	}
-+	return true
++	path := strings.ToLower(strings.TrimSpace(info.RequestURLPath))
++	if upstreamURL != "" {
++		if parsed, err := url.Parse(upstreamURL); err == nil {
++			path = strings.ToLower(strings.TrimSpace(parsed.Path))
++		}
++	}
++	if strings.Contains(path, "/v1/messages") ||
++		strings.Contains(path, "/anthropic/v1/messages") ||
++		info.GetFinalRequestRelayFormat() == types.RelayFormatClaude ||
++		info.RelayFormat == types.RelayFormatClaude {
++		return false
++	}
++	switch info.GetFinalRequestRelayFormat() {
++	case types.RelayFormatOpenAI,
++		types.RelayFormatOpenAIResponses,
++		types.RelayFormatOpenAIResponsesCompaction:
++		return true
++	default:
++	}
++	return strings.Contains(path, "/v1/responses") ||
++		strings.Contains(path, "/v1/chat/completions") ||
++		strings.Contains(path, "/v1/completions") ||
++		strings.Contains(path, "/backend-api/codex/responses")
 +}
 +
  func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -10057,7 +10079,7 @@ index f945a83..1b9e2c8 100644
  	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
  	if err != nil {
  		return nil, fmt.Errorf("new request failed: %w", err)
-@@ -320,6 +513,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -320,6 +535,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -10065,7 +10087,7 @@ index f945a83..1b9e2c8 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -327,6 +521,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -327,6 +543,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
@@ -10074,7 +10096,7 @@ index f945a83..1b9e2c8 100644
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -352,6 +548,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -352,6 +570,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -10082,7 +10104,7 @@ index f945a83..1b9e2c8 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -359,6 +556,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
+@@ -359,6 +578,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
  		return nil, err
  	}
  	applyHeaderOverrideToRequest(req, headerOverride)
@@ -10090,7 +10112,7 @@ index f945a83..1b9e2c8 100644
  	resp, err := doRequest(c, req, info)
  	if err != nil {
  		return nil, fmt.Errorf("do request failed: %w", err)
-@@ -376,6 +574,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -376,6 +596,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	if err != nil {
  		return nil, fmt.Errorf("setup request header failed: %w", err)
  	}
@@ -10098,7 +10120,7 @@ index f945a83..1b9e2c8 100644
  	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
  	// 这样可以覆盖默认的 Authorization header 设置
  	headerOverride, err := processHeaderOverride(info, c)
-@@ -385,6 +584,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -385,6 +606,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	for key, value := range headerOverride {
  		targetHeader.Set(key, value)
  	}
@@ -10106,7 +10128,7 @@ index f945a83..1b9e2c8 100644
  	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
  	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
  	if err != nil {
-@@ -396,6 +596,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
+@@ -396,6 +618,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
  	return targetConn, nil
  }
  
@@ -10122,7 +10144,7 @@ index f945a83..1b9e2c8 100644
  	pingerCtx, stopPinger := context.WithCancel(context.Background())
  
 diff --git a/relay/channel/api_request_test.go b/relay/channel/api_request_test.go
-index f697f85..8051d53 100644
+index f697f85..1140a6e 100644
 --- a/relay/channel/api_request_test.go
 +++ b/relay/channel/api_request_test.go
 @@ -5,7 +5,10 @@ import (
@@ -10136,7 +10158,7 @@ index f697f85..8051d53 100644
  	"github.com/gin-gonic/gin"
  	"github.com/stretchr/testify/require"
  )
-@@ -191,3 +194,97 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
+@@ -191,3 +194,110 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
  	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
  	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
  }
@@ -10225,14 +10247,27 @@ index f697f85..8051d53 100644
 +	}, "https://new.sharedchat.cc/codex/v1/chat/completions"))
 +}
 +
-+func TestShouldForceCodexIdentityDefaultsEnabled(t *testing.T) {
++func TestShouldForceCodexIdentityDefaultsToOpenAIOnly(t *testing.T) {
 +	t.Parallel()
 +
-+	info := &relaycommon.RelayInfo{}
++	info := &relaycommon.RelayInfo{
++		RelayFormat: types.RelayFormatOpenAI,
++		ChannelMeta: &relaycommon.ChannelMeta{
++			ChannelSetting: dto.ChannelSettings{},
++		},
++	}
 +
 +	require.True(t, shouldForceCodexIdentity(info, "https://new.sharedchat.cc/codex/v1/chat/completions"))
 +	require.True(t, shouldForceCodexIdentity(info, "https://example.com/backend-api/codex/responses"))
 +	require.True(t, shouldForceCodexIdentity(info, "https://api.openai-compatible.test/v1/chat/completions"))
++
++	claudeInfo := &relaycommon.RelayInfo{
++		RelayFormat: types.RelayFormatClaude,
++		ChannelMeta: &relaycommon.ChannelMeta{
++			ChannelSetting: dto.ChannelSettings{},
++		},
++	}
++	require.False(t, shouldForceCodexIdentity(claudeInfo, "https://api.anthropic-compatible.test/v1/messages"))
 +}
 diff --git a/relay/channel/claude/relay-claude.go b/relay/channel/claude/relay-claude.go
 index 6356cd3..be835a7 100644
@@ -12988,10 +13023,10 @@ index 0000000..e02c839
 +}
 diff --git a/service/client_identity.go b/service/client_identity.go
 new file mode 100644
-index 0000000..72f7789
+index 0000000..ce01e34
 --- /dev/null
 +++ b/service/client_identity.go
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,444 @@
 +package service
 +
 +import (
@@ -13081,6 +13116,10 @@ index 0000000..72f7789
 +
 +func isOpenAICodexIdentityEligibleRequest(path string, body map[string]interface{}) bool {
 +	normalizedPath := strings.ToLower(path)
++	if strings.Contains(normalizedPath, "/v1/messages") ||
++		strings.Contains(normalizedPath, "/anthropic/v1/messages") {
++		return false
++	}
 +	if strings.Contains(normalizedPath, "/v1/responses") ||
 +		strings.Contains(normalizedPath, "/v1/chat/completions") ||
 +		strings.Contains(normalizedPath, "/v1/completions") {
@@ -13588,10 +13627,10 @@ index 0000000..3e35295
 +}
 diff --git a/service/client_identity_test.go b/service/client_identity_test.go
 new file mode 100644
-index 0000000..7e9765d
+index 0000000..46f1776
 --- /dev/null
 +++ b/service/client_identity_test.go
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,230 @@
 +package service
 +
 +import (
@@ -13720,6 +13759,39 @@ index 0000000..7e9765d
 +	metadata := payload["client_metadata"].(map[string]any)
 +	if got := metadata["x-codex-installation-id"]; got != "codex-fixed" {
 +		t.Fatalf("codex installation id = %v, want codex-fixed", got)
++	}
++}
++
++func TestApplyClientIdentityDoesNotAddCodexMetadataToClaudeMessages(t *testing.T) {
++	setClientIdentityOptionForTest(t, baseClientIdentitySetting())
++
++	headers := http.Header{}
++	headers.Set("Content-Type", "application/json")
++	headers.Set("User-Agent", "claude-cli/2.1.167 (external, cli)")
++	body := []byte(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hi"}]}`)
++
++	modified, changed, err := ApplyClientIdentityToRequestWithOptions(
++		"/v1/messages",
++		headers,
++		body,
++		ClientIdentityOptions{ForceCodexIdentity: true},
++	)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	var payload map[string]any
++	if err := json.Unmarshal(modified, &payload); err != nil {
++		t.Fatal(err)
++	}
++	if _, ok := payload["client_metadata"]; ok {
++		t.Fatalf("claude request should not contain client_metadata: %s", string(modified))
++	}
++	if !changed {
++		t.Fatal("expected Claude metadata identity to be applied")
++	}
++	if _, ok := payload["metadata"]; !ok {
++		t.Fatalf("expected Claude metadata to be present: %s", string(modified))
 +	}
 +}
 +
