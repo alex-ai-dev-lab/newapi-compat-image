@@ -17969,19 +17969,87 @@ index 9239424..8f3b06c 100644
  
            {/* Delete */}
 diff --git a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
-index d511128..bf7c879 100644
+index d511128..1666b80 100644
 --- a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 +++ b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
-@@ -220,7 +220,7 @@ export function ChannelTestDialog({
+@@ -26,7 +26,8 @@ import {
+   getPaginationRowModel,
+   useReactTable,
+ } from '@tanstack/react-table'
+-import { Check, Copy, Info, Loader2, Settings } from 'lucide-react'
++import { useQueryClient } from '@tanstack/react-query'
++import { AlertTriangle, Check, Copy, Info, Loader2, Settings, ShieldCheck } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { toast } from 'sonner'
+ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+@@ -82,7 +83,12 @@ import {
+   sideDrawerHeaderClassName,
+ } from '@/components/drawer-layout'
+ import { StatusBadge } from '@/components/status-badge'
+-import { formatResponseTime, handleTestChannel } from '../../lib'
++import {
++  channelsQueryKeys,
++  formatResponseTime,
++  handleClearAntiPoisonRisk,
++  handleTestChannel,
++} from '../../lib'
+ import { useChannels } from '../channels-provider'
+ 
+ type ChannelTestDialogProps = {
+@@ -145,6 +151,13 @@ type FailureDetailsState = {
+   details: string
+ }
+ 
++type ChannelRiskMeta = {
++  risk_status?: string
++  risk_reason?: string
++  risk_time?: number
++  risk_evidence_path?: string
++}
++
+ function normalizeInlineError(errorText: string) {
+   return errorText.replace(/\s+/g, ' ').trim()
+ }
+@@ -213,14 +226,28 @@ function getTestTableColumnClass(columnId: string) {
+   }
+ }
+ 
++function parseChannelRiskMeta(otherInfo: string | null | undefined) {
++  if (!otherInfo) return null
++  try {
++    const parsed = JSON.parse(otherInfo) as ChannelRiskMeta
++    if (parsed && typeof parsed === 'object') {
++      return parsed
++    }
++  } catch {
++    return null
++  }
++  return null
++}
++
+ export function ChannelTestDialog({
+   open,
+   onOpenChange,
+ }: ChannelTestDialogProps) {
    const { t } = useTranslation()
    const { currentRow } = useChannels()
++  const queryClient = useQueryClient()
    const [endpointType, setEndpointType] = useState('auto')
 -  const [isStreamTest, setIsStreamTest] = useState(false)
 +  const [isStreamTest, setIsStreamTest] = useState(true)
    const [searchTerm, setSearchTerm] = useState('')
    const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
    const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-@@ -237,7 +237,7 @@ export function ChannelTestDialog({
+@@ -230,6 +257,8 @@ export function ChannelTestDialog({
+   const [isBatchTesting, setIsBatchTesting] = useState(false)
+   const [failureDetails, setFailureDetails] =
+     useState<FailureDetailsState | null>(null)
++  const [riskCleared, setRiskCleared] = useState(false)
++  const [isClearingRisk, setIsClearingRisk] = useState(false)
+   const [pagination, setPagination] = useState({
+     pageIndex: 0,
+     pageSize: 10,
+@@ -237,13 +266,14 @@ export function ChannelTestDialog({
  
    const resetState = useCallback(() => {
      setEndpointType('auto')
@@ -17990,7 +18058,81 @@ index d511128..bf7c879 100644
      setSearchTerm('')
      setTestResults({})
      setRowSelection({})
-@@ -798,7 +798,7 @@ function FailureStatusContent({
+     setTestingModels(() => new Set())
+     setIsBatchTesting(false)
+     setFailureDetails(null)
++    setRiskCleared(false)
+     setPagination({ pageIndex: 0, pageSize: 10 })
+   }, [])
+ 
+@@ -405,6 +435,22 @@ export function ChannelTestDialog({
+   }
+ 
+   const isAnyTesting = testingModels.size > 0 || isBatchTesting
++  const riskMeta = parseChannelRiskMeta(currentRow?.other_info)
++  const hasAntiPoisonRisk =
++    !riskCleared && riskMeta?.risk_status === 'anti_poison'
++
++  const handleClearRisk = async () => {
++    if (!currentRow) return
++    setIsClearingRisk(true)
++    try {
++      await handleClearAntiPoisonRisk(currentRow.id, queryClient, () => {
++        setRiskCleared(true)
++        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
++      })
++    } finally {
++      setIsClearingRisk(false)
++    }
++  }
+ 
+   const columns = useMemo<ColumnDef<ModelRow>[]>(
+     () => [
+@@ -539,6 +585,43 @@ export function ChannelTestDialog({
+           </DialogHeader>
+ 
+           <div className='max-h-[78vh] space-y-4 overflow-y-auto py-4 pr-1'>
++            {hasAntiPoisonRisk && (
++              <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2'>
++                <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
++                  <div className='min-w-0 space-y-1'>
++                    <div className='flex items-center gap-2 text-sm font-medium'>
++                      <AlertTriangle className='size-4 shrink-0' />
++                      <span>{t('Anti-poison risk detected')}</span>
++                    </div>
++                    {riskMeta?.risk_reason && (
++                      <p className='text-xs break-words'>
++                        {t('Reason:')} {riskMeta.risk_reason}
++                      </p>
++                    )}
++                    {riskMeta?.risk_evidence_path && (
++                      <p className='text-xs break-all'>
++                        {t('Evidence:')} {riskMeta.risk_evidence_path}
++                      </p>
++                    )}
++                  </div>
++                  <Button
++                    size='sm'
++                    variant='outline'
++                    onClick={handleClearRisk}
++                    disabled={isClearingRisk}
++                    className='shrink-0'
++                  >
++                    {isClearingRisk ? (
++                      <Loader2 className='mr-2 size-4 animate-spin' />
++                    ) : (
++                      <ShieldCheck className='mr-2 size-4' />
++                    )}
++                    {t('Clear Anti-poison Risk')}
++                  </Button>
++                </div>
++              </div>
++            )}
++
+             <div className='grid gap-4 md:grid-cols-2'>
+               <div className='grid gap-2'>
+                 <Label htmlFor='endpoint-type'>{t('Endpoint Type')}</Label>
+@@ -798,7 +881,7 @@ function FailureStatusContent({
              size='sm'
              className='h-7 w-fit px-2 text-xs'
              onClick={() =>
@@ -43463,7 +43605,7 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..63f88c6 100644
+index c6ea6ac..cdac844 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
 @@ -101,6 +101,280 @@
@@ -43803,7 +43945,7 @@ index c6ea6ac..63f88c6 100644
      "User Consumption Ranking": "用户消耗排行",
      "User Consumption Trend": "用户消耗趋势",
      "User created successfully": "用户创建成功",
-@@ -4518,6 +4795,13 @@
+@@ -4518,6 +4795,14 @@
      "Zero retention": "零数据保留",
      "Zhipu": "智谱",
      "Zhipu V4": "智谱 V4",
@@ -43814,6 +43956,7 @@ index c6ea6ac..63f88c6 100644
 +    "Anti-poison risk cleared": "防投毒风险已清除",
 +    "Channel was switched to manual disabled": "渠道已切换为手动禁用",
 +    "Clear Anti-poison Risk": "清除防投毒风险",
++    "Evidence:": "证据文件：",
 +    "Response Proof": "响应证明",
 +    "Experimental normal text proof, disabled by default": "普通文本响应证明仍属实验功能，默认关闭"
    }
