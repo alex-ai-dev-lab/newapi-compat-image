@@ -205,6 +205,233 @@ index 35b4c6b..c11568f 100644
  	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
  	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
  
+diff --git a/constant/context_key.go b/constant/context_key.go
+index c28ad20..fab8cb4 100644
+--- a/constant/context_key.go
++++ b/constant/context_key.go
+@@ -62,6 +62,9 @@ const (
+ 	// ContextKeyAdminRejectReason stores an admin-only reject/block reason extracted from upstream responses.
+ 	// It is not returned to end users, but can be persisted into consume/error logs for debugging.
+ 	ContextKeyAdminRejectReason ContextKey = "admin_reject_reason"
++	// ContextKeyAntiPoisonEvidenceResponse stores the raw upstream response preview
++	// that triggered anti-poison validation. It is persisted only for admin audit.
++	ContextKeyAntiPoisonEvidenceResponse ContextKey = "anti_poison_evidence_response"
+ 
+ 	// ContextKeyLanguage stores the user's language preference for i18n
+ 	ContextKeyLanguage ContextKey = "language"
+diff --git a/controller/anti_poison_evidence.go b/controller/anti_poison_evidence.go
+new file mode 100644
+index 0000000..8f6aa06
+--- /dev/null
++++ b/controller/anti_poison_evidence.go
+@@ -0,0 +1,207 @@
++package controller
++
++import (
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/types"
++
++	"github.com/gin-gonic/gin"
++)
++
++const antiPoisonEvidencePreviewLimit = 128 * 1024
++
++type antiPoisonEvidencePayload struct {
++	RequestID       string              `json:"request_id"`
++	CreatedAt       string              `json:"created_at"`
++	ChannelID       int                 `json:"channel_id"`
++	ChannelName     string              `json:"channel_name"`
++	ChannelType     int                 `json:"channel_type"`
++	Model           string              `json:"model"`
++	UserID          int                 `json:"user_id"`
++	TokenID         int                 `json:"token_id"`
++	TokenName       string              `json:"token_name"`
++	Group           string              `json:"group"`
++	Method          string              `json:"method"`
++	Path            string              `json:"path"`
++	IsStream        bool                `json:"is_stream"`
++	UsedChannels    []string            `json:"used_channels"`
++	RequestHeaders  map[string][]string `json:"request_headers"`
++	RequestBody     previewBody         `json:"request_body"`
++	UpstreamBody    previewBody         `json:"upstream_body"`
++	ErrorType       string              `json:"error_type"`
++	ErrorCode       any                 `json:"error_code"`
++	StatusCode      int                 `json:"status_code"`
++	SanitizedError  string              `json:"sanitized_error"`
++	OriginalErrText string              `json:"original_error_text"`
++}
++
++type previewBody struct {
++	Text             string `json:"text"`
++	OriginalBytes    int    `json:"original_bytes"`
++	Truncated        bool   `json:"truncated"`
++	UnavailableError string `json:"unavailable_error,omitempty"`
++}
++
++func persistAntiPoisonEvidence(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) string {
++	if c == nil || err == nil {
++		return ""
++	}
++	payload := antiPoisonEvidencePayload{
++		RequestID:       resolveEvidenceRequestID(c),
++		CreatedAt:       time.Now().Format(time.RFC3339Nano),
++		ChannelID:       channelError.ChannelId,
++		ChannelName:     firstNonEmpty(channelError.ChannelName, c.GetString("channel_name")),
++		ChannelType:     c.GetInt("channel_type"),
++		Model:           c.GetString("original_model"),
++		UserID:          c.GetInt("id"),
++		TokenID:         c.GetInt("token_id"),
++		TokenName:       c.GetString("token_name"),
++		Group:           c.GetString("group"),
++		IsStream:        common.GetContextKeyBool(c, constant.ContextKeyIsStream),
++		UsedChannels:    c.GetStringSlice("use_channel"),
++		RequestHeaders:  sanitizeEvidenceHeaders(c.Request.Header),
++		RequestBody:     getEvidenceRequestBodyPreview(c),
++		UpstreamBody:    previewString(common.GetContextKeyString(c, constant.ContextKeyAntiPoisonEvidenceResponse)),
++		ErrorType:       string(err.GetErrorType()),
++		ErrorCode:       err.GetErrorCode(),
++		StatusCode:      err.StatusCode,
++		SanitizedError:  err.MaskSensitiveErrorWithStatusCode(),
++		OriginalErrText: common.LocalLogPreview(err.ErrorWithStatusCode()),
++	}
++	if c.Request != nil {
++		payload.Method = c.Request.Method
++		if c.Request.URL != nil {
++			payload.Path = c.Request.URL.Path
++		}
++	}
++
++	data, marshalErr := json.MarshalIndent(payload, "", "  ")
++	if marshalErr != nil {
++		common.SysError("failed to marshal anti-poison evidence: " + marshalErr.Error())
++		return ""
++	}
++	dir := filepath.Join(resolveEvidenceBaseDir(), "anti-poison", fmt.Sprintf("channel-%d", channelError.ChannelId))
++	if mkdirErr := os.MkdirAll(dir, 0750); mkdirErr != nil {
++		common.SysError("failed to create anti-poison evidence directory: " + mkdirErr.Error())
++		return ""
++	}
++	path := filepath.Join(dir, sanitizeEvidenceFilename(payload.RequestID)+".json")
++	if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
++		common.SysError("failed to write anti-poison evidence: " + writeErr.Error())
++		return ""
++	}
++	if updateErr := model.SetChannelAntiPoisonEvidencePath(channelError.ChannelId, path); updateErr != nil {
++		common.SysError("failed to save anti-poison evidence path to channel: " + updateErr.Error())
++	}
++	return path
++}
++
++func resolveEvidenceBaseDir() string {
++	if common.LogDir != nil && *common.LogDir != "" {
++		return *common.LogDir
++	}
++	return "./logs"
++}
++
++func resolveEvidenceRequestID(c *gin.Context) string {
++	for _, key := range []string{"id", "request_id"} {
++		if value := strings.TrimSpace(c.GetString(key)); value != "" {
++			return value
++		}
++	}
++	if c.Request != nil {
++		for _, header := range []string{"X-Request-Id", "X-Newapi-Request-Id", "X-Oneapi-Request-Id"} {
++			if value := strings.TrimSpace(c.Request.Header.Get(header)); value != "" {
++				return value
++			}
++		}
++	}
++	return fmt.Sprintf("%d", time.Now().UnixNano())
++}
++
++func sanitizeEvidenceFilename(name string) string {
++	name = strings.TrimSpace(name)
++	if name == "" {
++		return fmt.Sprintf("%d", time.Now().UnixNano())
++	}
++	var b strings.Builder
++	for _, r := range name {
++		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
++			b.WriteRune(r)
++		} else {
++			b.WriteByte('_')
++		}
++	}
++	return b.String()
++}
++
++func sanitizeEvidenceHeaders(headers http.Header) map[string][]string {
++	out := make(map[string][]string, len(headers))
++	for key, values := range headers {
++		lower := strings.ToLower(key)
++		if lower == "authorization" || lower == "proxy-authorization" || lower == "cookie" || lower == "set-cookie" || lower == "x-api-key" || strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "key") {
++			out[key] = []string{"***masked***"}
++			continue
++		}
++		copied := make([]string, len(values))
++		copy(copied, values)
++		out[key] = copied
++	}
++	return out
++}
++
++func getEvidenceRequestBodyPreview(c *gin.Context) previewBody {
++	storage, err := common.GetBodyStorage(c)
++	if err != nil {
++		return previewBody{UnavailableError: err.Error()}
++	}
++	if _, err := storage.Seek(0, io.SeekStart); err != nil {
++		return previewBody{UnavailableError: err.Error()}
++	}
++	limited := io.LimitReader(storage, antiPoisonEvidencePreviewLimit+1)
++	data, err := io.ReadAll(limited)
++	if err != nil {
++		return previewBody{UnavailableError: err.Error()}
++	}
++	_, _ = storage.Seek(0, io.SeekStart)
++	return previewBytes(data, int(storage.Size()))
++}
++
++func previewString(text string) previewBody {
++	return previewBytes([]byte(text), len(text))
++}
++
++func previewBytes(data []byte, originalBytes int) previewBody {
++	truncated := false
++	if len(data) > antiPoisonEvidencePreviewLimit {
++		data = data[:antiPoisonEvidencePreviewLimit]
++		truncated = true
++	}
++	if originalBytes > len(data) {
++		truncated = true
++	}
++	return previewBody{
++		Text:          string(data),
++		OriginalBytes: originalBytes,
++		Truncated:     truncated,
++	}
++}
++
++func firstNonEmpty(values ...string) string {
++	for _, value := range values {
++		if strings.TrimSpace(value) != "" {
++			return value
++		}
++	}
++	return ""
++}
 diff --git a/controller/channel-test.go b/controller/channel-test.go
 index 037b849..fb5ad40 100644
 --- a/controller/channel-test.go
@@ -674,6 +901,34 @@ index 037b849..fb5ad40 100644
 +		startIndependentAutoTest()
  	})
  }
+diff --git a/controller/channel.go b/controller/channel.go
+index c59e492..8410780 100644
+--- a/controller/channel.go
++++ b/controller/channel.go
+@@ -257,6 +257,23 @@ func FixChannelsAbilities(c *gin.Context) {
+ 	})
+ }
+ 
++func ClearChannelAntiPoisonRisk(c *gin.Context) {
++	id, err := strconv.Atoi(c.Param("id"))
++	if err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	if err := model.ClearChannelAntiPoisonRisk(id, true); err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	model.InitChannelCache()
++	c.JSON(http.StatusOK, gin.H{
++		"success": true,
++		"message": "",
++	})
++}
++
+ func SearchChannels(c *gin.Context) {
+ 	keyword := c.Query("keyword")
+ 	group := c.Query("group")
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
 index 0254080..03d957f 100644
 --- a/controller/channel_test_internal_test.go
@@ -2501,7 +2756,7 @@ index 1f57bcc..30dd6da 100644
  	c.JSON(http.StatusOK, gin.H{
  		"success": true,
 diff --git a/controller/relay.go b/controller/relay.go
-index 1d14dcc..6354601 100644
+index 1d14dcc..2bb57bc 100644
 --- a/controller/relay.go
 +++ b/controller/relay.go
 @@ -15,6 +15,7 @@ import (
@@ -2834,7 +3089,7 @@ index 1d14dcc..6354601 100644
  		return false
  	}
  	if types.IsChannelError(openaiErr) {
-@@ -347,23 +572,259 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
+@@ -347,23 +572,263 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
  	if code < 100 || code > 599 {
  		return true
  	}
@@ -3081,6 +3336,10 @@ index 1d14dcc..6354601 100644
  	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 -	if service.ShouldDisableChannel(err) && channelError.AutoBan {
 +	antiPoisonRisk := service.IsAntiPoisonValidationError(err)
++	antiPoisonEvidencePath := ""
++	if antiPoisonRisk {
++		antiPoisonEvidencePath = persistAntiPoisonEvidence(c, channelError, err)
++	}
 +	if antiPoisonRisk {
 +		gopool.Go(func() {
 +			service.DisableChannelForAntiPoisonRisk(channelError, err.ErrorWithStatusCode())
@@ -3096,7 +3355,7 @@ index 1d14dcc..6354601 100644
  		// 保存错误日志到mysql中
  		userId := c.GetInt("id")
  		tokenName := c.GetString("token_name")
-@@ -381,8 +842,18 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
+@@ -381,8 +846,24 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
  		other["channel_id"] = channelId
  		other["channel_name"] = c.GetString("channel_name")
  		other["channel_type"] = c.GetInt("channel_type")
@@ -3104,6 +3363,9 @@ index 1d14dcc..6354601 100644
 +			other["anti_poison_risk"] = true
 +			other["admin_action"] = "manual_disabled_channel"
 +			other["risk_reason"] = err.MaskSensitiveErrorWithStatusCode()
++			if antiPoisonEvidencePath != "" {
++				other["anti_poison_evidence_path"] = antiPoisonEvidencePath
++			}
 +		}
  		adminInfo := make(map[string]interface{})
  		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
@@ -3111,6 +3373,9 @@ index 1d14dcc..6354601 100644
 +			adminInfo["anti_poison_risk"] = true
 +			adminInfo["manual_disabled_channel"] = channelError.ChannelId
 +			adminInfo["risk_action"] = "manual_disabled"
++			if antiPoisonEvidencePath != "" {
++				adminInfo["anti_poison_evidence_path"] = antiPoisonEvidencePath
++			}
 +		}
  		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
  		if isMultiKey {
@@ -3808,7 +4073,7 @@ index 1d7c53f..f3d86db 100644
  	models_ := strings.Split(channel.Models, ",")
  	groups_ := strings.Split(channel.Group, ",")
 diff --git a/model/channel.go b/model/channel.go
-index 78a1477..aba12aa 100644
+index 78a1477..ff9bc8d 100644
 --- a/model/channel.go
 +++ b/model/channel.go
 @@ -342,6 +342,13 @@ func (channel *Channel) GetAutoBan() bool {
@@ -3825,7 +4090,7 @@ index 78a1477..aba12aa 100644
  func (channel *Channel) Save() error {
  	return DB.Save(channel).Error
  }
-@@ -778,6 +785,73 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
+@@ -778,6 +785,131 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
  	return true
  }
  
@@ -3894,6 +4159,64 @@ index 78a1477..aba12aa 100644
 +		common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
 +	}
 +	return true
++}
++
++func SetChannelAntiPoisonEvidencePath(channelId int, evidencePath string) error {
++	evidencePath = strings.TrimSpace(evidencePath)
++	if evidencePath == "" {
++		return nil
++	}
++	channel, err := GetChannelById(channelId, true)
++	if err != nil {
++		return err
++	}
++	info := channel.GetOtherInfo()
++	info["risk_evidence_path"] = evidencePath
++	info["risk_evidence_time"] = common.GetTimestamp()
++	channel.SetOtherInfo(info)
++	if err := channel.SaveWithoutKey(); err != nil {
++		return err
++	}
++	CacheUpdateChannel(channel)
++	return nil
++}
++
++func ClearChannelAntiPoisonRisk(channelId int, enable bool) error {
++	channel, err := GetChannelById(channelId, true)
++	if err != nil {
++		return err
++	}
++	info := channel.GetOtherInfo()
++	statusReason, _ := info["status_reason"].(string)
++	delete(info, "risk_status")
++	delete(info, "risk_reason")
++	delete(info, "risk_time")
++	delete(info, "risk_action")
++	delete(info, "risk_evidence_path")
++	delete(info, "risk_evidence_time")
++	if strings.HasPrefix(statusReason, "anti-poison risk:") {
++		delete(info, "status_reason")
++		delete(info, "status_time")
++	}
++	channel.SetOtherInfo(info)
++	if enable {
++		channel.Status = common.ChannelStatusEnabled
++		if channel.ChannelInfo.IsMultiKey {
++			channel.ChannelInfo.MultiKeyStatusList = nil
++			channel.ChannelInfo.MultiKeyDisabledReason = nil
++			channel.ChannelInfo.MultiKeyDisabledTime = nil
++		}
++	}
++	if err := channel.SaveWithoutKey(); err != nil {
++		return err
++	}
++	if enable {
++		if err := UpdateAbilityStatus(channelId, true); err != nil {
++			common.SysLog(fmt.Sprintf("failed to update ability status after clearing anti-poison risk: channel_id=%d, error=%v", channelId, err))
++		}
++	}
++	CacheUpdateChannel(channel)
++	return nil
 +}
 +
  func EnableChannelByTag(tag string) error {
@@ -10095,10 +10418,10 @@ index 581ae19..b619fd7 100644
  		}
 diff --git a/relay/channel/openai/canary_stream.go b/relay/channel/openai/canary_stream.go
 new file mode 100644
-index 0000000..6b06704
+index 0000000..5b3b9ab
 --- /dev/null
 +++ b/relay/channel/openai/canary_stream.go
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,133 @@
 +package openai
 +
 +import (
@@ -10174,6 +10497,13 @@ index 0000000..6b06704
 +		return nil, err
 +	}
 +	return rewriteOpenAIStreamChunksText(b.chunks, cleaned)
++}
++
++func (b *openAIStreamCanaryBuffer) RawText() string {
++	if b == nil {
++		return ""
++	}
++	return strings.Join(b.chunks, "\n")
 +}
 +
 +func rewriteOpenAIStreamChunksText(chunks []string, cleanedText string) ([]string, error) {
@@ -10646,7 +10976,7 @@ index 2c07522..88675d0 100644
  			info.ClaudeConvertInfo.Usage = usage
  		}
 diff --git a/relay/channel/openai/relay-openai.go b/relay/channel/openai/relay-openai.go
-index d6a354f..689bfe6 100644
+index d6a354f..3661c3b 100644
 --- a/relay/channel/openai/relay-openai.go
 +++ b/relay/channel/openai/relay-openai.go
 @@ -10,6 +10,7 @@ import (
@@ -10806,7 +11136,7 @@ index d6a354f..689bfe6 100644
  
  	// 对音频模型，从倒数第二个stream data中提取usage信息
  	if isAudioModel && secondLastStreamData != "" {
-@@ -171,9 +285,42 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+@@ -171,9 +285,43 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
  		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
  	}
  
@@ -10820,6 +11150,7 @@ index d6a354f..689bfe6 100644
 +		}
 +		cleanChunks, err := canaryBuffer.Finalize()
 +		if err != nil {
++			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, canaryBuffer.RawText())
 +			logger.LogError(c, "anti-poison canary stream validation failed: "+err.Error())
 +			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 +		}
@@ -10851,7 +11182,7 @@ index d6a354f..689bfe6 100644
  		}
  	}
  
-@@ -222,6 +369,43 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
+@@ -222,6 +370,46 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
  	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
  		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
  	}
@@ -10863,6 +11194,7 @@ index d6a354f..689bfe6 100644
 +	}
 +	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 +		if err := antipoison.ValidateAndStripOpenAIResponseProof(&simpleResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
++			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 +			logger.LogError(c, "anti-poison response proof validation failed: "+err.Error())
 +			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 +		}
@@ -10873,6 +11205,7 @@ index d6a354f..689bfe6 100644
 +	}
 +	if info.AntiPoisonGuardPrefix != "" {
 +		if err := antipoison.ValidateAndStripOpenAIResponse(&simpleResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
++			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 +			logger.LogError(c, "anti-poison response validation failed: "+err.Error())
 +			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 +		}
@@ -10884,6 +11217,7 @@ index d6a354f..689bfe6 100644
 +	// Canary echo validation
 +	if info.AntiPoisonCanaryNonce != "" {
 +		if err := antipoison.ValidateAndStripOpenAICanary(&simpleResponse, cfg, info.AntiPoisonCanaryNonce); err != nil {
++			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 +			logger.LogError(c, "anti-poison canary validation failed: "+err.Error())
 +			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 +		}
@@ -12083,7 +12417,7 @@ index 010c38b..05c02d8 100644
  	if err != nil {
  		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 diff --git a/router/api-router.go b/router/api-router.go
-index 381d2cc..b195864 100644
+index 381d2cc..e509c73 100644
 --- a/router/api-router.go
 +++ b/router/api-router.go
 @@ -3,6 +3,7 @@ package router
@@ -12160,7 +12494,15 @@ index 381d2cc..b195864 100644
  		channelRoute := apiRouter.Group("/channel")
  		channelRoute.Use(middleware.AdminAuth())
  		{
-@@ -267,6 +313,18 @@ func SetApiRouter(router *gin.Engine) {
+@@ -233,6 +279,7 @@ func SetApiRouter(router *gin.Engine) {
+ 			channelRoute.GET("/models_enabled", controller.EnabledListModels)
+ 			channelRoute.GET("/:id", controller.GetChannel)
+ 			channelRoute.POST("/:id/key", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.SecureVerificationRequired(), controller.GetChannelKey)
++			channelRoute.POST("/:id/anti_poison/clear_risk", controller.ClearChannelAntiPoisonRisk)
+ 			channelRoute.GET("/test", controller.TestAllChannels)
+ 			channelRoute.GET("/test/:id", controller.TestChannel)
+ 			channelRoute.GET("/update_balance", controller.UpdateAllChannelsBalance)
+@@ -267,6 +314,18 @@ func SetApiRouter(router *gin.Engine) {
  			channelRoute.POST("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates)
  			channelRoute.POST("/upstream_updates/detect_all", controller.DetectAllChannelUpstreamModelUpdates)
  		}
@@ -14731,6 +15073,21 @@ index 0000000..04b4b17
 +	}
 +	return out
 +}
+diff --git a/setting/operation_setting/monitor_setting.go b/setting/operation_setting/monitor_setting.go
+index 541e25f..b379d05 100644
+--- a/setting/operation_setting/monitor_setting.go
++++ b/setting/operation_setting/monitor_setting.go
+@@ -14,8 +14,8 @@ type MonitorSetting struct {
+ 
+ // 默认配置
+ var monitorSetting = MonitorSetting{
+-	AutoTestChannelEnabled: false,
+-	AutoTestChannelMinutes: 10,
++	AutoTestChannelEnabled: true,
++	AutoTestChannelMinutes: 30,
+ }
+ 
+ func init() {
 diff --git a/setting/operation_setting/upstream_error_normalize_setting.go b/setting/operation_setting/upstream_error_normalize_setting.go
 new file mode 100644
 index 0000000..177f66b
@@ -17367,7 +17724,7 @@ index 0bead8f..fb28be8 100644
        setFont,
        setRadius,
 diff --git a/web/default/src/features/channels/api.ts b/web/default/src/features/channels/api.ts
-index 6e92519..d7119ce 100644
+index 6e92519..1102f44 100644
 --- a/web/default/src/features/channels/api.ts
 +++ b/web/default/src/features/channels/api.ts
 @@ -36,6 +36,7 @@ import type {
@@ -17393,6 +17750,24 @@ index 6e92519..d7119ce 100644
 +
  // ============================================================================
  // Channel Operations
+ // ============================================================================
+@@ -282,6 +292,17 @@ export async function getChannelKey(
+   return res.data
+ }
+ 
++export async function clearChannelAntiPoisonRisk(
++  id: number
++): Promise<{ success: boolean; message?: string }> {
++  const res = await api.post(
++    `/api/channel/${id}/anti_poison/clear_risk`,
++    {},
++    channelActionConfig()
++  )
++  return res.data
++}
++
+ // ============================================================================
+ // Codex Channel Operations
  // ============================================================================
 diff --git a/web/default/src/features/channels/components/channels-columns.tsx b/web/default/src/features/channels/components/channels-columns.tsx
 index 0d79c1d..6725c88 100644
@@ -17517,6 +17892,82 @@ index 0d79c1d..6725c88 100644
  
          // Auto-disabled: show reason and time tooltip
          if (status === 3) {
+diff --git a/web/default/src/features/channels/components/data-table-row-actions.tsx b/web/default/src/features/channels/components/data-table-row-actions.tsx
+index 9239424..8f3b06c 100644
+--- a/web/default/src/features/channels/components/data-table-row-actions.tsx
++++ b/web/default/src/features/channels/components/data-table-row-actions.tsx
+@@ -34,6 +34,7 @@ import {
+   Trash2,
+   RefreshCw,
+   Loader2,
++  ShieldCheck,
+ } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ import { Button } from '@/components/ui/button'
+@@ -57,6 +58,7 @@ import {
+   handleDeleteChannel,
+   handleTestChannel,
+   handleToggleChannelStatus,
++  handleClearAntiPoisonRisk,
+   isChannelEnabled,
+   isMultiKeyChannel,
+ } from '../lib'
+@@ -76,9 +78,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+   const [isTesting, setIsTesting] = useState(false)
+   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
++  const [isClearingRisk, setIsClearingRisk] = useState(false)
+ 
+   const isEnabled = isChannelEnabled(channel)
+   const isMultiKey = isMultiKeyChannel(channel)
++  const hasAntiPoisonRisk = (() => {
++    if (!channel.other_info) return false
++    try {
++      const meta = JSON.parse(channel.other_info)
++      return meta?.risk_status === 'anti_poison'
++    } catch {
++      return false
++    }
++  })()
+ 
+   const handleEdit = () => {
+     setCurrentRow(channel)
+@@ -139,6 +151,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+     }
+   }
+ 
++  const handleClearRisk = async () => {
++    setIsClearingRisk(true)
++    try {
++      await handleClearAntiPoisonRisk(channel.id, queryClient)
++    } finally {
++      setIsClearingRisk(false)
++    }
++  }
++
+   return (
+     <div className='flex items-center justify-end gap-1'>
+       <Tooltip>
+@@ -294,6 +315,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+             </DropdownMenuItem>
+           )}
+ 
++          {hasAntiPoisonRisk && (
++            <DropdownMenuItem onClick={handleClearRisk} disabled={isClearingRisk}>
++              {t('Clear Anti-poison Risk')}
++              <DropdownMenuShortcut>
++                {isClearingRisk ? (
++                  <Loader2 size={16} className='animate-spin' />
++                ) : (
++                  <ShieldCheck size={16} />
++                )}
++              </DropdownMenuShortcut>
++            </DropdownMenuItem>
++          )}
++
+           <DropdownMenuSeparator />
+ 
+           {/* Delete */}
 diff --git a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx b/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
 index d511128..bf7c879 100644
 --- a/web/default/src/features/channels/components/dialogs/channel-test-dialog.tsx
@@ -18015,6 +18466,44 @@ index 5fd88d5..af187d1 100644
    STATUS_CODE_MAPPING: 'Map response status codes (JSON format)',
    TAG: 'Group channels by tag for batch operations',
    REMARK: 'Internal notes (not shown to users)',
+diff --git a/web/default/src/features/channels/lib/channel-actions.ts b/web/default/src/features/channels/lib/channel-actions.ts
+index a4d0e09..fc24ec4 100644
+--- a/web/default/src/features/channels/lib/channel-actions.ts
++++ b/web/default/src/features/channels/lib/channel-actions.ts
+@@ -35,6 +35,7 @@ import {
+   testAllChannels,
+   updateAllChannelsBalance,
+   updateChannelBalance,
++  clearChannelAntiPoisonRisk,
+ } from '../api'
+ import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
+ import type { CopyChannelParams } from '../types'
+@@ -118,6 +119,25 @@ export async function handleToggleChannelStatus(
+   }
+ }
+ 
++export async function handleClearAntiPoisonRisk(
++  id: number,
++  queryClient?: QueryClient,
++  onSuccess?: () => void
++): Promise<void> {
++  try {
++    const response = await clearChannelAntiPoisonRisk(id)
++    if (response.success) {
++      toast.success(i18next.t('Anti-poison risk cleared'))
++      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
++      onSuccess?.()
++    } else {
++      toast.error(response.message || i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
++    }
++  } catch (_error) {
++    toast.error(i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
++  }
++}
++
+ /**
+  * Delete a channel
+  */
 diff --git a/web/default/src/features/channels/lib/channel-form.ts b/web/default/src/features/channels/lib/channel-form.ts
 index 4f0e504..af3d5f2 100644
 --- a/web/default/src/features/channels/lib/channel-form.ts
@@ -42974,7 +43463,7 @@ index a799610..faa7f09 100644
 +  })
  }
 diff --git a/web/default/src/i18n/locales/zh.json b/web/default/src/i18n/locales/zh.json
-index c6ea6ac..09330ac 100644
+index c6ea6ac..63f88c6 100644
 --- a/web/default/src/i18n/locales/zh.json
 +++ b/web/default/src/i18n/locales/zh.json
 @@ -101,6 +101,280 @@
@@ -43314,7 +43803,7 @@ index c6ea6ac..09330ac 100644
      "User Consumption Ranking": "用户消耗排行",
      "User Consumption Trend": "用户消耗趋势",
      "User created successfully": "用户创建成功",
-@@ -4518,6 +4795,11 @@
+@@ -4518,6 +4795,13 @@
      "Zero retention": "零数据保留",
      "Zhipu": "智谱",
      "Zhipu V4": "智谱 V4",
@@ -43322,7 +43811,9 @@ index c6ea6ac..09330ac 100644
 +    "Zoom": "缩放",
 +    "Anti-poison risk detected": "检测到防投毒风险",
 +    "Anti-poison Risk": "防投毒风险",
++    "Anti-poison risk cleared": "防投毒风险已清除",
 +    "Channel was switched to manual disabled": "渠道已切换为手动禁用",
++    "Clear Anti-poison Risk": "清除防投毒风险",
 +    "Response Proof": "响应证明",
 +    "Experimental normal text proof, disabled by default": "普通文本响应证明仍属实验功能，默认关闭"
    }
