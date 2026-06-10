@@ -433,7 +433,7 @@ index 0000000..8f6aa06
 +	return ""
 +}
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..fb5ad40 100644
+index 037b849..1c5c361 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -2,6 +2,8 @@ package controller
@@ -555,7 +555,7 @@ index 037b849..fb5ad40 100644
  
 -	request := buildTestRequest(testModel, endpointType, channel, isStream)
 +	testNonce := ""
-+	if antipoison.ChannelTestNonceEnabled() && channelTestRequestSupportsNonce(endpointType, testModel, channel) {
++	if channelTestNonceEnabledForChannel(channel) && channelTestRequestSupportsNonce(endpointType, testModel, channel) {
 +		testNonce = newChannelTestNonce()
 +	}
 +	request := buildTestRequest(testModel, endpointType, channel, isStream, testNonce)
@@ -651,7 +651,7 @@ index 037b849..fb5ad40 100644
  	if isStream {
  		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
  	}
-@@ -653,18 +733,134 @@ func validateStreamTestResponseBody(respBody []byte) error {
+@@ -653,18 +733,144 @@ func validateStreamTestResponseBody(respBody []byte) error {
  	return errors.New("stream response body does not contain a valid stream event")
  }
  
@@ -685,6 +685,16 @@ index 037b849..fb5ad40 100644
 +	return !strings.Contains(lowerModel, "embedding") &&
 +		!strings.Contains(lowerModel, "rerank") &&
 +		!strings.Contains(lowerModel, "image")
++}
++
++func channelTestNonceEnabledForChannel(channel *model.Channel) bool {
++	if !antipoison.ChannelTestNonceEnabled() {
++		return false
++	}
++	if channel == nil {
++		return true
++	}
++	return antipoison.FromChannelSettings(channel.GetSetting()).Enabled
 +}
 +
 +func responseBodyContainsTestNonce(respBody []byte, expectedNonce string) bool {
@@ -788,7 +798,7 @@ index 037b849..fb5ad40 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -696,8 +892,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
+@@ -696,8 +902,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
  	return message
  }
  
@@ -807,7 +817,7 @@ index 037b849..fb5ad40 100644
  
  	// 根据端点类型构建不同的测试请求
  	if endpointType != "" {
-@@ -728,7 +933,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -728,7 +943,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  			// 返回 OpenAIResponsesRequest
  			return &dto.OpenAIResponsesRequest{
  				Model:  model,
@@ -816,7 +826,7 @@ index 037b849..fb5ad40 100644
  				Stream: lo.ToPtr(isStream),
  			}
  		case constant.EndpointTypeOpenAIResponseCompact:
-@@ -749,7 +954,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -749,7 +964,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  				Messages: []dto.Message{
  					{
  						Role:    "user",
@@ -825,7 +835,7 @@ index 037b849..fb5ad40 100644
  					},
  				},
  				MaxTokens: lo.ToPtr(maxTokens),
-@@ -794,7 +999,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -794,7 +1009,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  	if strings.Contains(strings.ToLower(model), "codex") {
  		return &dto.OpenAIResponsesRequest{
  			Model:  model,
@@ -834,7 +844,7 @@ index 037b849..fb5ad40 100644
  			Stream: lo.ToPtr(isStream),
  		}
  	}
-@@ -806,7 +1011,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -806,7 +1021,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  		Messages: []dto.Message{
  			{
  				Role:    "user",
@@ -843,7 +853,7 @@ index 037b849..fb5ad40 100644
  			},
  		},
  	}
-@@ -923,7 +1128,12 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +1138,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -857,7 +867,7 @@ index 037b849..fb5ad40 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-@@ -936,7 +1146,7 @@ func testAllChannels(notify bool) error {
+@@ -936,7 +1156,7 @@ func testAllChannels(notify bool) error {
  			newAPIError := result.newAPIError
  			// request error disables the channel
  			if newAPIError != nil {
@@ -866,7 +876,7 @@ index 037b849..fb5ad40 100644
  			}
  
  			// 当错误检查通过，才检查响应时间
-@@ -949,7 +1159,7 @@ func testAllChannels(notify bool) error {
+@@ -949,7 +1169,7 @@ func testAllChannels(notify bool) error {
  			}
  
  			// disable channel
@@ -875,7 +885,7 @@ index 037b849..fb5ad40 100644
  				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  			}
  
-@@ -989,22 +1199,8 @@ func AutomaticallyTestChannels() {
+@@ -989,22 +1209,8 @@ func AutomaticallyTestChannels() {
  		return
  	}
  	autoTestChannelsOnce.Do(func() {
@@ -930,7 +940,7 @@ index c59e492..8410780 100644
  	keyword := c.Query("keyword")
  	group := c.Query("group")
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
-index 0254080..03d957f 100644
+index 0254080..11b1eed 100644
 --- a/controller/channel_test_internal_test.go
 +++ b/controller/channel_test_internal_test.go
 @@ -1,11 +1,15 @@
@@ -949,7 +959,7 @@ index 0254080..03d957f 100644
  	"github.com/QuantumNous/new-api/pkg/billingexpr"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/types"
-@@ -80,3 +84,124 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
+@@ -80,3 +84,131 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
  	require.NoError(t, err)
  	require.Equal(t, 2, userID)
  }
@@ -994,7 +1004,7 @@ index 0254080..03d957f 100644
 +	require.False(t, shouldUseStreamForChannelTest(channel, "text-embedding-3-small", string(constant.EndpointTypeEmbeddings)))
 +}
 +
-+func TestValidateTestResponseBodyRejectsPromotionalSuccessSSE(t *testing.T) {
++func TestValidateTestResponseBodyDoesNotKeywordBlockWithoutNonce(t *testing.T) {
 +	body := []byte(`data: {"choices":[{"delta":{"content":"OpenAI Chat 接口未开启，多多转发分享, 免费公益官网 https://icodex.pro, QQ群: 1054851130"},"index":0}]}
 +
 +data: [DONE]
@@ -1002,8 +1012,7 @@ index 0254080..03d957f 100644
 +
 +	err := validateTestResponseBody(body, true, "")
 +
-+	require.Error(t, err)
-+	require.Contains(t, err.Error(), "promotional")
++	require.NoError(t, err)
 +}
 +
 +func TestValidateTestResponseBodyRequiresNonce(t *testing.T) {
@@ -1053,6 +1062,14 @@ index 0254080..03d957f 100644
 +	err := validateTestResponseBody(body, true, "NEWAPI_TEST_deadbeef")
 +
 +	require.NoError(t, err)
++}
++
++func TestChannelTestNonceDisabledWhenChannelAntiPoisonDisabled(t *testing.T) {
++	disabled := false
++	channel := &model.Channel{}
++	channel.SetSetting(dto.ChannelSettings{AntiPoisonEnabled: &disabled})
++
++	require.False(t, channelTestNonceEnabledForChannel(channel))
 +}
 +
 +func TestReadTestResponseBodyKeepsLateResponsesNonce(t *testing.T) {
@@ -35707,7 +35724,7 @@ index 0d79c1d..6725c88 100644
          // Auto-disabled: show reason and time tooltip
          if (status === 3) {
 diff --git a/web/default/src/features/channels/components/data-table-row-actions.tsx b/web/default/src/features/channels/components/data-table-row-actions.tsx
-index 9239424..8f3b06c 100644
+index 9239424..36cb012 100644
 --- a/web/default/src/features/channels/components/data-table-row-actions.tsx
 +++ b/web/default/src/features/channels/components/data-table-row-actions.tsx
 @@ -34,6 +34,7 @@ import {
@@ -35726,7 +35743,7 @@ index 9239424..8f3b06c 100644
    isChannelEnabled,
    isMultiKeyChannel,
  } from '../lib'
-@@ -76,9 +78,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+@@ -76,9 +78,23 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
    const [isTesting, setIsTesting] = useState(false)
    const [isTogglingStatus, setIsTogglingStatus] = useState(false)
@@ -35738,7 +35755,11 @@ index 9239424..8f3b06c 100644
 +    if (!channel.other_info) return false
 +    try {
 +      const meta = JSON.parse(channel.other_info)
-+      return meta?.risk_status === 'anti_poison'
++      return (
++        meta?.risk_status === 'anti_poison' ||
++        String(meta?.status_reason ?? '').includes('anti-poison risk') ||
++        String(meta?.risk_reason ?? '').includes('anti-poison')
++      )
 +    } catch {
 +      return false
 +    }
@@ -35746,7 +35767,7 @@ index 9239424..8f3b06c 100644
  
    const handleEdit = () => {
      setCurrentRow(channel)
-@@ -139,6 +151,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+@@ -139,6 +155,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
      }
    }
  
@@ -35762,7 +35783,7 @@ index 9239424..8f3b06c 100644
    return (
      <div className='flex items-center justify-end gap-1'>
        <Tooltip>
-@@ -294,6 +315,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+@@ -294,6 +319,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
              </DropdownMenuItem>
            )}
  
