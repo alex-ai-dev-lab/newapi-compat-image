@@ -201,6 +201,9 @@ func channelMatchesRetryRequirements(param *RetryParam, channel *model.Channel) 
 	if !antipoison.ProductionRoutingAllowed(channel.Id, channel.GetSetting()) {
 		return false
 	}
+	if !ChannelAntiPoisonCircuitAllowsProduction(channel.Id, channel.GetSetting()) {
+		return false
+	}
 	return true
 }
 
@@ -208,7 +211,8 @@ func ChannelAllowedForProduction(channel *model.Channel) bool {
 	if channel == nil {
 		return false
 	}
-	return antipoison.ProductionRoutingAllowed(channel.Id, channel.GetSetting())
+	return antipoison.ProductionRoutingAllowed(channel.Id, channel.GetSetting()) &&
+		ChannelAntiPoisonCircuitAllowsProduction(channel.Id, channel.GetSetting())
 }
 
 func getRandomSatisfiedChannelWithRequirements(param *RetryParam, group string, retry int) (*model.Channel, error) {

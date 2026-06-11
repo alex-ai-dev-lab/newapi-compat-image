@@ -42,6 +42,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 	antipoison.ApplyOpenAIResponseProof(info, request)
 	antipoison.ApplyOpenAIAnswerEnvelope(info, request)
+	antipoison.CaptureOpenAIToolPolicy(info, request)
 	antipoison.ApplyOpenAIRequestGuard(info, request)
 	// NOTE: ApplyOpenAICanaryRequest moved after ConvertOpenAIRequest to ensure
 	// canary is injected into the actual request sent upstream
@@ -121,6 +122,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 
 		// Apply canary after conversion to ensure it's in the final upstream request
 		if convertedOpenAIReq, ok := convertedRequest.(*dto.GeneralOpenAIRequest); ok {
+			antipoison.CaptureOpenAIToolPolicy(info, convertedOpenAIReq)
 			antipoison.ApplyOpenAICanaryRequest(info, convertedOpenAIReq)
 		}
 
@@ -195,6 +197,16 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		jsonData = nil
 		info.UpstreamRequestBodySize = size
 		requestBody = body
+	}
+
+	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled && !info.ChannelSetting.PassThroughBodyEnabled {
+		if probeErr := maybeRunOpenAIProbe(c, info, adaptor,
+			func(pc *gin.Context, pi *relaycommon.RelayInfo, req *dto.GeneralOpenAIRequest) (any, error) {
+				return adaptor.ConvertOpenAIRequest(pc, pi, req)
+			}); probeErr != nil {
+			antipoison.RecordRisk(c, antipoison.RiskSuspicious, "probe_failed", "block")
+			return probeErr
+		}
 	}
 
 	var httpResp *http.Response

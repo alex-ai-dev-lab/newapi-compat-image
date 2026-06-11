@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/antipoison"
@@ -40,42 +41,64 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+	cfg := antipoison.ResponseGuardConfig(info)
+	antipoison.RecordStreamMode(c, cfg)
+	if names, args := antipoison.ResponsesToolCallsFromResponse(&responsesResponse); len(names) > 0 {
+		if err := antipoison.ValidateToolCallsAgainstPolicy(info, names, args); err != nil {
+			antipoison.RecordToolPolicyFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+			logger.LogError(c, "anti-poison responses tool-call policy validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+	}
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
-		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			antipoison.RecordProofFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison responses proof validation failed: "+err.Error())
 			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonProofResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(responsesResponse)
 		if err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 		}
 	}
 	if info.AntiPoisonGuardPrefix != "" {
-		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateAndStripResponsesResponse(&responsesResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultFail)
+			antipoison.RecordRisk(c, antipoison.RiskHard, "tool_call_guard", "block")
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison responses validation failed: "+err.Error())
 			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(responsesResponse)
 		if err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 		}
 	}
-	cfg := antipoison.ResponseGuardConfig(info)
 	if info.AntiPoisonAnswerEnvelopeNonce != "" {
 		if err := antipoison.ValidateAndStripResponsesAnswerEnvelope(&responsesResponse, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+			antipoison.RecordEnvelopeFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison responses answer envelope validation failed: "+err.Error())
 			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonEnvelopeResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(responsesResponse)
 		if err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 		}
 	}
-	if err := antipoison.ScanResponsesOpaquePayload(&responsesResponse, cfg, ""); err != nil {
-		logger.LogError(c, "anti-poison responses opaque payload validation failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	if result := antipoison.ScanResponsesOpaquePayloadResult(&responsesResponse, cfg, ""); antipoison.OpaqueScanError(result) != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+		logger.LogError(c, "anti-poison responses opaque payload validation failed")
+		return nil, types.NewError(antipoison.OpaqueScanError(result), types.ErrorCodeAntiPoisonValidationFailed)
+	} else {
+		antipoison.RecordOpaqueResult(c, result)
 	}
 
 	if responsesResponse.HasImageGenerationCall() {
@@ -217,31 +240,68 @@ func aggregateResponsesStreamToResponse(c *gin.Context, info *relaycommon.RelayI
 	} else if len(finalResp.Output) == 0 && (outputText.Len() > 0 || len(functionCallMap) > 0) {
 		finalResp.Output = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap).Output
 	}
+	if info != nil {
+		cfg := antipoison.ResponseGuardConfig(info)
+		antipoison.RecordStreamMode(c, cfg)
+		if names, args := antipoison.ResponsesToolCallsFromResponse(finalResp); len(names) > 0 {
+			if err := antipoison.ValidateToolCallsAgainstPolicy(info, names, args); err != nil {
+				antipoison.RecordToolPolicyFailure(c, err)
+				if b, marshalErr := common.Marshal(finalResp); marshalErr == nil {
+					common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(b))
+				}
+				logger.LogError(c, "anti-poison aggregated responses tool-call policy validation failed: "+err.Error())
+				return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+			}
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+		}
+	}
 	if info != nil && info.AntiPoisonGuardPrefix != "" {
 		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateAndStripResponsesResponse(finalResp, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultFail)
+			antipoison.RecordRisk(c, antipoison.RiskHard, "tool_call_guard", "block")
+			if b, marshalErr := common.Marshal(finalResp); marshalErr == nil {
+				common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(b))
+			}
 			logger.LogError(c, "anti-poison aggregated responses validation failed: "+err.Error())
 			return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
 	}
 	if info != nil && info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateAndStripResponsesResponseProof(finalResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			antipoison.RecordProofFailure(c, err)
+			if b, marshalErr := common.Marshal(finalResp); marshalErr == nil {
+				common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(b))
+			}
 			logger.LogError(c, "anti-poison aggregated responses proof validation failed: "+err.Error())
 			return nil, nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonProofResult, antipoison.ResultPass)
 	}
 	if info != nil {
 		cfg := antipoison.ResponseGuardConfig(info)
 		if info.AntiPoisonAnswerEnvelopeNonce != "" {
 			if err := antipoison.ValidateAndStripResponsesAnswerEnvelope(finalResp, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+				antipoison.RecordEnvelopeFailure(c, err)
+				if b, marshalErr := common.Marshal(finalResp); marshalErr == nil {
+					common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(b))
+				}
 				logger.LogError(c, "anti-poison aggregated responses answer envelope validation failed: "+err.Error())
 				return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 			}
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonEnvelopeResult, antipoison.ResultPass)
 		}
-		if err := antipoison.ScanResponsesOpaquePayload(finalResp, cfg, ""); err != nil {
-			logger.LogError(c, "anti-poison aggregated responses opaque payload validation failed: "+err.Error())
-			return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		if result := antipoison.ScanResponsesOpaquePayloadResult(finalResp, cfg, ""); antipoison.OpaqueScanError(result) != nil {
+			antipoison.RecordOpaqueResult(c, result)
+			if b, marshalErr := common.Marshal(finalResp); marshalErr == nil {
+				common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(b))
+			}
+			logger.LogError(c, "anti-poison aggregated responses opaque payload validation failed")
+			return nil, nil, types.NewError(antipoison.OpaqueScanError(result), types.ErrorCodeAntiPoisonValidationFailed)
+		} else {
+			antipoison.RecordOpaqueResult(c, result)
 		}
 	}
 	usage := responsesUsageFromResponse(info, finalResp, outputText.String())

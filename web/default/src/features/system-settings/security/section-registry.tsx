@@ -122,6 +122,11 @@ const SECURITY_SECTIONS = [
             settings['anti_poison_setting.max_guard_scan_bytes'] || 65536,
           'anti_poison_setting.downstream_proof_header':
             settings['anti_poison_setting.downstream_proof_header'],
+          'anti_poison_setting.profiles':
+            settings['anti_poison_setting.profiles'] || '{}',
+          'anti_poison_setting.channels':
+            settings['anti_poison_setting.channels'] ||
+            '{"77":{"profile":"trusted"},"101":{"profile":"probation"},"94":{"profile":"quarantine"}}',
         }}
       />
     ),

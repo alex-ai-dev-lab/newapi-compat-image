@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/antipoison"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
@@ -28,6 +29,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
@@ -628,7 +630,12 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = common_handler.RerankHandler(c, info, resp)
 	case relayconstant.RelayModeResponses:
 		if info.IsStream {
-			usage, err = OaiResponsesStreamHandler(c, info, resp)
+			cfg := antipoison.ResponseGuardConfig(info)
+			if cfg.Enabled && antipoison.StreamModeForConfig(cfg) == operation_setting.AntiPoisonStreamAggregateThenReplay {
+				usage, err = OaiResponsesStreamToResponseHandler(c, info, resp)
+			} else {
+				usage, err = OaiResponsesStreamHandler(c, info, resp)
+			}
 		} else if c.GetBool("responses_upstream_stream") || (resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")) {
 			usage, err = OaiResponsesStreamToResponseHandler(c, info, resp)
 		} else {

@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/compat"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/antipoison"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -270,6 +271,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError == nil {
 			relayInfo.LastError = nil
 			clearCompatChannelFailure(channel.Id, relayInfo)
+			firstByteLatency := relayInfo.FirstResponseTime.Sub(relayInfo.StartTime)
+			if firstByteLatency < 0 {
+				firstByteLatency = 0
+			}
+			service.RecordAntiPoisonSuccess(channel.Id, channel.GetSetting(), firstByteLatency, time.Since(relayInfo.StartTime))
 			return
 		}
 
@@ -277,6 +283,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		if service.IsAntiPoisonValidationError(newAPIError) {
+			if retryParam.ExcludedChannelIds == nil {
+				retryParam.ExcludedChannelIds = make(map[int]bool)
+			}
+			retryParam.ExcludedChannelIds[channel.Id] = true
+		}
 
 		remainingRetries := maxRetryTimes - retryParam.GetRetry()
 		shouldRetryResult := shouldRetry(c, newAPIError, remainingRetries)
@@ -819,9 +831,30 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		antiPoisonEvidencePath = persistAntiPoisonEvidence(c, channelError, err)
 	}
 	if antiPoisonRisk {
-		gopool.Go(func() {
-			service.DisableChannelForAntiPoisonRisk(channelError, err.ErrorWithStatusCode())
-		})
+		channelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+		riskLevel := common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskLevel)
+		if riskLevel == "" {
+			riskLevel = antipoisonRiskLevelFromError(err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonRiskLevel, riskLevel)
+		}
+		riskSignal := common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskSignal)
+		if riskSignal == "" {
+			riskSignal = "anti_poison_validation"
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonRiskSignal, riskSignal)
+		}
+		if common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken) == "" {
+			action := "retry"
+			if riskLevel == antipoison.RiskHard {
+				action = "block"
+			}
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonActionTaken, action)
+		}
+		service.RecordAntiPoisonRisk(channelError.ChannelId, channelSetting, riskLevel, riskSignal)
+		if service.ShouldDisableChannelForAntiPoisonRisk(channelError.ChannelId, channelSetting, riskLevel) {
+			gopool.Go(func() {
+				service.DisableChannelForAntiPoisonRisk(channelError, err.ErrorWithStatusCode())
+			})
+		}
 	} else if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
@@ -848,7 +881,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_type"] = c.GetInt("channel_type")
 		if antiPoisonRisk {
 			other["anti_poison_risk"] = true
-			other["admin_action"] = "manual_disabled_channel"
+			other["admin_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
 			other["risk_reason"] = err.MaskSensitiveErrorWithStatusCode()
 			if antiPoisonEvidencePath != "" {
 				other["anti_poison_evidence_path"] = antiPoisonEvidencePath
@@ -858,8 +891,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		if antiPoisonRisk {
 			adminInfo["anti_poison_risk"] = true
-			adminInfo["manual_disabled_channel"] = channelError.ChannelId
-			adminInfo["risk_action"] = "manual_disabled"
+			adminInfo["risk_channel"] = channelError.ChannelId
+			adminInfo["risk_level"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskLevel)
+			adminInfo["risk_signal"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskSignal)
+			adminInfo["risk_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
 			if antiPoisonEvidencePath != "" {
 				adminInfo["anti_poison_evidence_path"] = antiPoisonEvidencePath
 			}
@@ -879,6 +914,24 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
+}
+
+func antipoisonRiskLevelFromError(err *types.NewAPIError) string {
+	if err == nil {
+		return antipoison.RiskSuspicious
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "nonce mismatch"),
+		strings.Contains(lower, "outside text"),
+		strings.Contains(lower, "malformed"),
+		strings.Contains(lower, "tool"),
+		strings.Contains(lower, "opaque payload"),
+		strings.Contains(lower, "shape"):
+		return antipoison.RiskHard
+	default:
+		return antipoison.RiskSuspicious
+	}
 }
 
 func RelayMidjourney(c *gin.Context) {

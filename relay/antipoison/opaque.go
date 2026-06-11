@@ -24,7 +24,8 @@ type OpaqueScanResult struct {
 }
 
 var (
-	ErrOpaquePayloadBlocked = errors.New("opaque payload risk blocked")
+	ErrOpaquePayloadBlocked    = errors.New("opaque payload risk blocked")
+	ErrOpaquePayloadSuspicious = errors.New("opaque payload suspicious")
 
 	zeroWidthRe      = regexp.MustCompile(`[\x{200B}-\x{200F}\x{FEFF}]`)
 	bidiOverrideRe   = regexp.MustCompile(`[\x{202A}-\x{202E}\x{2066}-\x{2069}]`)
@@ -90,7 +91,7 @@ func ScanOpaquePayload(text string, cfg Config, userPrompt string) OpaqueScanRes
 		score -= 30
 	}
 	if OpaqueScanStrict(cfg) {
-		score += 20
+		score += 25
 	}
 	if score < 0 {
 		score = 0
@@ -109,52 +110,120 @@ func ScanOpaquePayload(text string, cfg Config, userPrompt string) OpaqueScanRes
 
 func ValidateOpaquePayload(text string, cfg Config, userPrompt string) error {
 	result := ScanOpaquePayload(text, cfg, userPrompt)
-	if result.Action == OpaqueActionBlock {
-		return ErrOpaquePayloadBlocked
-	}
-	return nil
+	return OpaqueScanError(result)
 }
 
 func ScanOpenAIOpaquePayload(resp *dto.OpenAITextResponse, cfg Config, userPrompt string) error {
+	result := ScanOpenAIOpaquePayloadResult(resp, cfg, userPrompt)
+	return OpaqueScanError(result)
+}
+
+func ScanOpenAIOpaquePayloadResult(resp *dto.OpenAITextResponse, cfg Config, userPrompt string) OpaqueScanResult {
+	out := OpaqueScanResult{Action: OpaqueActionAllow}
 	if resp == nil || !OpaqueScanEnabled(cfg) {
-		return nil
+		return out
 	}
 	for _, choice := range resp.Choices {
 		if choice.Message.IsStringContent() {
-			if err := ValidateOpaquePayload(choice.Message.StringContent(), cfg, userPrompt); err != nil {
-				return err
+			result := ScanOpaquePayload(choice.Message.StringContent(), cfg, userPrompt)
+			out = mergeOpaqueResult(out, result)
+			if result.Action == OpaqueActionBlock {
+				return out
 			}
 		}
 	}
-	return nil
+	return out
 }
 
 func ScanResponsesOpaquePayload(resp *dto.OpenAIResponsesResponse, cfg Config, userPrompt string) error {
+	result := ScanResponsesOpaquePayloadResult(resp, cfg, userPrompt)
+	return OpaqueScanError(result)
+}
+
+func ScanResponsesOpaquePayloadResult(resp *dto.OpenAIResponsesResponse, cfg Config, userPrompt string) OpaqueScanResult {
+	out := OpaqueScanResult{Action: OpaqueActionAllow}
 	if resp == nil || !OpaqueScanEnabled(cfg) {
-		return nil
+		return out
 	}
 	for _, output := range resp.Output {
 		for _, content := range output.Content {
-			if err := ValidateOpaquePayload(content.Text, cfg, userPrompt); err != nil {
-				return err
+			result := ScanOpaquePayload(content.Text, cfg, userPrompt)
+			out = mergeOpaqueResult(out, result)
+			if result.Action == OpaqueActionBlock {
+				return out
 			}
 		}
 	}
-	return nil
+	return out
 }
 
 func ScanClaudeOpaquePayload(resp *dto.ClaudeResponse, cfg Config, userPrompt string) error {
-	if resp == nil || !OpaqueScanEnabled(cfg) {
+	result := ScanClaudeOpaquePayloadResult(resp, cfg, userPrompt)
+	return OpaqueScanError(result)
+}
+
+func OpaqueScanError(result OpaqueScanResult) error {
+	switch result.Action {
+	case OpaqueActionBlock:
+		return ErrOpaquePayloadBlocked
+	case OpaqueActionRetry:
+		return ErrOpaquePayloadSuspicious
+	default:
 		return nil
+	}
+}
+
+func ScanClaudeOpaquePayloadResult(resp *dto.ClaudeResponse, cfg Config, userPrompt string) OpaqueScanResult {
+	out := OpaqueScanResult{Action: OpaqueActionAllow}
+	if resp == nil || !OpaqueScanEnabled(cfg) {
+		return out
 	}
 	for _, content := range resp.Content {
 		if content.Type == "text" {
-			if err := ValidateOpaquePayload(content.GetText(), cfg, userPrompt); err != nil {
-				return err
+			result := ScanOpaquePayload(content.GetText(), cfg, userPrompt)
+			out = mergeOpaqueResult(out, result)
+			if result.Action == OpaqueActionBlock {
+				return out
 			}
 		}
 	}
-	return nil
+	return out
+}
+
+func mergeOpaqueResult(a, b OpaqueScanResult) OpaqueScanResult {
+	if b.Score > a.Score {
+		a.Score = b.Score
+	}
+	if actionRank(b.Action) > actionRank(a.Action) {
+		a.Action = b.Action
+	}
+	seen := map[string]bool{}
+	for _, signal := range a.Signals {
+		seen[signal] = true
+	}
+	for _, signal := range b.Signals {
+		if !seen[signal] {
+			a.Signals = append(a.Signals, signal)
+			seen[signal] = true
+		}
+	}
+	if a.Action == "" {
+		a.Action = OpaqueActionAllow
+	}
+	return a
+}
+
+func actionRank(action string) int {
+	switch action {
+	case OpaqueActionBlock:
+		return 3
+	case OpaqueActionRetry:
+		return 2
+	case OpaqueActionAllow:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func hasControlChars(text string) bool {

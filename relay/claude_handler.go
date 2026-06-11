@@ -135,6 +135,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	// channel enables it. Stored on RelayInfo for response-side validation.
 	antipoison.ApplyClaudeResponseProof(info, request)
 	antipoison.ApplyClaudeAnswerEnvelope(info, request)
+	antipoison.CaptureClaudeToolPolicy(info, request)
 	applyClaudeAntiPoisonRequest(c, info, request)
 
 	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
@@ -195,6 +196,16 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		jsonData = nil
 		info.UpstreamRequestBodySize = size
 		requestBody = body
+	}
+
+	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled && !info.ChannelSetting.PassThroughBodyEnabled {
+		if probeErr := maybeRunClaudeProbe(c, info, adaptor,
+			func(pc *gin.Context, pi *relaycommon.RelayInfo, req *dto.ClaudeRequest) (any, error) {
+				return adaptor.ConvertClaudeRequest(pc, pi, req)
+			}); probeErr != nil {
+			antipoison.RecordRisk(c, antipoison.RiskSuspicious, "probe_failed", "block")
+			return probeErr
+		}
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")

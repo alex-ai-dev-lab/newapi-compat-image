@@ -12,7 +12,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/antipoison"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -21,28 +23,45 @@ import (
 const antiPoisonEvidencePreviewLimit = 128 * 1024
 
 type antiPoisonEvidencePayload struct {
-	RequestID       string              `json:"request_id"`
-	CreatedAt       string              `json:"created_at"`
-	ChannelID       int                 `json:"channel_id"`
-	ChannelName     string              `json:"channel_name"`
-	ChannelType     int                 `json:"channel_type"`
-	Model           string              `json:"model"`
-	UserID          int                 `json:"user_id"`
-	TokenID         int                 `json:"token_id"`
-	TokenName       string              `json:"token_name"`
-	Group           string              `json:"group"`
-	Method          string              `json:"method"`
-	Path            string              `json:"path"`
-	IsStream        bool                `json:"is_stream"`
-	UsedChannels    []string            `json:"used_channels"`
-	RequestHeaders  map[string][]string `json:"request_headers"`
-	RequestBody     previewBody         `json:"request_body"`
-	UpstreamBody    previewBody         `json:"upstream_body"`
-	ErrorType       string              `json:"error_type"`
-	ErrorCode       any                 `json:"error_code"`
-	StatusCode      int                 `json:"status_code"`
-	SanitizedError  string              `json:"sanitized_error"`
-	OriginalErrText string              `json:"original_error_text"`
+	RequestID             string              `json:"request_id"`
+	CreatedAt             string              `json:"created_at"`
+	ChannelID             int                 `json:"channel_id"`
+	ChannelName           string              `json:"channel_name"`
+	ChannelType           int                 `json:"channel_type"`
+	Profile               string              `json:"profile"`
+	Model                 string              `json:"model"`
+	UserID                int                 `json:"user_id"`
+	TokenID               int                 `json:"token_id"`
+	TokenName             string              `json:"token_name"`
+	Group                 string              `json:"group"`
+	Method                string              `json:"method"`
+	Path                  string              `json:"path"`
+	IsStream              bool                `json:"is_stream"`
+	UsedChannels          []string            `json:"used_channels"`
+	RequestHeaders        map[string][]string `json:"request_headers"`
+	RequestHeadersPreview map[string][]string `json:"request_headers_preview"`
+	RequestBody           previewBody         `json:"request_body"`
+	RequestBodyPreview    previewBody         `json:"request_body_preview"`
+	UpstreamBody          previewBody         `json:"upstream_body"`
+	UpstreamBodyPreview   previewBody         `json:"upstream_body_preview"`
+	ErrorType             string              `json:"error_type"`
+	ErrorCode             any                 `json:"error_code"`
+	StatusCode            int                 `json:"status_code"`
+	RiskLevel             string              `json:"risk_level"`
+	RiskSignal            string              `json:"risk_signal"`
+	SanitizedError        string              `json:"sanitized_error"`
+	OriginalErrText       string              `json:"original_error_text"`
+	ActionTaken           string              `json:"action_taken"`
+	RetryChannelID        int                 `json:"retry_channel_id,omitempty"`
+	ProbeRequestID        string              `json:"probe_request_id,omitempty"`
+	StreamMode            string              `json:"stream_mode"`
+	OpaqueScore           int                 `json:"opaque_score"`
+	OpaqueHits            []string            `json:"opaque_hits"`
+	ToolCallGuardResult   string              `json:"tool_call_guard_result"`
+	ShapeCheckResult      string              `json:"shape_check_result"`
+	EnvelopeResult        string              `json:"envelope_result"`
+	ProofResult           string              `json:"proof_result"`
+	CanaryResult          string              `json:"canary_result"`
 }
 
 type previewBody struct {
@@ -56,27 +75,48 @@ func persistAntiPoisonEvidence(c *gin.Context, channelError types.ChannelError, 
 	if c == nil || err == nil {
 		return ""
 	}
+	channelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	cfg := antipoison.FromChannelSettingsForChannel(channelError.ChannelId, channelSetting)
+	requestHeaders := sanitizeEvidenceHeaders(c.Request.Header)
+	requestBody := getEvidenceRequestBodyPreview(c)
+	upstreamBody := previewString(common.GetContextKeyString(c, constant.ContextKeyAntiPoisonEvidenceResponse))
 	payload := antiPoisonEvidencePayload{
-		RequestID:       resolveEvidenceRequestID(c),
-		CreatedAt:       time.Now().Format(time.RFC3339Nano),
-		ChannelID:       channelError.ChannelId,
-		ChannelName:     firstNonEmpty(channelError.ChannelName, c.GetString("channel_name")),
-		ChannelType:     c.GetInt("channel_type"),
-		Model:           c.GetString("original_model"),
-		UserID:          c.GetInt("id"),
-		TokenID:         c.GetInt("token_id"),
-		TokenName:       c.GetString("token_name"),
-		Group:           c.GetString("group"),
-		IsStream:        common.GetContextKeyBool(c, constant.ContextKeyIsStream),
-		UsedChannels:    c.GetStringSlice("use_channel"),
-		RequestHeaders:  sanitizeEvidenceHeaders(c.Request.Header),
-		RequestBody:     getEvidenceRequestBodyPreview(c),
-		UpstreamBody:    previewString(common.GetContextKeyString(c, constant.ContextKeyAntiPoisonEvidenceResponse)),
-		ErrorType:       string(err.GetErrorType()),
-		ErrorCode:       err.GetErrorCode(),
-		StatusCode:      err.StatusCode,
-		SanitizedError:  err.MaskSensitiveErrorWithStatusCode(),
-		OriginalErrText: common.LocalLogPreview(err.ErrorWithStatusCode()),
+		RequestID:             resolveEvidenceRequestID(c),
+		CreatedAt:             time.Now().Format(time.RFC3339Nano),
+		ChannelID:             channelError.ChannelId,
+		ChannelName:           firstNonEmpty(channelError.ChannelName, c.GetString("channel_name")),
+		ChannelType:           c.GetInt("channel_type"),
+		Profile:               cfg.Profile,
+		Model:                 c.GetString("original_model"),
+		UserID:                c.GetInt("id"),
+		TokenID:               c.GetInt("token_id"),
+		TokenName:             c.GetString("token_name"),
+		Group:                 c.GetString("group"),
+		IsStream:              common.GetContextKeyBool(c, constant.ContextKeyIsStream),
+		UsedChannels:          c.GetStringSlice("use_channel"),
+		RequestHeaders:        requestHeaders,
+		RequestHeadersPreview: requestHeaders,
+		RequestBody:           requestBody,
+		RequestBodyPreview:    requestBody,
+		UpstreamBody:          upstreamBody,
+		UpstreamBodyPreview:   upstreamBody,
+		ErrorType:             string(err.GetErrorType()),
+		ErrorCode:             err.GetErrorCode(),
+		StatusCode:            err.StatusCode,
+		RiskLevel:             common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskLevel),
+		RiskSignal:            common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskSignal),
+		SanitizedError:        err.MaskSensitiveErrorWithStatusCode(),
+		OriginalErrText:       common.LocalLogPreview(err.ErrorWithStatusCode()),
+		ActionTaken:           firstNonEmpty(common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken), "block"),
+		ProbeRequestID:        common.GetContextKeyString(c, constant.ContextKeyAntiPoisonProbeRequestID),
+		StreamMode:            firstNonEmpty(common.GetContextKeyString(c, constant.ContextKeyAntiPoisonStreamMode), cfg.StreamMode),
+		OpaqueScore:           common.GetContextKeyInt(c, constant.ContextKeyAntiPoisonOpaqueScore),
+		OpaqueHits:            common.GetContextKeyStringSlice(c, constant.ContextKeyAntiPoisonOpaqueHits),
+		ToolCallGuardResult:   common.GetContextKeyString(c, constant.ContextKeyAntiPoisonToolGuardResult),
+		ShapeCheckResult:      common.GetContextKeyString(c, constant.ContextKeyAntiPoisonShapeResult),
+		EnvelopeResult:        common.GetContextKeyString(c, constant.ContextKeyAntiPoisonEnvelopeResult),
+		ProofResult:           common.GetContextKeyString(c, constant.ContextKeyAntiPoisonProofResult),
+		CanaryResult:          common.GetContextKeyString(c, constant.ContextKeyAntiPoisonCanaryResult),
 	}
 	if c.Request != nil {
 		payload.Method = c.Request.Method
@@ -99,6 +139,9 @@ func persistAntiPoisonEvidence(c *gin.Context, channelError types.ChannelError, 
 	if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
 		common.SysError("failed to write anti-poison evidence: " + writeErr.Error())
 		return ""
+	}
+	if os.Getenv("NEWAPI_SKIP_EVIDENCE_DB_UPDATE") == "true" {
+		return path
 	}
 	if updateErr := model.SetChannelAntiPoisonEvidencePath(channelError.ChannelId, path); updateErr != nil {
 		common.SysError("failed to save anti-poison evidence path to channel: " + updateErr.Error())

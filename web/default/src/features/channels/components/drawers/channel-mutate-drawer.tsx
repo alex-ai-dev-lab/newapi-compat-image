@@ -219,7 +219,18 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
+    values.anti_poison_profile !== 'inherit' ||
     values.anti_poison_enabled === false ||
+    values.anti_poison_answer_envelope !== 'inherit' ||
+    values.anti_poison_response_proof !== 'inherit' ||
+    values.anti_poison_tool_call_guard !== 'inherit' ||
+    values.anti_poison_opaque_scan !== 'inherit' ||
+    values.anti_poison_probe_before_every_request ||
+    values.anti_poison_stream_mode !== 'inherit' ||
+    Number(values.anti_poison_hard_failures_to_quarantine || 0) > 0 ||
+    Number(values.anti_poison_soft_failures_to_degrade || 0) > 0 ||
+    Boolean(values.anti_poison_failure_mode) ||
+    values.anti_poison_string_protection === false ||
     values.requires_codex_identity !== 'auto' ||
     values.claude_beta_query ||
     values.auto_test_and_recover_enabled === false ||
@@ -2734,6 +2745,291 @@ export function ChannelMutateDrawer({
                           )}
                         />
 
+                        <div className='grid gap-3 rounded-md border p-3 md:grid-cols-2'>
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_profile'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Risk Profile')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit by channel id')}</SelectItem>
+                                    <SelectItem value='trusted'>{t('trusted')}</SelectItem>
+                                    <SelectItem value='unknown'>{t('unknown')}</SelectItem>
+                                    <SelectItem value='probation'>{t('probation')}</SelectItem>
+                                    <SelectItem value='quarantine'>{t('quarantine')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormDescription>
+                                  {t('Use probation for channel 101, quarantine for ad-only channels, trusted for stable channels.')}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_answer_envelope'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Answer Envelope')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                    <SelectItem value='off'>{t('off')}</SelectItem>
+                                    <SelectItem value='auto'>{t('auto')}</SelectItem>
+                                    <SelectItem value='required'>{t('required')}</SelectItem>
+                                    <SelectItem value='required_non_stream'>{t('required_non_stream')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_response_proof'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Response Proof')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                    <SelectItem value='off'>{t('off')}</SelectItem>
+                                    <SelectItem value='warn'>{t('warn')}</SelectItem>
+                                    <SelectItem value='auto'>{t('auto')}</SelectItem>
+                                    <SelectItem value='required'>{t('required')}</SelectItem>
+                                    <SelectItem value='required_non_stream'>{t('required_non_stream')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_tool_call_guard'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Tool Call Guard')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                    <SelectItem value='off'>{t('off')}</SelectItem>
+                                    <SelectItem value='warn'>{t('warn')}</SelectItem>
+                                    <SelectItem value='auto'>{t('auto')}</SelectItem>
+                                    <SelectItem value='strict'>{t('strict')}</SelectItem>
+                                    <SelectItem value='strict_when_tools'>{t('strict_when_tools')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_opaque_scan'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Opaque Payload Scanner')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                    <SelectItem value='off'>{t('off')}</SelectItem>
+                                    <SelectItem value='warn'>{t('warn')}</SelectItem>
+                                    <SelectItem value='score'>{t('score')}</SelectItem>
+                                    <SelectItem value='score_strict'>{t('score_strict')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_stream_mode'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Stream Mode')}</FormLabel>
+                                <Select
+                                  value={field.value || 'inherit'}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                    <SelectItem value='direct_stream_light_scan'>{t('direct_stream_light_scan')}</SelectItem>
+                                    <SelectItem value='preflight_probe_first_bytes_buffer'>{t('preflight_probe_first_bytes_buffer')}</SelectItem>
+                                    <SelectItem value='aggregate_then_replay'>{t('aggregate_then_replay')}</SelectItem>
+                                    <SelectItem value='disabled'>{t('disabled')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_hard_failures_to_quarantine'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Hard failures to quarantine')}</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type='number'
+                                    min={0}
+                                    {...field}
+                                    onChange={(event) =>
+                                      field.onChange(Number(event.target.value || 0))
+                                    }
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='anti_poison_soft_failures_to_degrade'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('Soft failures to degrade')}</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type='number'
+                                    min={0}
+                                    {...field}
+                                    onChange={(event) =>
+                                      field.onChange(Number(event.target.value || 0))
+                                    }
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name='anti_poison_probe_before_every_request'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('Probe before every request')}</FormLabel>
+                                <FormDescription>
+                                  {t('Use for probation channels such as 101. Probe traffic is separated from real user requests.')}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value === true}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='anti_poison_string_protection'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('String protection')}</FormLabel>
+                                <FormDescription>
+                                  {t('Protect high-confidence secrets before upstream calls.')}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value !== false}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='anti_poison_failure_mode'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Anti-Poison Failure Mode')}</FormLabel>
+                              <Select
+                                value={field.value || 'inherit'}
+                                onValueChange={field.onChange}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='inherit'>{t('Inherit')}</SelectItem>
+                                  <SelectItem value='block'>{t('Block')}</SelectItem>
+                                  <SelectItem value='warn'>{t('Warn only')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
                         <FormField
                           control={form.control}
                           name='anti_poison_response_proof_enabled'
@@ -2763,7 +3059,7 @@ export function ChannelMutateDrawer({
                               <div className='space-y-0.5'>
                                 <FormLabel>{t('Canary echo validation')}</FormLabel>
                                 <FormDescription>
-                                  {t('Inject per-request nonce into last user message; model must echo at end. Catches ad payloads that ignore user input.')}
+                                  {t('Legacy real-request canary. Keep disabled for exact-output, JSON-only, and tool-only prompts; use profile probe instead.')}
                                 </FormDescription>
                               </div>
                               <FormControl>

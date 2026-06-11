@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/reasonmap"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
@@ -638,6 +639,7 @@ type ClaudeResponseInfo struct {
 	ResponseText strings.Builder
 	Usage        *dto.Usage
 	Done         bool
+	StopReason   string
 }
 
 type claudePendingStreamData struct {
@@ -799,6 +801,9 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			}
 		}
 	} else if claudeResponse.Type == "message_delta" {
+		if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
+			claudeInfo.StopReason = *claudeResponse.Delta.StopReason
+		}
 		// 最终的usage获取
 		if claudeResponse.Usage != nil {
 			claudeInfo.Usage.UsageSemantic = "anthropic"
@@ -951,6 +956,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	cfg := antipoison.ResponseGuardConfig(info)
+	if cfg.Enabled && antipoison.StreamModeForConfig(cfg) == operation_setting.AntiPoisonStreamAggregateThenReplay {
+		return claudeAggregateStreamThenReplay(c, resp, info)
+	}
 	claudeInfo := &ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
 		Created:      common.GetTimestamp(),
@@ -1013,32 +1022,294 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	return claudeInfo.Usage, nil
 }
 
-func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+func claudeAggregateStreamThenReplay(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	claudeInfo := &ClaudeResponseInfo{
+		ResponseId:   helper.GetResponseID(c),
+		Created:      common.GetTimestamp(),
+		Model:        info.UpstreamModelName,
+		ResponseText: strings.Builder{},
+		Usage:        &dto.Usage{},
+	}
+	var finalErr *types.NewAPIError
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		var claudeResponse dto.ClaudeResponse
+		if err := common.UnmarshalJsonStr(data, &claudeResponse); err != nil {
+			finalErr = types.NewError(err, types.ErrorCodeBadResponseBody)
+			sr.Stop(finalErr)
+			return
+		}
+		if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
+			finalErr = types.WithClaudeError(*claudeError, http.StatusInternalServerError)
+			sr.Stop(finalErr)
+			return
+		}
+		if claudeResponse.StopReason != "" {
+			maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
+		}
+		if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
+			maybeMarkClaudeRefusal(c, *claudeResponse.Delta.StopReason)
+		}
+		FormatClaudeResponseInfo(&claudeResponse, nil, claudeInfo)
+	})
+	if finalErr != nil {
+		return nil, finalErr
+	}
+	finalResp := buildClaudeAggregatedResponse(claudeInfo)
+	data, err := common.Marshal(finalResp)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+	}
+	_, processedResp, handleErr := prepareClaudeResponseData(c, info, claudeInfo, data)
+	if handleErr != nil {
+		return nil, handleErr
+	}
+	if processedResp != nil {
+		finalResp = *processedResp
+	}
+	if info.RelayFormat == types.RelayFormatOpenAI {
+		replayClaudeAsOpenAIStream(c, info, finalResp, claudeInfo)
+	} else {
+		replayClaudeStream(c, finalResp, claudeInfo)
+	}
+	return claudeInfo.Usage, nil
+}
+
+func buildClaudeAggregatedResponse(info *ClaudeResponseInfo) dto.ClaudeResponse {
+	text := ""
+	if info != nil {
+		text = info.ResponseText.String()
+	}
+	resp := dto.ClaudeResponse{
+		Type:       "message",
+		Role:       "assistant",
+		Content:    []dto.ClaudeMediaMessage{{Type: dto.ContentTypeText, Text: &text}},
+		StopReason: "end_turn",
+	}
+	if info != nil {
+		resp.Id = info.ResponseId
+		resp.Model = info.Model
+		if info.StopReason != "" {
+			resp.StopReason = info.StopReason
+		}
+		if info.Usage != nil {
+			resp.Usage = &dto.ClaudeUsage{
+				InputTokens:                 info.Usage.PromptTokens,
+				OutputTokens:                info.Usage.CompletionTokens,
+				CacheReadInputTokens:        info.Usage.PromptTokensDetails.CachedTokens,
+				CacheCreationInputTokens:    info.Usage.PromptTokensDetails.CachedCreationTokens,
+				ClaudeCacheCreation5mTokens: info.Usage.ClaudeCacheCreation5mTokens,
+				ClaudeCacheCreation1hTokens: info.Usage.ClaudeCacheCreation1hTokens,
+			}
+		}
+	}
+	return resp
+}
+
+func replayClaudeStream(c *gin.Context, resp dto.ClaudeResponse, info *ClaudeResponseInfo) {
+	start := dto.ClaudeResponse{
+		Type: "message_start",
+		Message: &dto.ClaudeMediaMessage{
+			Id:    resp.Id,
+			Type:  "message",
+			Role:  "assistant",
+			Model: resp.Model,
+			Usage: resp.Usage,
+		},
+	}
+	helper.ClaudeChunkData(c, start, mustMarshalString(start))
+	block := dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: common.GetPointer(0),
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type: dto.ContentTypeText,
+			Text: common.GetPointer(""),
+		},
+	}
+	helper.ClaudeChunkData(c, block, mustMarshalString(block))
+	text := ""
+	if len(resp.Content) > 0 {
+		text = resp.Content[0].GetText()
+	}
+	for _, part := range splitClaudeReplayText(text, 512) {
+		delta := dto.ClaudeResponse{
+			Type:  "content_block_delta",
+			Index: common.GetPointer(0),
+			Delta: &dto.ClaudeMediaMessage{
+				Type: "text_delta",
+				Text: common.GetPointer(part),
+			},
+		}
+		helper.ClaudeChunkData(c, delta, mustMarshalString(delta))
+	}
+	stop := dto.ClaudeResponse{Type: "content_block_stop", Index: common.GetPointer(0)}
+	helper.ClaudeChunkData(c, stop, mustMarshalString(stop))
+	messageDelta := dto.ClaudeResponse{
+		Type: "message_delta",
+		Delta: &dto.ClaudeMediaMessage{
+			StopReason: common.GetPointer(resp.StopReason),
+		},
+		Usage: resp.Usage,
+	}
+	helper.ClaudeChunkData(c, messageDelta, mustMarshalString(messageDelta))
+	messageStop := dto.ClaudeResponse{Type: "message_stop"}
+	helper.ClaudeChunkData(c, messageStop, mustMarshalString(messageStop))
+	_ = info
+}
+
+func replayClaudeAsOpenAIStream(c *gin.Context, info *relaycommon.RelayInfo, resp dto.ClaudeResponse, claudeInfo *ClaudeResponseInfo) {
+	responseID := resp.Id
+	if responseID == "" {
+		responseID = helper.GetResponseID(c)
+	}
+	model := resp.Model
+	if model == "" && info != nil {
+		model = info.UpstreamModelName
+	}
+	roleChunk := dto.ChatCompletionsStreamResponse{
+		Id:      responseID,
+		Object:  "chat.completion.chunk",
+		Created: common.GetTimestamp(),
+		Model:   model,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Index: 0,
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Role: "assistant"},
+		}},
+	}
+	_ = helper.ObjectData(c, roleChunk)
+	text := ""
+	if len(resp.Content) > 0 {
+		text = resp.Content[0].GetText()
+	}
+	for _, part := range splitClaudeReplayText(text, 512) {
+		chunk := dto.ChatCompletionsStreamResponse{
+			Id:      responseID,
+			Object:  "chat.completion.chunk",
+			Created: common.GetTimestamp(),
+			Model:   model,
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Index: 0,
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{},
+			}},
+		}
+		chunk.Choices[0].Delta.SetContentString(part)
+		_ = helper.ObjectData(c, chunk)
+	}
+	finishReason := common.GetPointer(stopReasonClaude2OpenAI(resp.StopReason))
+	doneChunk := dto.ChatCompletionsStreamResponse{
+		Id:      responseID,
+		Object:  "chat.completion.chunk",
+		Created: common.GetTimestamp(),
+		Model:   model,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Index:        0,
+			Delta:        dto.ChatCompletionsStreamResponseChoiceDelta{},
+			FinishReason: finishReason,
+		}},
+	}
+	_ = helper.ObjectData(c, doneChunk)
+	if info != nil && info.ShouldIncludeUsage && claudeInfo != nil {
+		openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
+		response := helper.GenerateFinalUsageResponse(responseID, common.GetTimestamp(), model, openAIUsage)
+		_ = helper.ObjectData(c, response)
+	}
+	helper.Done(c)
+}
+
+func splitClaudeReplayText(text string, size int) []string {
+	if text == "" {
+		return nil
+	}
+	if size <= 0 {
+		size = 512
+	}
+	var out []string
+	for len(text) > size {
+		out = append(out, text[:size])
+		text = text[size:]
+	}
+	out = append(out, text)
+	return out
+}
+
+func mustMarshalString(v any) string {
+	b, err := common.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func prepareClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, data []byte) ([]byte, *dto.ClaudeResponse, *types.NewAPIError) {
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {
-		return types.NewError(err, types.ErrorCodeBadResponseBody)
+		return nil, nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
-		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
+		return nil, nil, types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
 
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateAndStripClaudeResponseProof(&claudeResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			antipoison.RecordProofFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(data))
 			logger.LogError(c, "anti-poison claude proof validation failed: "+err.Error())
-			return types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
+			return nil, nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonProofResult, antipoison.ResultPass)
 		data, err = common.Marshal(claudeResponse)
 		if err != nil {
-			return types.NewError(err, types.ErrorCodeBadResponseBody)
+			return nil, nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
+	}
+	cfg := antipoison.ResponseGuardConfig(info)
+	antipoison.RecordStreamMode(c, cfg)
+	if names, args := antipoison.ClaudeToolCallsFromResponse(&claudeResponse); len(names) > 0 {
+		if err := antipoison.ValidateToolCallsAgainstPolicy(info, names, args); err != nil {
+			antipoison.RecordToolPolicyFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(data))
+			logger.LogError(c, "anti-poison claude tool-call policy validation failed: "+err.Error())
+			return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
 	}
 
 	// Anti-poison: validate guard coverage and strip markers from the response
 	// before returning to the client. Stored prefix from request-side injection.
 	if err := antipoison.ApplyClaudeResponseValidation(info, &claudeResponse); err != nil {
-		return types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultFail)
+		antipoison.RecordRisk(c, antipoison.RiskHard, "tool_call_guard", "block")
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(data))
+		return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+	if info.AntiPoisonGuardPrefix != "" {
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+		data, err = common.Marshal(claudeResponse)
+		if err != nil {
+			return nil, nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+	}
+	if info.AntiPoisonAnswerEnvelopeNonce != "" {
+		if err := antipoison.ValidateAndStripClaudeAnswerEnvelope(&claudeResponse, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+			antipoison.RecordEnvelopeFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(data))
+			logger.LogError(c, "anti-poison claude answer envelope validation failed: "+err.Error())
+			return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonEnvelopeResult, antipoison.ResultPass)
+		data, err = common.Marshal(claudeResponse)
+		if err != nil {
+			return nil, nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+	}
+	if result := antipoison.ScanClaudeOpaquePayloadResult(&claudeResponse, cfg, ""); antipoison.OpaqueScanError(result) != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(data))
+		logger.LogError(c, "anti-poison claude opaque payload validation failed")
+		return nil, nil, types.NewError(antipoison.OpaqueScanError(result), types.ErrorCodeAntiPoisonValidationFailed)
+	} else {
+		antipoison.RecordOpaqueResult(c, result)
 	}
 
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
@@ -1062,7 +1333,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		openaiResponse.Usage = buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 		responseData, err = json.Marshal(openaiResponse)
 		if err != nil {
-			return types.NewError(err, types.ErrorCodeBadResponseBody)
+			return nil, nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 	case types.RelayFormatClaude:
 		responseData = data
@@ -1072,6 +1343,14 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
 
+	return responseData, &claudeResponse, nil
+}
+
+func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+	responseData, _, err := prepareClaudeResponseData(c, info, claudeInfo, data)
+	if err != nil {
+		return err
+	}
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
 	return nil
 }
