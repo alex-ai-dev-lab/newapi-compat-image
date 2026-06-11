@@ -184,8 +184,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 	var antiPoisonMarkers []string
 	var antiPoisonTools []string
+	var streamErr *types.NewAPIError
 	var responseProof *antipoison.ProofStreamValidator
 	var canaryBuffer = newOpenAIStreamCanaryBuffer(info)
+	var preflightBuffer *antipoison.StreamPreflightBuffer
+	if canaryBuffer == nil {
+		preflightBuffer = antipoison.NewStreamPreflightBuffer(cfg)
+	}
 	var pendingStreamData []string
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
@@ -205,9 +210,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			} else if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
 				pendingStreamData = append(pendingStreamData, lastStreamData)
 			} else {
-				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				if err := sendOpenAIStreamDataWithPreflight(c, info, preflightBuffer, lastStreamData); err != nil {
+					streamErr = err
 					common.SysLog("error handling stream format: " + err.Error())
-					sr.Error(err)
+					sr.Stop(err)
+					return
 				}
 			}
 			lastStreamData = ""
@@ -240,9 +247,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				}
 				data = cleanData
 				for _, pending := range pendingStreamData {
-					if err := HandleStreamFormat(c, info, pending, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					if err := sendOpenAIStreamDataWithPreflight(c, info, preflightBuffer, pending); err != nil {
+						streamErr = err
 						common.SysLog("error handling buffered stream format: " + err.Error())
-						sr.Error(err)
+						sr.Stop(err)
+						return
 					}
 				}
 				pendingStreamData = nil
@@ -259,6 +268,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 	if info.AntiPoisonGuardPrefix != "" {
 		cfg := antipoison.ResponseGuardConfig(info)
 		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
@@ -327,7 +339,23 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if responseProof != nil && !responseProof.Verified() && openAIStreamChunkHasVisibleText(lastStreamData) {
 				pendingStreamData = append(pendingStreamData, lastStreamData)
 			} else {
-				_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+				if err := sendOpenAIStreamDataWithPreflight(c, info, preflightBuffer, lastStreamData); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if preflightBuffer != nil {
+		chunks, result, err := preflightBuffer.Finalize()
+		if err != nil {
+			antipoison.RecordOpaqueResult(c, result)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, preflightBuffer.RawData())
+			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordOpaqueResult(c, result)
+		for _, chunk := range chunks {
+			if err := HandleStreamFormat(c, info, chunk, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
 		}
 	}
@@ -342,6 +370,46 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
+}
+
+func sendOpenAIStreamDataWithPreflight(c *gin.Context, info *relaycommon.RelayInfo, buffer *antipoison.StreamPreflightBuffer, data string) *types.NewAPIError {
+	if data == "" {
+		return nil
+	}
+	if buffer == nil {
+		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		return nil
+	}
+	chunks, result, err := buffer.Add(data, openAIStreamVisibleText(data))
+	if err != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, buffer.RawData())
+		return types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+	if len(chunks) > 0 {
+		antipoison.RecordOpaqueResult(c, result)
+	}
+	for _, chunk := range chunks {
+		if err := HandleStreamFormat(c, info, chunk, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+	}
+	return nil
+}
+
+func openAIStreamVisibleText(data string) string {
+	var chunk dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
+		return ""
+	}
+	var text strings.Builder
+	for _, choice := range chunk.Choices {
+		text.WriteString(choice.Delta.GetContentString())
+		text.WriteString(choice.Delta.GetReasoningContent())
+	}
+	return text.String()
 }
 
 type aggregatedOpenAIToolCall struct {

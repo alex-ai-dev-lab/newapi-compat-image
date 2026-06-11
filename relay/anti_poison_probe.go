@@ -14,13 +14,14 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
 
 func maybeRunOpenAIProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor channelAdaptor, convert func(*gin.Context, *relaycommon.RelayInfo, *dto.GeneralOpenAIRequest) (any, error)) *types.NewAPIError {
-	if !antipoison.ProbeRequired(info) {
+	if !antiPoisonProbeDue(info) {
 		return nil
 	}
 	probeReq := antipoison.BuildOpenAIProbeRequest(info.OriginModelName)
@@ -37,7 +38,7 @@ func maybeRunOpenAIProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor ch
 }
 
 func maybeRunResponsesProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor channelAdaptor, convert func(*gin.Context, *relaycommon.RelayInfo, dto.OpenAIResponsesRequest) (any, error)) *types.NewAPIError {
-	if !antipoison.ProbeRequired(info) {
+	if !antiPoisonProbeDue(info) {
 		return nil
 	}
 	probeReq := antipoison.BuildResponsesProbeRequest(info.OriginModelName)
@@ -54,7 +55,7 @@ func maybeRunResponsesProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor
 }
 
 func maybeRunClaudeProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor channelAdaptor, convert func(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error)) *types.NewAPIError {
-	if !antipoison.ProbeRequired(info) {
+	if !antiPoisonProbeDue(info) {
 		return nil
 	}
 	probeReq := antipoison.BuildClaudeProbeRequest(info.OriginModelName)
@@ -68,6 +69,18 @@ func maybeRunClaudeProbe(c *gin.Context, info *relaycommon.RelayInfo, adaptor ch
 		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	return executeAntiPoisonProbe(probeCtx, c, probeInfo, adaptor, converted)
+}
+
+func antiPoisonProbeDue(info *relaycommon.RelayInfo) bool {
+	if !antipoison.ProbeRequired(info) {
+		return false
+	}
+	cfg := antipoison.ResponseGuardConfig(info)
+	if cfg.ProbeBeforeEveryRequest {
+		return true
+	}
+	return cfg.StreamMode == operation_setting.AntiPoisonStreamPreflightFirstBytes &&
+		!service.AntiPoisonProbeFresh(info.ChannelId, info.ChannelSetting)
 }
 
 type channelAdaptor interface {
