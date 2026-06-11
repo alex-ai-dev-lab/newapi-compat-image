@@ -128,7 +128,7 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string, tlsInsecureSkipVerify ...bool) (*http.Response, error) {
 	requestUrl := fmt.Sprintf("%s/suno/fetch", baseUrl)
 	byteBody, err := common.Marshal(body)
 	if err != nil {
@@ -142,9 +142,12 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
-	client, err := service.GetHttpClientWithProxy(proxy)
+	client, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 proxy,
+		TLSInsecureSkipVerify: len(tlsInsecureSkipVerify) > 0 && tlsInsecureSkipVerify[0],
+	})
 	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		return nil, fmt.Errorf("new http client failed: %w", err)
 	}
 	return client.Do(req)
 }

@@ -48,17 +48,12 @@ func newAwsInvokeContext() (context.Context, context.CancelFunc) {
 }
 
 func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.Client, error) {
-	var (
-		httpClient *http.Client
-		err        error
-	)
-	if info.ChannelSetting.Proxy != "" {
-		httpClient, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
-		if err != nil {
-			return nil, fmt.Errorf("new proxy http client failed: %w", err)
-		}
-	} else {
-		httpClient = service.GetHttpClient()
+	httpClient, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 info.ChannelSetting.Proxy,
+		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("new http client failed: %w", err)
 	}
 
 	awsSecret := strings.Split(info.ApiKey, "|")

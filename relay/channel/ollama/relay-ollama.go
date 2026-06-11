@@ -278,10 +278,17 @@ func ollamaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	return usage, nil
 }
 
-func FetchOllamaModels(baseURL, apiKey string) ([]OllamaModel, error) {
+func FetchOllamaModels(baseURL, apiKey string, options ...service.HTTPClientOptions) ([]OllamaModel, error) {
 	url := fmt.Sprintf("%s/api/tags", baseURL)
 
-	client := &http.Client{}
+	clientOptions := service.HTTPClientOptions{}
+	if len(options) > 0 {
+		clientOptions = options[0]
+	}
+	client, err := service.GetHttpClientWithOptions(clientOptions)
+	if err != nil {
+		return nil, fmt.Errorf("创建HTTP客户端失败: %v", err)
+	}
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %v", err)

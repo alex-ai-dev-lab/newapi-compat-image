@@ -211,7 +211,16 @@ func DoMidjourneyHttpRequest(c *gin.Context, timeout time.Duration, fullRequestU
 		req.Header.Set("mj-api-secret", auth)
 	}
 	defer cancel()
-	resp, err := GetHttpClient().Do(req)
+	channelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	client, err := GetHttpClientWithOptions(HTTPClientOptions{
+		Proxy:                 channelSetting.Proxy,
+		TLSInsecureSkipVerify: channelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		common.SysLog("create http client failed: " + err.Error())
+		return MidjourneyErrorWithStatusCodeWrapper(constant.MjErrorUnknown, "create_http_client_failed", http.StatusInternalServerError), nullBytes, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		common.SysLog("do request failed: " + err.Error())
 		return MidjourneyErrorWithStatusCodeWrapper(constant.MjErrorUnknown, "do_request_failed", http.StatusInternalServerError), nullBytes, err

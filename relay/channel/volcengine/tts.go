@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -209,7 +210,18 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	header := http.Header{}
 	header.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
 
-	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
+	dialer, dialerErr := service.NewWebSocketDialerWithOptions(service.HTTPClientOptions{
+		Proxy:                 info.ChannelSetting.Proxy,
+		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,
+	})
+	if dialerErr != nil {
+		return nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("failed to create websocket dialer: %w", dialerErr),
+			types.ErrorCodeBadResponseStatusCode,
+			http.StatusBadGateway,
+		)
+	}
+	conn, resp, dialErr := dialer.DialContext(context.Background(), requestURL, header)
 	if dialErr != nil {
 		if resp != nil {
 			return nil, types.NewErrorWithStatusCode(
