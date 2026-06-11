@@ -34,10 +34,11 @@ jobs:
         run: |
           bun install --frozen-lockfile
           bun run build
+      - name: Clean frontend dependencies before Go tests
+        run: rm -rf web/default/node_modules web/classic/node_modules
       - name: Go tests
         run: go test ./...
       - name: Secret pattern check
         run: sh scripts/secret-scan.sh
       - name: Patch workflow guard
-        run: |
-          ! git grep -nE 'git apply|codeload.github.com|archive/refs/tags' -- .github/workflows Dockerfile
+        run: sh scripts/patch-workflow-guard.sh
