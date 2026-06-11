@@ -150,6 +150,7 @@ export function SettingsNavigationSection({
       'sensitive-words': t('Sensitive Words'),
       ssrf: t('SSRF Protection'),
       'upstream-error-rules': t('Upstream Error Rules'),
+      'anti-poison-guard': t('Anti-Poison Guard'),
     },
     content: {
       dashboard: t('Data Dashboard'),

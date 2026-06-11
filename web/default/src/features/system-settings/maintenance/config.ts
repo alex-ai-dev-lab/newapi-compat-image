@@ -97,7 +97,13 @@ export const SYSTEM_SETTINGS_SECTION_ORDER_DEFAULT: Record<string, string[]> = {
     'channel-affinity',
     'model-deployment',
   ],
-  security: ['rate-limit', 'sensitive-words', 'ssrf', 'upstream-error-rules'],
+  security: [
+    'rate-limit',
+    'sensitive-words',
+    'ssrf',
+    'upstream-error-rules',
+    'anti-poison-guard',
+  ],
   content: [
     'dashboard',
     'appearance',
