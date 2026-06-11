@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Go format check
+        run: |
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - name: Go tests
+        run: go test ./...
+      - name: Frontend default build
+        working-directory: web/default
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Frontend classic build
+        working-directory: web/classic
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Secret pattern check
+        run: sh scripts/secret-scan.sh
+      - name: Patch workflow guard
+        run: |
+          ! git grep -nE 'git apply|codeload.github.com|archive/refs/tags' -- .github/workflows Dockerfile

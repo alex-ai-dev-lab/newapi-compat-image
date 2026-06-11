@@ -1,0 +1,107 @@
+package antipoison
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+)
+
+func requiredEnvelopeConfig() Config {
+	return Config{
+		Enabled:        true,
+		Profile:        operation_setting.AntiPoisonProfileProbation,
+		AnswerEnvelope: operation_setting.AntiPoisonModeRequired,
+		OpaqueScan:     operation_setting.AntiPoisonModeScoreStrict,
+	}
+}
+
+func TestValidateAndExtractAnswerEnvelopeXML(t *testing.T) {
+	cleaned, err := ValidateAndExtractAnswerEnvelope(`<newapi_answer nonce="n1">OK</newapi_answer>`, "n1", requiredEnvelopeConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cleaned != "OK" {
+		t.Fatalf("cleaned=%q", cleaned)
+	}
+}
+
+func TestValidateAndExtractAnswerEnvelopeJSON(t *testing.T) {
+	cleaned, err := ValidateAndExtractAnswerEnvelope(`{"newapi_nonce":"n1","answer":"OK"}`, "n1", requiredEnvelopeConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cleaned != "OK" {
+		t.Fatalf("cleaned=%q", cleaned)
+	}
+}
+
+func TestValidateAnswerEnvelopeRejectsOutsideText(t *testing.T) {
+	_, err := ValidateAndExtractAnswerEnvelope(`ad <newapi_answer nonce="n1">OK</newapi_answer>`, "n1", requiredEnvelopeConfig())
+	if !errors.Is(err, ErrEnvelopeOutsideText) {
+		t.Fatalf("err=%v, want outside text", err)
+	}
+}
+
+func TestValidateAnswerEnvelopeRejectsNonceMismatch(t *testing.T) {
+	_, err := ValidateAndExtractAnswerEnvelope(`<newapi_answer nonce="bad">OK</newapi_answer>`, "n1", requiredEnvelopeConfig())
+	if !errors.Is(err, ErrEnvelopeNonceMismatch) {
+		t.Fatalf("err=%v, want nonce mismatch", err)
+	}
+}
+
+func TestValidateAndStripOpenAIAnswerEnvelope(t *testing.T) {
+	resp := &dto.OpenAITextResponse{
+		Choices: []dto.OpenAITextResponseChoice{{
+			Message: dto.Message{Role: "assistant", Content: `<newapi_answer nonce="n1">OK</newapi_answer>`},
+		}},
+	}
+	if err := ValidateAndStripOpenAIAnswerEnvelope(resp, "n1", requiredEnvelopeConfig()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := resp.Choices[0].Message.StringContent(); got != "OK" {
+		t.Fatalf("content=%q", got)
+	}
+}
+
+func TestOpaqueScannerBlocksZeroWidthProbation(t *testing.T) {
+	result := ScanOpaquePayload("hello\u200bworld", requiredEnvelopeConfig(), "")
+	if result.Action != OpaqueActionBlock {
+		t.Fatalf("action=%s score=%d signals=%v", result.Action, result.Score, result.Signals)
+	}
+}
+
+func TestOpaqueScannerDowngradesEncodingUserIntent(t *testing.T) {
+	blob := strings.Repeat("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", 4)
+	result := ScanOpaquePayload("sample:\n```text\n"+blob+"\n```", requiredEnvelopeConfig(), "show a base64 example")
+	if result.Action == OpaqueActionBlock {
+		t.Fatalf("unexpected block score=%d signals=%v", result.Score, result.Signals)
+	}
+}
+
+func TestProfilesDefaultChannels(t *testing.T) {
+	if got := FromChannelSettingsForChannel(77, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileTrusted || EnvelopeRequired(got, false) {
+		t.Fatalf("77 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
+	}
+	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileProbation || !EnvelopeRequired(got, false) {
+		t.Fatalf("101 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
+	}
+	if ProductionRoutingAllowed(94, dto.ChannelSettings{}) {
+		t.Fatalf("94 should not be production routable")
+	}
+}
+
+func TestDefaultRealUserCanaryDisabled(t *testing.T) {
+	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{})
+	if cfg.CanaryEcho {
+		t.Fatalf("real user canary should default to disabled")
+	}
+	if !cfg.CanaryForProbeOnly {
+		t.Fatalf("probe-only canary should remain enabled")
+	}
+	if cfg.DisableOnSingleCanaryMissing {
+		t.Fatalf("single canary miss must not permanently disable by default")
+	}
+}

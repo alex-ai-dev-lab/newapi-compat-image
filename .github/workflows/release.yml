@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare release notes
+        id: notes
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          upstream="$(git rev-parse --short=12 v1.0.0-rc.10 2>/dev/null || true)"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat-image:${tag}"
+          mkdir -p release-assets
+          cp compose.yaml docker-compose.yml .env.example release-assets/
+          (cd release-assets && sha256sum * > CHECKSUMS.txt)
+          cat > release-assets/RELEASE_NOTES.md <<EOF
+          Image: ${image}
+          Upstream baseline: ${upstream}
+
+          This release is built directly from the source fork. Legacy patch files are retained under legacy/patches for audit only and are not part of the build path.
+
+          Migration notes:
+          - Use compose.yaml or docker-compose.yml with NEWAPI_IMAGE=${image}.
+          - Default runtime is non-root with PUID/PGID.
+          - Healthcheck endpoint is /healthz.
+          - Channel 77 defaults to trusted, 101 to probation, and 94 to quarantine.
+
+          Known issues:
+          - If existing server volumes are owned by root, temporarily run once as root or chown data/log directories before switching to PUID/PGID.
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          body_path: release-assets/RELEASE_NOTES.md
+          files: |
+            release-assets/compose.yaml
+            release-assets/docker-compose.yml
+            release-assets/.env.example
+            release-assets/CHECKSUMS.txt
