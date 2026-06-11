@@ -372,8 +372,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	var antiPoisonMarkers []string
 	var antiPoisonTools []string
+	var streamErr *types.NewAPIError
 	antiPoisonToolSeen := map[string]bool{}
 	var responseProof *antipoison.ProofStreamValidator
+	preflightBuffer := antipoison.NewStreamPreflightBuffer(antipoison.ResponseGuardConfig(info))
 	var pendingResponsesData []responsesPendingStreamData
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
@@ -456,7 +458,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			} else {
 				data = cleanData
 				for _, pending := range pendingResponsesData {
-					sendResponsesStreamData(c, pending.response, pending.data)
+					if err := sendResponsesStreamDataWithPreflight(c, info, preflightBuffer, pending.response, pending.data); err != nil {
+						streamErr = err
+						sr.Stop(err)
+						return
+					}
 				}
 				pendingResponsesData = nil
 				if data != "" {
@@ -465,11 +471,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 						sr.Stop(err)
 						return
 					}
-					sendResponsesStreamData(c, streamResponse, data)
+					if err := sendResponsesStreamDataWithPreflight(c, info, preflightBuffer, streamResponse, data); err != nil {
+						streamErr = err
+						sr.Stop(err)
+						return
+					}
 				}
 			}
 		} else {
-			sendResponsesStreamData(c, streamResponse, data)
+			if err := sendResponsesStreamDataWithPreflight(c, info, preflightBuffer, streamResponse, data); err != nil {
+				streamErr = err
+				sr.Stop(err)
+				return
+			}
 		}
 		switch streamResponse.Type {
 		case "response.completed":
@@ -511,6 +525,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 	if responseProof != nil {
 		if err := responseProof.Finalize(); err != nil {
 			logger.LogError(c, "anti-poison responses proof stream validation failed: "+err.Error())
@@ -522,6 +539,22 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
 			logger.LogError(c, "anti-poison responses stream validation failed: "+err.Error())
 			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+	if preflightBuffer != nil {
+		chunks, result, err := preflightBuffer.Finalize()
+		if err != nil {
+			antipoison.RecordOpaqueResult(c, result)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, preflightBuffer.RawData())
+			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordOpaqueResult(c, result)
+		for _, chunk := range chunks {
+			var streamResponse dto.ResponsesStreamResponse
+			if err := common.UnmarshalJsonStr(chunk, &streamResponse); err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+			}
+			sendResponsesStreamData(c, streamResponse, chunk)
 		}
 	}
 
@@ -542,6 +575,38 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
 	return usage, nil
+}
+
+func sendResponsesStreamDataWithPreflight(c *gin.Context, info *relaycommon.RelayInfo, buffer *antipoison.StreamPreflightBuffer, streamResponse dto.ResponsesStreamResponse, data string) *types.NewAPIError {
+	if buffer == nil {
+		sendResponsesStreamData(c, streamResponse, data)
+		return nil
+	}
+	chunks, result, err := buffer.Add(data, responsesStreamVisibleText(streamResponse))
+	if err != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, buffer.RawData())
+		return types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+	if len(chunks) > 0 {
+		antipoison.RecordOpaqueResult(c, result)
+	}
+	for _, chunk := range chunks {
+		var chunkResp dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(chunk, &chunkResp); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		sendResponsesStreamData(c, chunkResp, chunk)
+	}
+	_ = info
+	return nil
+}
+
+func responsesStreamVisibleText(streamResponse dto.ResponsesStreamResponse) string {
+	if streamResponse.Type != "response.output_text.delta" {
+		return ""
+	}
+	return streamResponse.Delta
 }
 
 func stripResponsesStreamResponseProof(data string, streamResponse *dto.ResponsesStreamResponse, proof *antipoison.ProofStreamValidator) (string, bool, error) {

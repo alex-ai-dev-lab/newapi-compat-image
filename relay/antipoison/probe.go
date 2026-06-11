@@ -18,7 +18,7 @@ func ProbeRequired(info *relaycommon.RelayInfo) bool {
 		return false
 	}
 	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
-	return cfg.Enabled && cfg.ProbeBeforeEveryRequest
+	return cfg.Enabled && (cfg.ProbeBeforeEveryRequest || cfg.ProbeTTLSeconds > 0)
 }
 
 func MarkProbeRequest(c *gin.Context, requestID string) {

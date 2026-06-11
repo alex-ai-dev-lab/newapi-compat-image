@@ -969,6 +969,7 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	}
 	var err *types.NewAPIError
 	var responseProof *antipoison.ProofStreamValidator
+	preflightBuffer := antipoison.NewStreamPreflightBuffer(cfg)
 	var pendingClaudeData []claudePendingStreamData
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
@@ -994,7 +995,7 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 				return
 			}
 			for _, pending := range pendingClaudeData {
-				err = HandleStreamResponseData(c, info, claudeInfo, pending.data)
+				err = handleClaudeStreamResponseDataWithPreflight(c, info, claudeInfo, pending.data, preflightBuffer)
 				if err != nil {
 					sr.Stop(err)
 					return
@@ -1003,7 +1004,7 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 			pendingClaudeData = nil
 			data = cleanData
 		}
-		err = HandleStreamResponseData(c, info, claudeInfo, data)
+		err = handleClaudeStreamResponseDataWithPreflight(c, info, claudeInfo, data, preflightBuffer)
 		if err != nil {
 			sr.Stop(err)
 		}
@@ -1017,9 +1018,60 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
 	}
+	if preflightBuffer != nil {
+		chunks, result, preflightErr := preflightBuffer.Finalize()
+		if preflightErr != nil {
+			antipoison.RecordOpaqueResult(c, result)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, preflightBuffer.RawData())
+			return nil, types.NewError(preflightErr, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordOpaqueResult(c, result)
+		for _, chunk := range chunks {
+			if err := HandleStreamResponseData(c, info, claudeInfo, chunk); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
 	return claudeInfo.Usage, nil
+}
+
+func handleClaudeStreamResponseDataWithPreflight(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, data string, buffer *antipoison.StreamPreflightBuffer) *types.NewAPIError {
+	if buffer == nil {
+		return HandleStreamResponseData(c, info, claudeInfo, data)
+	}
+	visibleText := claudeStreamVisibleText(data)
+	chunks, result, err := buffer.Add(data, visibleText)
+	if err != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, buffer.RawData())
+		return types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+	if len(chunks) > 0 {
+		antipoison.RecordOpaqueResult(c, result)
+	}
+	for _, chunk := range chunks {
+		if handleErr := HandleStreamResponseData(c, info, claudeInfo, chunk); handleErr != nil {
+			return handleErr
+		}
+	}
+	return nil
+}
+
+func claudeStreamVisibleText(data string) string {
+	var claudeResponse dto.ClaudeResponse
+	if err := common.UnmarshalJsonStr(data, &claudeResponse); err != nil {
+		return ""
+	}
+	if claudeResponse.Type == "content_block_delta" && claudeResponse.Delta != nil {
+		text := claudeResponse.Delta.GetText()
+		if claudeResponse.Delta.Thinking != nil {
+			text += *claudeResponse.Delta.Thinking
+		}
+		return text
+	}
+	return ""
 }
 
 func claudeAggregateStreamThenReplay(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {

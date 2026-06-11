@@ -81,6 +81,21 @@ func RecordAntiPoisonProbeResult(channelID int, setting dto.ChannelSettings, ok 
 	}
 }
 
+func AntiPoisonProbeFresh(channelID int, setting dto.ChannelSettings) bool {
+	if channelID <= 0 {
+		return false
+	}
+	cfg := antipoison.FromChannelSettingsForChannel(channelID, setting)
+	ttl := time.Duration(cfg.ProbeTTLSeconds) * time.Second
+	if ttl <= 0 {
+		return false
+	}
+	antiPoisonHealth.Lock()
+	defer antiPoisonHealth.Unlock()
+	st := antiPoisonStateLocked(channelID, cfg)
+	return st.LastProbeOK && !st.LastProbeAt.IsZero() && time.Since(st.LastProbeAt) < ttl
+}
+
 func RecordAntiPoisonRisk(channelID int, setting dto.ChannelSettings, riskLevel, riskSignal string) AntiPoisonHealthSnapshot {
 	if channelID <= 0 {
 		return AntiPoisonHealthSnapshot{}
