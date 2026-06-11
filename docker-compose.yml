@@ -1,0 +1,35 @@
+services:
+  new-api:
+    image: ${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/newapi-compat-image:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-newapi}-new-api
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${NEWAPI_HOST_PORT:-3002}:3000"
+    volumes:
+      - ${NEWAPI_DATA_DIR:-./data}:/data
+      - ${NEWAPI_LOG_DIR:-./logs}:/app/logs
+      - ${NEWAPI_PUBLIC_DIR:-./public}:/app/public
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      SQL_DSN: ${SQL_DSN:-}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
+      BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
+      NODE_NAME: ${NODE_NAME:-newapi-1}
+      STREAMING_TIMEOUT: ${STREAMING_TIMEOUT:-300}
+      OFFICIAL_PRICE_SYNC_ENABLED: ${OFFICIAL_PRICE_SYNC_ENABLED:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks:
+      - newapi
+
+networks:
+  newapi:
+    driver: bridge

@@ -1,0 +1,507 @@
+package openai
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/antipoison"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+)
+
+type responsesPendingStreamData struct {
+	response dto.ResponsesStreamResponse
+	data     string
+}
+
+func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	// read response body
+	var responsesResponse dto.OpenAIResponsesResponse
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	err = common.Unmarshal(responseBody, &responsesResponse)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if err := antipoison.ValidateAndStripResponsesResponseProof(&responsesResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			logger.LogError(c, "anti-poison responses proof validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		responseBody, err = common.Marshal(responsesResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
+	}
+	if info.AntiPoisonGuardPrefix != "" {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if err := antipoison.ValidateAndStripResponsesResponse(&responsesResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			logger.LogError(c, "anti-poison responses validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		responseBody, err = common.Marshal(responsesResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
+	}
+	cfg := antipoison.ResponseGuardConfig(info)
+	if info.AntiPoisonAnswerEnvelopeNonce != "" {
+		if err := antipoison.ValidateAndStripResponsesAnswerEnvelope(&responsesResponse, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+			logger.LogError(c, "anti-poison responses answer envelope validation failed: "+err.Error())
+			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		responseBody, err = common.Marshal(responsesResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
+	}
+	if err := antipoison.ScanResponsesOpaquePayload(&responsesResponse, cfg, ""); err != nil {
+		logger.LogError(c, "anti-poison responses opaque payload validation failed: "+err.Error())
+		return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+
+	if responsesResponse.HasImageGenerationCall() {
+		c.Set("image_generation_call", true)
+		c.Set("image_generation_call_quality", responsesResponse.GetQuality())
+		c.Set("image_generation_call_size", responsesResponse.GetSize())
+	}
+
+	// 写入新的 response body
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	// compute usage
+	usage := dto.Usage{}
+	if responsesResponse.Usage != nil {
+		usage.PromptTokens = responsesResponse.Usage.InputTokens
+		usage.CompletionTokens = responsesResponse.Usage.OutputTokens
+		usage.TotalTokens = responsesResponse.Usage.TotalTokens
+		if responsesResponse.Usage.InputTokensDetails != nil {
+			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
+		}
+	}
+	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		return &usage, nil
+	}
+	// 解析 Tools 用量
+	for _, tool := range responsesResponse.Tools {
+		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
+		if !ok || buildToolinfo == nil {
+			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
+			continue
+		}
+		buildToolinfo.CallCount++
+	}
+	return &usage, nil
+}
+
+func OaiResponsesStreamToResponseHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	finalResp, usage, err := aggregateResponsesStreamToResponse(c, info, resp)
+	if err != nil {
+		return nil, err
+	}
+	responseBody, marshalErr := common.Marshal(finalResp)
+	if marshalErr != nil {
+		return nil, types.NewOpenAIError(marshalErr, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+	return usage, nil
+}
+
+func aggregateResponsesStreamToResponse(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.OpenAIResponsesResponse, *dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	defer service.CloseResponseBodyGracefully(resp)
+
+	var (
+		finalResp       *dto.OpenAIResponsesResponse
+		outputText      strings.Builder
+		functionCallMap = make(map[string]dto.ResponsesOutput)
+		functionCallSeq []string
+	)
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		if strings.HasPrefix(data, "event:") {
+			continue
+		}
+		if strings.HasPrefix(data, "data:") {
+			data = strings.TrimSpace(strings.TrimPrefix(data, "data:"))
+		}
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+
+		var streamResp dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
+			return nil, nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		switch streamResp.Type {
+		case "response.output_text.delta":
+			outputText.WriteString(streamResp.Delta)
+		case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
+			if streamResp.Item == nil || streamResp.Item.Type != "function_call" {
+				break
+			}
+			callID := strings.TrimSpace(streamResp.Item.CallId)
+			if callID == "" {
+				callID = strings.TrimSpace(streamResp.Item.ID)
+			}
+			if callID == "" {
+				break
+			}
+			if _, exists := functionCallMap[callID]; !exists {
+				functionCallSeq = append(functionCallSeq, callID)
+			}
+			functionCallMap[callID] = *streamResp.Item
+		case "response.function_call_arguments.delta":
+			callID := strings.TrimSpace(streamResp.ItemID)
+			if callID == "" {
+				break
+			}
+			item := functionCallMap[callID]
+			item.Type = "function_call"
+			item.CallId = callID
+			args := dto.ResponsesArgumentsString(item.Arguments) + streamResp.Delta
+			if argsData, marshalErr := common.Marshal(args); marshalErr == nil {
+				item.Arguments = argsData
+			}
+			if _, exists := functionCallMap[callID]; !exists {
+				functionCallSeq = append(functionCallSeq, callID)
+			}
+			functionCallMap[callID] = item
+		case "response.completed":
+			finalResp = streamResp.Response
+		case "response.error", "response.failed":
+			if streamResp.Response != nil {
+				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+					return nil, nil, types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+				}
+			}
+			return nil, nil, types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	if finalResp == nil {
+		finalResp = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap)
+	} else if len(finalResp.Output) == 0 && (outputText.Len() > 0 || len(functionCallMap) > 0) {
+		finalResp.Output = buildFallbackResponsesResponse(c, info, outputText.String(), functionCallSeq, functionCallMap).Output
+	}
+	if info != nil && info.AntiPoisonGuardPrefix != "" {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if err := antipoison.ValidateAndStripResponsesResponse(finalResp, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			logger.LogError(c, "anti-poison aggregated responses validation failed: "+err.Error())
+			return nil, nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+	if info != nil && info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if err := antipoison.ValidateAndStripResponsesResponseProof(finalResp, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			logger.LogError(c, "anti-poison aggregated responses proof validation failed: "+err.Error())
+			return nil, nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+	if info != nil {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if info.AntiPoisonAnswerEnvelopeNonce != "" {
+			if err := antipoison.ValidateAndStripResponsesAnswerEnvelope(finalResp, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+				logger.LogError(c, "anti-poison aggregated responses answer envelope validation failed: "+err.Error())
+				return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+			}
+		}
+		if err := antipoison.ScanResponsesOpaquePayload(finalResp, cfg, ""); err != nil {
+			logger.LogError(c, "anti-poison aggregated responses opaque payload validation failed: "+err.Error())
+			return nil, nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+	usage := responsesUsageFromResponse(info, finalResp, outputText.String())
+	if finalResp.Usage == nil {
+		finalResp.Usage = usage
+	}
+	return finalResp, usage, nil
+}
+
+func buildFallbackResponsesResponse(c *gin.Context, info *relaycommon.RelayInfo, text string, functionCallSeq []string, functionCallMap map[string]dto.ResponsesOutput) *dto.OpenAIResponsesResponse {
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+		if strings.TrimSpace(info.OriginModelName) != "" {
+			model = info.OriginModelName
+		}
+	}
+	resp := &dto.OpenAIResponsesResponse{ID: helper.GetResponseID(c), Object: "response", CreatedAt: int(common.GetTimestamp()), Model: model}
+	if text != "" {
+		resp.Output = []dto.ResponsesOutput{{Type: "message", Role: "assistant", Status: "completed", Content: []dto.ResponsesOutputContent{{Type: "output_text", Text: text}}}}
+		return resp
+	}
+	if len(functionCallMap) > 0 {
+		resp.Output = make([]dto.ResponsesOutput, 0, len(functionCallSeq))
+		seen := make(map[string]bool, len(functionCallSeq))
+		for _, callID := range functionCallSeq {
+			if seen[callID] {
+				continue
+			}
+			seen[callID] = true
+			resp.Output = append(resp.Output, functionCallMap[callID])
+		}
+	}
+	return resp
+}
+
+func responsesUsageFromResponse(info *relaycommon.RelayInfo, resp *dto.OpenAIResponsesResponse, fallbackText string) *dto.Usage {
+	usage := &dto.Usage{}
+	if resp != nil && resp.Usage != nil {
+		usage.PromptTokens = resp.Usage.InputTokens
+		usage.CompletionTokens = resp.Usage.OutputTokens
+		usage.TotalTokens = resp.Usage.TotalTokens
+		if resp.Usage.InputTokensDetails != nil {
+			usage.PromptTokensDetails.CachedTokens = resp.Usage.InputTokensDetails.CachedTokens
+		}
+	}
+	if usage.CompletionTokens == 0 && fallbackText != "" && info != nil {
+		usage.CompletionTokens = service.CountTextToken(fallbackText, info.UpstreamModelName)
+	}
+	if usage.PromptTokens == 0 && info != nil {
+		usage.PromptTokens = info.GetEstimatePromptTokens()
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	return usage
+}
+
+func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		logger.LogError(c, "invalid response or response body")
+		return nil, types.NewError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse)
+	}
+
+	defer service.CloseResponseBodyGracefully(resp)
+
+	var usage = &dto.Usage{}
+	var responseTextBuilder strings.Builder
+	var antiPoisonMarkers []string
+	var antiPoisonTools []string
+	antiPoisonToolSeen := map[string]bool{}
+	var responseProof *antipoison.ProofStreamValidator
+	var pendingResponsesData []responsesPendingStreamData
+	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
+		responseProof = antipoison.NewProofStreamValidator(info.AntiPoisonResponseProofNonce, antipoison.ResponseGuardConfig(info))
+	}
+
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+
+		// 检查当前数据是否包含 completed 状态和 usage 信息
+		var streamResponse dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
+			sr.Error(err)
+			return
+		}
+		if info.AntiPoisonGuardPrefix != "" {
+			switch streamResponse.Type {
+			case "response.output_text.delta":
+				cfg := antipoison.ResponseGuardConfig(info)
+				cleaned, markers := antipoison.StripResponsesTextDelta(streamResponse.Delta, cfg)
+				if len(markers) > 0 {
+					streamResponse.Delta = cleaned
+					antiPoisonMarkers = append(antiPoisonMarkers, markers...)
+					if b, marshalErr := common.Marshal(streamResponse); marshalErr == nil {
+						data = string(b)
+					} else {
+						logger.LogError(c, "failed to marshal stripped responses stream chunk: "+marshalErr.Error())
+						sr.Error(marshalErr)
+					}
+				}
+			case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
+				if streamResponse.Item != nil && streamResponse.Item.Type == "function_call" {
+					if strings.TrimSpace(streamResponse.Item.Name) != "" {
+						name := strings.TrimSpace(streamResponse.Item.Name)
+						key := strings.TrimSpace(streamResponse.Item.CallId)
+						if key == "" {
+							key = strings.TrimSpace(streamResponse.Item.ID)
+						}
+						if key == "" {
+							key = name
+						}
+						if !antiPoisonToolSeen[key] {
+							antiPoisonToolSeen[key] = true
+							antiPoisonTools = append(antiPoisonTools, name)
+						}
+					}
+				}
+			case "response.completed":
+				if streamResponse.Response != nil {
+					for _, out := range streamResponse.Response.Output {
+						if out.Type == "function_call" && strings.TrimSpace(out.Name) != "" {
+							name := strings.TrimSpace(out.Name)
+							key := strings.TrimSpace(out.CallId)
+							if key == "" {
+								key = strings.TrimSpace(out.ID)
+							}
+							if key == "" {
+								key = name
+							}
+							if !antiPoisonToolSeen[key] {
+								antiPoisonToolSeen[key] = true
+								antiPoisonTools = append(antiPoisonTools, name)
+							}
+						}
+					}
+				}
+			}
+		}
+		if responseProof != nil && !responseProof.Verified() {
+			cleanData, hold, proofErr := stripResponsesStreamResponseProof(data, &streamResponse, responseProof)
+			if proofErr != nil {
+				logger.LogError(c, "anti-poison responses proof stream validation failed: "+proofErr.Error())
+				sr.Stop(proofErr)
+				return
+			}
+			if hold {
+				if cleanData != "" {
+					pendingResponsesData = append(pendingResponsesData, responsesPendingStreamData{response: streamResponse, data: cleanData})
+				}
+				return
+			} else {
+				data = cleanData
+				for _, pending := range pendingResponsesData {
+					sendResponsesStreamData(c, pending.response, pending.data)
+				}
+				pendingResponsesData = nil
+				if data != "" {
+					if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+						logger.LogError(c, "failed to unmarshal proof-cleaned responses stream response: "+err.Error())
+						sr.Stop(err)
+						return
+					}
+					sendResponsesStreamData(c, streamResponse, data)
+				}
+			}
+		} else {
+			sendResponsesStreamData(c, streamResponse, data)
+		}
+		switch streamResponse.Type {
+		case "response.completed":
+			if streamResponse.Response != nil {
+				if streamResponse.Response.Usage != nil {
+					if streamResponse.Response.Usage.InputTokens != 0 {
+						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
+					}
+					if streamResponse.Response.Usage.OutputTokens != 0 {
+						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
+					}
+					if streamResponse.Response.Usage.TotalTokens != 0 {
+						usage.TotalTokens = streamResponse.Response.Usage.TotalTokens
+					}
+					if streamResponse.Response.Usage.InputTokensDetails != nil {
+						usage.PromptTokensDetails.CachedTokens = streamResponse.Response.Usage.InputTokensDetails.CachedTokens
+					}
+				}
+				if streamResponse.Response.HasImageGenerationCall() {
+					c.Set("image_generation_call", true)
+					c.Set("image_generation_call_quality", streamResponse.Response.GetQuality())
+					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
+				}
+			}
+		case "response.output_text.delta":
+			// 处理输出文本
+			responseTextBuilder.WriteString(streamResponse.Delta)
+		case dto.ResponsesOutputTypeItemDone:
+			// 函数调用处理
+			if streamResponse.Item != nil {
+				switch streamResponse.Item.Type {
+				case dto.BuildInCallWebSearchCall:
+					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
+						if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
+							webSearchTool.CallCount++
+						}
+					}
+				}
+			}
+		}
+	})
+	if responseProof != nil {
+		if err := responseProof.Finalize(); err != nil {
+			logger.LogError(c, "anti-poison responses proof stream validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+	if info.AntiPoisonGuardPrefix != "" {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if err := antipoison.ValidateOpenAIStreamFinal(antiPoisonMarkers, antiPoisonTools, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			logger.LogError(c, "anti-poison responses stream validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+	}
+
+	if usage.CompletionTokens == 0 {
+		// 计算输出文本的 token 数量
+		tempStr := responseTextBuilder.String()
+		if len(tempStr) > 0 {
+			// 非正常结束，使用输出文本的 token 数量
+			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
+			usage.CompletionTokens = completionTokens
+		}
+	}
+
+	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		usage.PromptTokens = info.GetEstimatePromptTokens()
+	}
+
+	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+	return usage, nil
+}
+
+func stripResponsesStreamResponseProof(data string, streamResponse *dto.ResponsesStreamResponse, proof *antipoison.ProofStreamValidator) (string, bool, error) {
+	if proof == nil || proof.Verified() || data == "" || streamResponse == nil {
+		return data, false, nil
+	}
+	if streamResponse.Type != "response.output_text.delta" {
+		return data, false, nil
+	}
+	cleaned, hold, err := proof.ProcessText(streamResponse.Delta)
+	if err != nil {
+		return "", true, err
+	}
+	if hold {
+		return "", true, nil
+	}
+	streamResponse.Delta = cleaned
+	b, err := common.Marshal(streamResponse)
+	if err != nil {
+		return data, false, err
+	}
+	return string(b), false, nil
+}
