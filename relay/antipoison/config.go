@@ -53,11 +53,39 @@ func FromChannelSettingsForChannel(channelID int, s dto.ChannelSettings) Config 
 	if s.AntiPoisonEnabled != nil {
 		cfg.Enabled = *s.AntiPoisonEnabled
 	}
+	if s.AntiPoisonAnswerEnvelope != "" {
+		cfg.AnswerEnvelope = s.AntiPoisonAnswerEnvelope
+	}
+	if s.AntiPoisonResponseProof != "" {
+		cfg.ResponseProof = s.AntiPoisonResponseProof == operation_setting.AntiPoisonModeRequired ||
+			s.AntiPoisonResponseProof == operation_setting.AntiPoisonModeRequiredNonStream ||
+			s.AntiPoisonResponseProof == operation_setting.AntiPoisonModeAuto
+	}
 	if s.AntiPoisonResponseProofEnabled != nil {
 		cfg.ResponseProof = *s.AntiPoisonResponseProofEnabled
 	}
+	if s.AntiPoisonToolCallGuard != "" {
+		cfg.ToolCallGuard = s.AntiPoisonToolCallGuard
+		cfg.StrictMode = s.AntiPoisonToolCallGuard == operation_setting.AntiPoisonModeStrict ||
+			s.AntiPoisonToolCallGuard == operation_setting.AntiPoisonModeStrictWhenTools
+	}
 	if s.AntiPoisonToolCallGuardStrict != nil {
 		cfg.StrictMode = *s.AntiPoisonToolCallGuardStrict
+	}
+	if s.AntiPoisonOpaqueScan != "" {
+		cfg.OpaqueScan = s.AntiPoisonOpaqueScan
+	}
+	if s.AntiPoisonProbeBeforeEveryRequest != nil {
+		cfg.ProbeBeforeEveryRequest = *s.AntiPoisonProbeBeforeEveryRequest
+	}
+	if s.AntiPoisonStreamMode != "" {
+		cfg.StreamMode = s.AntiPoisonStreamMode
+	}
+	if s.AntiPoisonHardFailuresToQuarantine > 0 {
+		cfg.HardFailuresToQuarantine = s.AntiPoisonHardFailuresToQuarantine
+	}
+	if s.AntiPoisonSoftFailuresToDegrade > 0 {
+		cfg.SoftFailuresToDegrade = s.AntiPoisonSoftFailuresToDegrade
 	}
 	if s.AntiPoisonFailureMode != "" {
 		cfg.FailureMode = s.AntiPoisonFailureMode
@@ -66,7 +94,7 @@ func FromChannelSettingsForChannel(channelID int, s dto.ChannelSettings) Config 
 		cfg.StringProtection = *s.AntiPoisonStringProtection
 	}
 	if s.AntiPoisonCanaryEchoEnabled != nil {
-		cfg.CanaryEcho = *s.AntiPoisonCanaryEchoEnabled
+		cfg.CanaryEcho = *s.AntiPoisonCanaryEchoEnabled && profile.CanaryOnUserRequest
 	}
 	if s.AntiPoisonShapeCheckEnabled != nil {
 		cfg.ShapeCheck = *s.AntiPoisonShapeCheckEnabled

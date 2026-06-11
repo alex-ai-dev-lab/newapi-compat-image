@@ -30,6 +30,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -66,10 +67,21 @@ const antiPoisonSchema = z.object({
     .min(4096)
     .max(1048576),
   'anti_poison_setting.downstream_proof_header': z.boolean(),
+  'anti_poison_setting.profiles': z.string().refine(isJsonObject, 'Invalid JSON object'),
+  'anti_poison_setting.channels': z.string().refine(isJsonObject, 'Invalid JSON object'),
 })
 
 type AntiPoisonFormInput = z.input<typeof antiPoisonSchema>
 type AntiPoisonFormValues = z.output<typeof antiPoisonSchema>
+
+function isJsonObject(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+  } catch {
+    return false
+  }
+}
 
 type AntiPoisonGuardSectionProps = {
   defaultValues: AntiPoisonFormValues
@@ -318,6 +330,57 @@ export function AntiPoisonGuardSection({
               </SettingsSwitchItem>
             )}
           />
+
+          <div className='grid gap-3 rounded-md border p-3'>
+            <div className='grid gap-2 md:grid-cols-3'>
+              <div className='rounded-md border p-3'>
+                <div className='text-sm font-medium'>{t('Channel 77')}</div>
+                <div className='text-muted-foreground text-xs'>trusted · direct_stream_light_scan · opaque warn</div>
+              </div>
+              <div className='rounded-md border p-3'>
+                <div className='text-sm font-medium'>{t('Channel 101')}</div>
+                <div className='text-muted-foreground text-xs'>probation · envelope required · aggregate_then_replay</div>
+              </div>
+              <div className='rounded-md border p-3'>
+                <div className='text-sm font-medium'>{t('Channel 94')}</div>
+                <div className='text-muted-foreground text-xs'>quarantine · production routing disabled</div>
+              </div>
+            </div>
+
+            <FormField
+              control={form.control}
+              name='anti_poison_setting.profiles'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Profile JSON')}</FormLabel>
+                  <FormControl>
+                    <Textarea className='min-h-32 font-mono text-xs' {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t('JSON import/export for trusted, unknown, probation, and quarantine profile configuration.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='anti_poison_setting.channels'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Channel Profile JSON')}</FormLabel>
+                  <FormControl>
+                    <Textarea className='min-h-24 font-mono text-xs' {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Default mapping: 77 trusted, 101 probation, 94 quarantine.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <FormField
             control={form.control}

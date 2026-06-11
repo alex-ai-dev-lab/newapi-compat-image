@@ -30,12 +30,20 @@ type ChannelSettings struct {
 	SupportsClaudeThinking *bool `json:"supports_claude_thinking,omitempty"`
 
 	// Anti-poison guard settings. Nil fields inherit global settings.
-	AntiPoisonProfile              string `json:"anti_poison_profile,omitempty"`
-	AntiPoisonEnabled              *bool  `json:"anti_poison_enabled,omitempty"`
-	AntiPoisonResponseProofEnabled *bool  `json:"anti_poison_response_proof_enabled,omitempty"`
-	AntiPoisonToolCallGuardStrict  *bool  `json:"anti_poison_tool_call_guard_strict,omitempty"`
-	AntiPoisonFailureMode          string `json:"anti_poison_failure_mode,omitempty"`
-	AntiPoisonStringProtection     *bool  `json:"anti_poison_string_protection,omitempty"`
+	AntiPoisonProfile                  string `json:"anti_poison_profile,omitempty"`
+	AntiPoisonEnabled                  *bool  `json:"anti_poison_enabled,omitempty"`
+	AntiPoisonAnswerEnvelope           string `json:"anti_poison_answer_envelope,omitempty"`
+	AntiPoisonResponseProof            string `json:"anti_poison_response_proof,omitempty"`
+	AntiPoisonResponseProofEnabled     *bool  `json:"anti_poison_response_proof_enabled,omitempty"`
+	AntiPoisonToolCallGuard            string `json:"anti_poison_tool_call_guard,omitempty"`
+	AntiPoisonToolCallGuardStrict      *bool  `json:"anti_poison_tool_call_guard_strict,omitempty"`
+	AntiPoisonOpaqueScan               string `json:"anti_poison_opaque_scan,omitempty"`
+	AntiPoisonProbeBeforeEveryRequest  *bool  `json:"anti_poison_probe_before_every_request,omitempty"`
+	AntiPoisonStreamMode               string `json:"anti_poison_stream_mode,omitempty"`
+	AntiPoisonHardFailuresToQuarantine int    `json:"anti_poison_hard_failures_to_quarantine,omitempty"`
+	AntiPoisonSoftFailuresToDegrade    int    `json:"anti_poison_soft_failures_to_degrade,omitempty"`
+	AntiPoisonFailureMode              string `json:"anti_poison_failure_mode,omitempty"`
+	AntiPoisonStringProtection         *bool  `json:"anti_poison_string_protection,omitempty"`
 	// Canary echo: server-injected nonce in the last user message that the
 	// model must echo at the end of its reply. Drops 200-OK ad payloads that
 	// can not see per-request user content. Nil = inherit global; default off.

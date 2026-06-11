@@ -68,6 +68,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	antipoison.ApplyResponsesResponseProof(info, request)
 	antipoison.ApplyResponsesAnswerEnvelope(info, request)
+	antipoison.CaptureResponsesToolPolicy(info, request)
 	antipoison.ApplyResponsesRequestGuard(info, request)
 	antipoison.ApplyResponsesCanaryRequest(info, request)
 	if result := service.SanitizeResponsesReasoningContent(request); result.Changed {
@@ -128,6 +129,16 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		jsonData = nil
 		info.UpstreamRequestBodySize = size
 		requestBody = body
+	}
+
+	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled && !info.ChannelSetting.PassThroughBodyEnabled {
+		if probeErr := maybeRunResponsesProbe(c, info, adaptor,
+			func(pc *gin.Context, pi *relaycommon.RelayInfo, req dto.OpenAIResponsesRequest) (any, error) {
+				return adaptor.ConvertOpenAIResponsesRequest(pc, pi, req)
+			}); probeErr != nil {
+			antipoison.RecordRisk(c, antipoison.RiskSuspicious, "probe_failed", "block")
+			return probeErr
+		}
 	}
 
 	var httpResp *http.Response

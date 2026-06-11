@@ -53,6 +53,9 @@ const defaultSecuritySettings: SecuritySettings = {
   'anti_poison_setting.signed_header_audit_secret': '',
   'anti_poison_setting.max_guard_scan_bytes': 65536,
   'anti_poison_setting.downstream_proof_header': false,
+  'anti_poison_setting.profiles': '{}',
+  'anti_poison_setting.channels':
+    '{"77":{"profile":"trusted"},"101":{"profile":"probation"},"94":{"profile":"quarantine"}}',
 }
 
 export function SecuritySettings() {

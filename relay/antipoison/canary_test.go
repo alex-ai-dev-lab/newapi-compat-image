@@ -66,7 +66,7 @@ func TestValidateAndStripCanaryMissing(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeCanaryRequest(t *testing.T) {
+func TestApplyClaudeCanaryRequestDoesNotInjectForRealUserRequest(t *testing.T) {
 	req := &dto.ClaudeRequest{
 		Model: "claude-opus-4",
 		Messages: []dto.ClaudeMessage{
@@ -83,12 +83,32 @@ func TestApplyClaudeCanaryRequest(t *testing.T) {
 	}
 	ApplyClaudeCanaryRequest(info, req)
 
-	if info.AntiPoisonCanaryNonce == "" {
-		t.Fatalf("nonce not set")
+	if info.AntiPoisonCanaryNonce != "" {
+		t.Fatalf("real user request should not set canary nonce")
 	}
 	lastMsg := req.Messages[len(req.Messages)-1]
-	if !strings.Contains(lastMsg.GetStringContent(), buildCanaryMarker(info.AntiPoisonCanaryNonce)) {
-		t.Fatalf("canary not injected: %q", lastMsg.GetStringContent())
+	if strings.Contains(lastMsg.GetStringContent(), canaryMarkerPrefix) {
+		t.Fatalf("real user request should not inject canary: %q", lastMsg.GetStringContent())
+	}
+}
+
+func TestCanaryEnabledRequiresProfileOptInForRealUserRequests(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				AntiPoisonProfile:             "user_canary_test",
+				AntiPoisonEnabled:             boolPtr(true),
+				AntiPoisonCanaryEchoEnabled:   boolPtr(true),
+				AntiPoisonShapeCheckEnabled:   boolPtr(false),
+				AntiPoisonStringProtection:    boolPtr(false),
+				AntiPoisonToolCallGuardStrict: boolPtr(false),
+			},
+		},
+	}
+	// Unknown/custom profiles fall back to unknown, which deliberately keeps
+	// canary_on_user_request=false even when the legacy channel bool is true.
+	if CanaryEnabled(info) {
+		t.Fatalf("unknown custom profile must not enable real-user canary")
 	}
 }
 

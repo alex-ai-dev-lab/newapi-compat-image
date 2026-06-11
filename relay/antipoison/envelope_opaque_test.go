@@ -66,6 +66,45 @@ func TestValidateAndStripOpenAIAnswerEnvelope(t *testing.T) {
 	}
 }
 
+func TestProbationExactOKAfterEnvelopeStrip(t *testing.T) {
+	resp := &dto.OpenAITextResponse{
+		Choices: []dto.OpenAITextResponseChoice{{
+			Message: dto.Message{Role: "assistant", Content: `<newapi_answer nonce="n1">OK</newapi_answer>`},
+		}},
+	}
+	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{})
+	if cfg.CanaryEcho {
+		t.Fatalf("101 must not use real-user canary for exact-output requests")
+	}
+	if err := ValidateAndStripOpenAIAnswerEnvelope(resp, "n1", cfg); err != nil {
+		t.Fatalf("unexpected envelope error: %v", err)
+	}
+	if got := resp.Choices[0].Message.StringContent(); got != "OK" {
+		t.Fatalf("content=%q, want OK", got)
+	}
+}
+
+func TestProbationBlocksHTTP200AdWithoutEnvelopeAsSuspicious(t *testing.T) {
+	resp := &dto.OpenAITextResponse{
+		Choices: []dto.OpenAITextResponseChoice{{
+			Message: dto.Message{Role: "assistant", Content: "OpenAI Chat 接口未开启，请加群充值联系客服"},
+		}},
+	}
+	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{})
+	err := ValidateAndStripOpenAIAnswerEnvelope(resp, "n1", cfg)
+	if !errors.Is(err, ErrEnvelopeMissing) {
+		t.Fatalf("err=%v, want envelope missing", err)
+	}
+}
+
+func TestValidateAnswerEnvelopeRejectsOutsideEncodedPayload(t *testing.T) {
+	_, err := ValidateAndExtractAnswerEnvelope(`<newapi_answer nonce="n1">OK</newapi_answer>
+U2FsdGVkX1+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`, "n1", requiredEnvelopeConfig())
+	if !errors.Is(err, ErrEnvelopeOutsideText) {
+		t.Fatalf("err=%v, want outside text", err)
+	}
+}
+
 func TestOpaqueScannerBlocksZeroWidthProbation(t *testing.T) {
 	result := ScanOpaquePayload("hello\u200bworld", requiredEnvelopeConfig(), "")
 	if result.Action != OpaqueActionBlock {
@@ -81,6 +120,17 @@ func TestOpaqueScannerDowngradesEncodingUserIntent(t *testing.T) {
 	}
 }
 
+func TestOpaqueScannerSuspiciousLongBase64RetriesProbation(t *testing.T) {
+	blob := strings.Repeat("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", 4)
+	result := ScanOpaquePayload(blob, requiredEnvelopeConfig(), "")
+	if result.Action != OpaqueActionRetry {
+		t.Fatalf("action=%s score=%d signals=%v, want retry", result.Action, result.Score, result.Signals)
+	}
+	if !errors.Is(OpaqueScanError(result), ErrOpaquePayloadSuspicious) {
+		t.Fatalf("opaque retry should surface suspicious error")
+	}
+}
+
 func TestProfilesDefaultChannels(t *testing.T) {
 	if got := FromChannelSettingsForChannel(77, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileTrusted || EnvelopeRequired(got, false) {
 		t.Fatalf("77 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
@@ -90,6 +140,12 @@ func TestProfilesDefaultChannels(t *testing.T) {
 	}
 	if ProductionRoutingAllowed(94, dto.ChannelSettings{}) {
 		t.Fatalf("94 should not be production routable")
+	}
+	if got := FromChannelSettingsForChannel(94, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileQuarantine || got.ProductionRouting || !got.ScheduledProbeOnly {
+		t.Fatalf("94 profile=%s production=%v scheduledProbe=%v", got.Profile, got.ProductionRouting, got.ScheduledProbeOnly)
+	}
+	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{}); !got.ProbeBeforeEveryRequest || got.StreamMode != operation_setting.AntiPoisonStreamAggregateThenReplay {
+		t.Fatalf("101 probe=%v stream=%s", got.ProbeBeforeEveryRequest, got.StreamMode)
 	}
 }
 

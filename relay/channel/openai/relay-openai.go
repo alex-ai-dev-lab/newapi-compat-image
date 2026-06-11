@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/QuantumNous/new-api/types"
 
@@ -161,6 +163,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid response or response body")
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	cfg := antipoison.ResponseGuardConfig(info)
+	antipoison.RecordStreamMode(c, cfg)
+	if cfg.Enabled && antipoison.StreamModeForConfig(cfg) == operation_setting.AntiPoisonStreamAggregateThenReplay {
+		return oaiAggregateStreamThenReplay(c, info, resp, cfg)
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
@@ -337,6 +344,309 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	return usage, nil
 }
 
+type aggregatedOpenAIToolCall struct {
+	index     int
+	id        string
+	typ       any
+	name      string
+	arguments strings.Builder
+}
+
+func oaiAggregateStreamThenReplay(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, cfg antipoison.Config) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+		case <-c.Request.Context().Done():
+			_ = resp.Body.Close()
+		}
+	}()
+	defer close(done)
+
+	var (
+		responseId        string
+		model             = info.UpstreamModelName
+		systemFingerprint string
+		created           int64
+		content           strings.Builder
+		reasoning         strings.Builder
+		finishReason      string
+		usage             *dto.Usage
+		toolSeq           []int
+		toolMap           = map[int]*aggregatedOpenAIToolCall{}
+	)
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
+	for scanner.Scan() {
+		if c.Request.Context().Err() != nil {
+			return nil, types.NewError(c.Request.Context().Err(), types.ErrorCodeBadResponse)
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var chunk dto.ChatCompletionsStreamResponse
+		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if responseId == "" {
+			responseId = chunk.Id
+		}
+		if chunk.Created != 0 {
+			created = chunk.Created
+		}
+		if chunk.Model != "" {
+			model = chunk.Model
+		}
+		if fp := chunk.GetSystemFingerprint(); fp != "" {
+			systemFingerprint = fp
+		}
+		if service.ValidUsage(chunk.Usage) {
+			usage = chunk.Usage
+		}
+		for _, choice := range chunk.Choices {
+			content.WriteString(choice.Delta.GetContentString())
+			reasoning.WriteString(choice.Delta.GetReasoningContent())
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				finishReason = *choice.FinishReason
+			}
+			for _, tc := range choice.Delta.ToolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				agg := toolMap[idx]
+				if agg == nil {
+					agg = &aggregatedOpenAIToolCall{index: idx}
+					toolMap[idx] = agg
+					toolSeq = append(toolSeq, idx)
+				}
+				if tc.ID != "" {
+					agg.id = tc.ID
+				}
+				if tc.Type != nil {
+					agg.typ = tc.Type
+				}
+				if tc.Function.Name != "" {
+					agg.name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					agg.arguments.WriteString(tc.Function.Arguments)
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	if responseId == "" {
+		responseId = helper.GetResponseID(c)
+	}
+	if created == 0 {
+		created = common.GetTimestamp()
+	}
+	if model == "" {
+		model = info.OriginModelName
+	}
+	if finishReason == "" {
+		finishReason = constant.FinishReasonStop
+	}
+	toolCalls := make([]dto.ToolCallResponse, 0, len(toolSeq))
+	for _, idx := range toolSeq {
+		agg := toolMap[idx]
+		if agg == nil {
+			continue
+		}
+		toolCalls = append(toolCalls, dto.ToolCallResponse{
+			Index: common.GetPointer(idx),
+			ID:    agg.id,
+			Type:  agg.typ,
+			Function: dto.FunctionResponse{
+				Name:      agg.name,
+				Arguments: agg.arguments.String(),
+			},
+		})
+	}
+	msg := dto.Message{Role: "assistant"}
+	msg.SetStringContent(content.String())
+	if len(toolCalls) > 0 {
+		msg.Content = nil
+		msg.SetToolCalls(toolCalls)
+		if finishReason == constant.FinishReasonStop {
+			finishReason = constant.FinishReasonToolCalls
+		}
+	}
+	if reasoning.Len() > 0 {
+		reasoningText := reasoning.String()
+		msg.ReasoningContent = &reasoningText
+	}
+	simpleResponse := dto.OpenAITextResponse{
+		Id:      responseId,
+		Object:  "chat.completion",
+		Created: created,
+		Model:   model,
+		Choices: []dto.OpenAITextResponseChoice{{
+			Index:        0,
+			Message:      msg,
+			FinishReason: finishReason,
+		}},
+	}
+	if usage == nil {
+		usage = service.ResponseText2Usage(c, content.String()+reasoning.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+	}
+	simpleResponse.Usage = *usage
+	responseBody, marshalErr := common.Marshal(simpleResponse)
+	if marshalErr != nil {
+		return nil, types.NewError(marshalErr, types.ErrorCodeBadResponseBody)
+	}
+
+	if err := antipoison.ValidateOpenAIResponseShape(&simpleResponse, info.OriginModelName, cfg); err != nil {
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonShapeResult, antipoison.ResultFail)
+		antipoison.RecordRisk(c, antipoison.RiskHard, "shape_check", "block")
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+		return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+	}
+	antipoison.RecordResult(c, constant.ContextKeyAntiPoisonShapeResult, antipoison.ResultPass)
+	if names, args := antipoison.OpenAIToolCallsFromResponse(&simpleResponse); len(names) > 0 {
+		if err := antipoison.ValidateToolCallsAgainstPolicy(info, names, args); err != nil {
+			antipoison.RecordToolPolicyFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+	}
+	if info.AntiPoisonGuardPrefix != "" {
+		if err := antipoison.ValidateAndStripOpenAIResponse(&simpleResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultFail)
+			antipoison.RecordRisk(c, antipoison.RiskHard, "tool_call_guard", "block")
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+		responseBody, _ = common.Marshal(simpleResponse)
+	}
+	if info.AntiPoisonAnswerEnvelopeNonce != "" {
+		if err := antipoison.ValidateAndStripOpenAIAnswerEnvelope(&simpleResponse, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+			antipoison.RecordEnvelopeFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonEnvelopeResult, antipoison.ResultPass)
+		responseBody, _ = common.Marshal(simpleResponse)
+	}
+	if result := antipoison.ScanOpenAIOpaquePayloadResult(&simpleResponse, cfg, ""); antipoison.OpaqueScanError(result) != nil {
+		antipoison.RecordOpaqueResult(c, result)
+		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+		return nil, types.NewError(antipoison.OpaqueScanError(result), types.ErrorCodeAntiPoisonValidationFailed)
+	} else {
+		antipoison.RecordOpaqueResult(c, result)
+	}
+
+	helper.SetEventStreamHeaders(c)
+	cleanText := ""
+	if len(simpleResponse.Choices) > 0 {
+		cleanText = simpleResponse.Choices[0].Message.StringContent()
+	}
+	if cleanText != "" {
+		for _, part := range splitStreamText(cleanText, 512) {
+			chunk := dto.ChatCompletionsStreamResponse{
+				Id:      responseId,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []dto.ChatCompletionsStreamResponseChoice{{
+					Index: 0,
+					Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Role: "assistant"},
+				}},
+			}
+			if systemFingerprint != "" {
+				chunk.SetSystemFingerprint(systemFingerprint)
+			}
+			chunk.Choices[0].Delta.SetContentString(part)
+			if err := helper.ObjectData(c, chunk); err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponse)
+			}
+		}
+	}
+	if len(toolCalls) > 0 {
+		chunk := dto.ChatCompletionsStreamResponse{
+			Id:      responseId,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Index: 0,
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					Role:      "assistant",
+					ToolCalls: toolCalls,
+				},
+			}},
+		}
+		if systemFingerprint != "" {
+			chunk.SetSystemFingerprint(systemFingerprint)
+		}
+		if err := helper.ObjectData(c, chunk); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponse)
+		}
+	}
+	finalChunk := dto.ChatCompletionsStreamResponse{
+		Id:      responseId,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   model,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Index:        0,
+			Delta:        dto.ChatCompletionsStreamResponseChoiceDelta{},
+			FinishReason: &finishReason,
+		}},
+	}
+	if systemFingerprint != "" {
+		finalChunk.SetSystemFingerprint(systemFingerprint)
+	}
+	if err := helper.ObjectData(c, finalChunk); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeBadResponse)
+	}
+	if info.ShouldIncludeUsage {
+		usageChunk := helper.GenerateFinalUsageResponse(responseId, created, model, *usage)
+		if systemFingerprint != "" {
+			usageChunk.SetSystemFingerprint(systemFingerprint)
+		}
+		if err := helper.ObjectData(c, usageChunk); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponse)
+		}
+	}
+	helper.Done(c)
+	return usage, nil
+}
+
+func splitStreamText(text string, maxRunes int) []string {
+	if text == "" {
+		return nil
+	}
+	if maxRunes <= 0 {
+		maxRunes = 512
+	}
+	runes := []rune(text)
+	out := make([]string, 0, (len(runes)/maxRunes)+1)
+	for len(runes) > 0 {
+		n := maxRunes
+		if len(runes) < n {
+			n = len(runes)
+		}
+		out = append(out, string(runes[:n]))
+		runes = runes[n:]
+	}
+	return out
+}
+
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -371,17 +681,32 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 	cfg := antipoison.ResponseGuardConfig(info)
+	antipoison.RecordStreamMode(c, cfg)
 	// Shape check
 	if err := antipoison.ValidateOpenAIResponseShape(&simpleResponse, info.OriginModelName, cfg); err != nil {
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonShapeResult, antipoison.ResultFail)
+		antipoison.RecordRisk(c, antipoison.RiskHard, "shape_check", "block")
 		logger.LogError(c, "anti-poison shape check failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 	}
+	antipoison.RecordResult(c, constant.ContextKeyAntiPoisonShapeResult, antipoison.ResultPass)
+	if names, args := antipoison.OpenAIToolCallsFromResponse(&simpleResponse); len(names) > 0 {
+		if err := antipoison.ValidateToolCallsAgainstPolicy(info, names, args); err != nil {
+			antipoison.RecordToolPolicyFailure(c, err)
+			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
+			logger.LogError(c, "anti-poison tool-call policy validation failed: "+err.Error())
+			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
+		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
+	}
 	if info.AntiPoisonResponseProofNonce != "" && antipoison.ResponseProofEnabled(info) {
 		if err := antipoison.ValidateAndStripOpenAIResponseProof(&simpleResponse, cfg, info.AntiPoisonResponseProofNonce); err != nil {
+			antipoison.RecordProofFailure(c, err)
 			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison response proof validation failed: "+err.Error())
 			return nil, types.NewError(antipoison.ResponseProofFailureError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonProofResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
@@ -389,10 +714,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 	if info.AntiPoisonGuardPrefix != "" {
 		if err := antipoison.ValidateAndStripOpenAIResponse(&simpleResponse, cfg, info.AntiPoisonGuardPrefix); err != nil {
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultFail)
+			antipoison.RecordRisk(c, antipoison.RiskHard, "tool_call_guard", "block")
 			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison response validation failed: "+err.Error())
 			return nil, types.NewError(antipoison.FixedClientError(), types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonToolGuardResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
@@ -401,10 +729,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// Canary echo validation
 	if info.AntiPoisonCanaryNonce != "" {
 		if err := antipoison.ValidateAndStripOpenAICanary(&simpleResponse, cfg, info.AntiPoisonCanaryNonce); err != nil {
+			antipoison.RecordResult(c, constant.ContextKeyAntiPoisonCanaryResult, antipoison.ResultFail)
+			antipoison.RecordRisk(c, antipoison.RiskSuspicious, "canary_missing", "block")
 			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison canary validation failed: "+err.Error())
 			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonCanaryResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
@@ -412,19 +743,24 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 	if info.AntiPoisonAnswerEnvelopeNonce != "" {
 		if err := antipoison.ValidateAndStripOpenAIAnswerEnvelope(&simpleResponse, info.AntiPoisonAnswerEnvelopeNonce, cfg); err != nil {
+			antipoison.RecordEnvelopeFailure(c, err)
 			common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
 			logger.LogError(c, "anti-poison answer envelope validation failed: "+err.Error())
 			return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
 		}
+		antipoison.RecordResult(c, constant.ContextKeyAntiPoisonEnvelopeResult, antipoison.ResultPass)
 		responseBody, err = common.Marshal(simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 	}
-	if err := antipoison.ScanOpenAIOpaquePayload(&simpleResponse, cfg, ""); err != nil {
+	if result := antipoison.ScanOpenAIOpaquePayloadResult(&simpleResponse, cfg, ""); antipoison.OpaqueScanError(result) != nil {
+		antipoison.RecordOpaqueResult(c, result)
 		common.SetContextKey(c, constant.ContextKeyAntiPoisonEvidenceResponse, string(responseBody))
-		logger.LogError(c, "anti-poison opaque payload validation failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeAntiPoisonValidationFailed)
+		logger.LogError(c, "anti-poison opaque payload validation failed")
+		return nil, types.NewError(antipoison.OpaqueScanError(result), types.ErrorCodeAntiPoisonValidationFailed)
+	} else {
+		antipoison.RecordOpaqueResult(c, result)
 	}
 
 	for _, choice := range simpleResponse.Choices {

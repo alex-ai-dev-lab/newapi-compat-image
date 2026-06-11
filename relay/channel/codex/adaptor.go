@@ -9,10 +9,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/antipoison"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -138,6 +140,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	if info.IsStream {
+		cfg := antipoison.ResponseGuardConfig(info)
+		if cfg.Enabled && antipoison.StreamModeForConfig(cfg) == operation_setting.AntiPoisonStreamAggregateThenReplay {
+			return openai.OaiResponsesStreamToResponseHandler(c, info, resp)
+		}
 		return openai.OaiResponsesStreamHandler(c, info, resp)
 	}
 	if c.GetBool("responses_upstream_stream") {

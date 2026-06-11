@@ -185,8 +185,37 @@ export const channelFormSchema = z
     user_agent_id: z.number().optional(),
     user_agent_override: z.string().optional(),
     normalize_upstream_errors: z.boolean().optional(),
+    anti_poison_profile: z
+      .enum(['inherit', 'trusted', 'unknown', 'probation', 'quarantine'])
+      .optional(),
     anti_poison_enabled: z.boolean().optional(),
+    anti_poison_answer_envelope: z
+      .enum(['inherit', 'off', 'auto', 'required', 'required_non_stream'])
+      .optional(),
+    anti_poison_response_proof: z
+      .enum(['inherit', 'off', 'warn', 'auto', 'required', 'required_non_stream'])
+      .optional(),
     anti_poison_response_proof_enabled: z.boolean().optional(),
+    anti_poison_tool_call_guard: z
+      .enum(['inherit', 'off', 'warn', 'auto', 'strict', 'strict_when_tools'])
+      .optional(),
+    anti_poison_opaque_scan: z
+      .enum(['inherit', 'off', 'warn', 'score', 'score_strict'])
+      .optional(),
+    anti_poison_probe_before_every_request: z.boolean().optional(),
+    anti_poison_stream_mode: z
+      .enum([
+        'inherit',
+        'direct_stream_light_scan',
+        'preflight_probe_first_bytes_buffer',
+        'aggregate_then_replay',
+        'disabled',
+      ])
+      .optional(),
+    anti_poison_hard_failures_to_quarantine: z.number().optional(),
+    anti_poison_soft_failures_to_degrade: z.number().optional(),
+    anti_poison_failure_mode: z.enum(['inherit', 'block', 'warn']).optional(),
+    anti_poison_string_protection: z.boolean().optional(),
     anti_poison_canary_echo_enabled: z.boolean().optional(),
     anti_poison_shape_check_enabled: z.boolean().optional(),
     requires_codex_identity: z.enum(['auto', 'true', 'false']).optional(),
@@ -327,9 +356,20 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   user_agent_id: 0,
   user_agent_override: '',
   normalize_upstream_errors: true,
+  anti_poison_profile: 'inherit',
   anti_poison_enabled: true,
+  anti_poison_answer_envelope: 'inherit',
+  anti_poison_response_proof: 'inherit',
   anti_poison_response_proof_enabled: false,
-  anti_poison_canary_echo_enabled: true,
+  anti_poison_tool_call_guard: 'inherit',
+  anti_poison_opaque_scan: 'inherit',
+  anti_poison_probe_before_every_request: false,
+  anti_poison_stream_mode: 'inherit',
+  anti_poison_hard_failures_to_quarantine: 0,
+  anti_poison_soft_failures_to_degrade: 0,
+  anti_poison_failure_mode: 'inherit',
+  anti_poison_string_protection: true,
+  anti_poison_canary_echo_enabled: false,
   anti_poison_shape_check_enabled: true,
   requires_codex_identity: 'auto',
   supports_claude_thinking: 'auto',
@@ -380,8 +420,19 @@ export function transformChannelToFormDefaults(
     | 'user_agent_id'
     | 'user_agent_override'
     | 'normalize_upstream_errors'
+    | 'anti_poison_profile'
     | 'anti_poison_enabled'
+    | 'anti_poison_answer_envelope'
+    | 'anti_poison_response_proof'
     | 'anti_poison_response_proof_enabled'
+    | 'anti_poison_tool_call_guard'
+    | 'anti_poison_opaque_scan'
+    | 'anti_poison_probe_before_every_request'
+    | 'anti_poison_stream_mode'
+    | 'anti_poison_hard_failures_to_quarantine'
+    | 'anti_poison_soft_failures_to_degrade'
+    | 'anti_poison_failure_mode'
+    | 'anti_poison_string_protection'
     | 'anti_poison_canary_echo_enabled'
     | 'anti_poison_shape_check_enabled'
     | 'requires_codex_identity'
@@ -402,9 +453,20 @@ export function transformChannelToFormDefaults(
     user_agent_id: 0,
     user_agent_override: '',
     normalize_upstream_errors: true,
+    anti_poison_profile: 'inherit',
     anti_poison_enabled: true,
+    anti_poison_answer_envelope: 'inherit',
+    anti_poison_response_proof: 'inherit',
     anti_poison_response_proof_enabled: false,
-    anti_poison_canary_echo_enabled: true,
+    anti_poison_tool_call_guard: 'inherit',
+    anti_poison_opaque_scan: 'inherit',
+    anti_poison_probe_before_every_request: false,
+    anti_poison_stream_mode: 'inherit',
+    anti_poison_hard_failures_to_quarantine: 0,
+    anti_poison_soft_failures_to_degrade: 0,
+    anti_poison_failure_mode: 'inherit',
+    anti_poison_string_protection: true,
+    anti_poison_canary_echo_enabled: false,
     anti_poison_shape_check_enabled: true,
     requires_codex_identity: 'auto',
     supports_claude_thinking: 'auto',
@@ -429,11 +491,31 @@ export function transformChannelToFormDefaults(
         user_agent_id: Number(parsed.user_agent_id || 0),
         user_agent_override: parsed.user_agent_override || '',
         normalize_upstream_errors: parsed.normalize_upstream_errors !== false,
+        anti_poison_profile: parsed.anti_poison_profile || 'inherit',
         anti_poison_enabled: parsed.anti_poison_enabled !== false,
+        anti_poison_answer_envelope:
+          parsed.anti_poison_answer_envelope || 'inherit',
+        anti_poison_response_proof:
+          parsed.anti_poison_response_proof || 'inherit',
         anti_poison_response_proof_enabled:
           parsed.anti_poison_response_proof_enabled === true,
+        anti_poison_tool_call_guard:
+          parsed.anti_poison_tool_call_guard || 'inherit',
+        anti_poison_opaque_scan: parsed.anti_poison_opaque_scan || 'inherit',
+        anti_poison_probe_before_every_request:
+          parsed.anti_poison_probe_before_every_request === true,
+        anti_poison_stream_mode: parsed.anti_poison_stream_mode || 'inherit',
+        anti_poison_hard_failures_to_quarantine: Number(
+          parsed.anti_poison_hard_failures_to_quarantine || 0
+        ),
+        anti_poison_soft_failures_to_degrade: Number(
+          parsed.anti_poison_soft_failures_to_degrade || 0
+        ),
+        anti_poison_failure_mode: parsed.anti_poison_failure_mode || 'inherit',
+        anti_poison_string_protection:
+          parsed.anti_poison_string_protection !== false,
         anti_poison_canary_echo_enabled:
-          parsed.anti_poison_canary_echo_enabled !== false,
+          parsed.anti_poison_canary_echo_enabled === true,
         anti_poison_shape_check_enabled:
           parsed.anti_poison_shape_check_enabled !== false,
         requires_codex_identity:
@@ -567,10 +649,6 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     user_agent_override: formData.user_agent_override || '',
     normalize_upstream_errors: formData.normalize_upstream_errors !== false,
     anti_poison_enabled: formData.anti_poison_enabled !== false,
-    anti_poison_response_proof_enabled:
-      formData.anti_poison_response_proof_enabled === true,
-    anti_poison_canary_echo_enabled:
-      formData.anti_poison_canary_echo_enabled === true,
     anti_poison_shape_check_enabled:
       formData.anti_poison_shape_check_enabled === true,
     auto_test_interval: Number(formData.auto_test_interval || 0),
@@ -590,6 +668,69 @@ function buildSettingJSON(formData: ChannelFormValues): string {
   } else if (formData.requires_codex_identity === 'false') {
     settingObj.requires_codex_identity = false
   }
+  if (formData.anti_poison_response_proof_enabled === true) {
+    settingObj.anti_poison_response_proof_enabled = true
+  }
+  if (formData.anti_poison_canary_echo_enabled === true) {
+    settingObj.anti_poison_canary_echo_enabled = true
+  }
+  if (formData.anti_poison_profile && formData.anti_poison_profile !== 'inherit') {
+    settingObj.anti_poison_profile = formData.anti_poison_profile
+  }
+  if (
+    formData.anti_poison_answer_envelope &&
+    formData.anti_poison_answer_envelope !== 'inherit'
+  ) {
+    settingObj.anti_poison_answer_envelope =
+      formData.anti_poison_answer_envelope
+  }
+  if (
+    formData.anti_poison_response_proof &&
+    formData.anti_poison_response_proof !== 'inherit'
+  ) {
+    settingObj.anti_poison_response_proof =
+      formData.anti_poison_response_proof
+  }
+  if (
+    formData.anti_poison_tool_call_guard &&
+    formData.anti_poison_tool_call_guard !== 'inherit'
+  ) {
+    settingObj.anti_poison_tool_call_guard =
+      formData.anti_poison_tool_call_guard
+  }
+  if (
+    formData.anti_poison_opaque_scan &&
+    formData.anti_poison_opaque_scan !== 'inherit'
+  ) {
+    settingObj.anti_poison_opaque_scan = formData.anti_poison_opaque_scan
+  }
+  if (formData.anti_poison_probe_before_every_request === true) {
+    settingObj.anti_poison_probe_before_every_request = true
+  }
+  if (
+    formData.anti_poison_stream_mode &&
+    formData.anti_poison_stream_mode !== 'inherit'
+  ) {
+    settingObj.anti_poison_stream_mode = formData.anti_poison_stream_mode
+  }
+  if (Number(formData.anti_poison_hard_failures_to_quarantine || 0) > 0) {
+    settingObj.anti_poison_hard_failures_to_quarantine = Number(
+      formData.anti_poison_hard_failures_to_quarantine || 0
+    )
+  }
+  if (Number(formData.anti_poison_soft_failures_to_degrade || 0) > 0) {
+    settingObj.anti_poison_soft_failures_to_degrade = Number(
+      formData.anti_poison_soft_failures_to_degrade || 0
+    )
+  }
+  if (
+    formData.anti_poison_failure_mode &&
+    formData.anti_poison_failure_mode !== 'inherit'
+  ) {
+    settingObj.anti_poison_failure_mode = formData.anti_poison_failure_mode
+  }
+  settingObj.anti_poison_string_protection =
+    formData.anti_poison_string_protection !== false
   return JSON.stringify(settingObj)
 }
 

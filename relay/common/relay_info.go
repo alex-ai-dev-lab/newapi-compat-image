@@ -178,6 +178,11 @@ type RelayInfo struct {
 	// AntiPoisonAnswerEnvelopeNonce binds the response envelope to this request.
 	// It is injected via system/instructions, never by appending user content.
 	AntiPoisonAnswerEnvelopeNonce string
+	// AntiPoisonToolsDeclared records the request-side tool contract for
+	// response validation. A response with tool calls is rejected when no tools
+	// were declared, or when it calls a name outside AntiPoisonAllowedTools.
+	AntiPoisonToolsDeclared bool
+	AntiPoisonAllowedTools  map[string]bool
 
 	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
 	// body. It is set when the body is wrapped in a BodyStorage (see

@@ -67,6 +67,18 @@ const (
 	// ContextKeyAntiPoisonEvidenceResponse stores the raw upstream response preview
 	// that triggered anti-poison validation. It is persisted only for admin audit.
 	ContextKeyAntiPoisonEvidenceResponse ContextKey = "anti_poison_evidence_response"
+	ContextKeyAntiPoisonRiskLevel        ContextKey = "anti_poison_risk_level"
+	ContextKeyAntiPoisonRiskSignal       ContextKey = "anti_poison_risk_signal"
+	ContextKeyAntiPoisonActionTaken      ContextKey = "anti_poison_action_taken"
+	ContextKeyAntiPoisonProbeRequestID   ContextKey = "anti_poison_probe_request_id"
+	ContextKeyAntiPoisonStreamMode       ContextKey = "anti_poison_stream_mode"
+	ContextKeyAntiPoisonOpaqueScore      ContextKey = "anti_poison_opaque_score"
+	ContextKeyAntiPoisonOpaqueHits       ContextKey = "anti_poison_opaque_hits"
+	ContextKeyAntiPoisonToolGuardResult  ContextKey = "anti_poison_tool_call_guard_result"
+	ContextKeyAntiPoisonShapeResult      ContextKey = "anti_poison_shape_check_result"
+	ContextKeyAntiPoisonEnvelopeResult   ContextKey = "anti_poison_envelope_result"
+	ContextKeyAntiPoisonProofResult      ContextKey = "anti_poison_proof_result"
+	ContextKeyAntiPoisonCanaryResult     ContextKey = "anti_poison_canary_result"
 
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"

@@ -2,10 +2,17 @@ package claude
 
 import (
 	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -273,6 +280,47 @@ func TestBuildOpenAIStyleUsageFromClaudeUsageDefaultsAggregateCacheCreationTo5m(
 
 	require.Equal(t, 50, openAIUsage.ClaudeCacheCreation5mTokens)
 	require.Equal(t, 0, openAIUsage.ClaudeCacheCreation1hTokens)
+}
+
+func TestClaudeAggregateStreamReplaysOnlyAfterValidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Set(common.RequestIdKey, "req-test")
+
+	body := strings.Join([]string{
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-test","usage":{"input_tokens":3,"output_tokens":1}}}`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<newapi_answer nonce=\"n1\">OK</newapi_answer>"}}`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":3,"output_tokens":1}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		RelayFormat:                   types.RelayFormatClaude,
+		OriginModelName:               "claude-test",
+		AntiPoisonAnswerEnvelopeNonce: "n1",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         101,
+			UpstreamModelName: "claude-test",
+		},
+	}
+
+	usage, err := claudeAggregateStreamThenReplay(c, resp, info)
+
+	require.Nil(t, err)
+	require.NotNil(t, usage)
+	out := strings.TrimSpace(w.Body.String())
+	require.True(t, strings.HasPrefix(out, "event: message_start"), out)
+	require.Contains(t, out, "OK")
+	require.NotContains(t, out, "<newapi_answer")
+	require.NotContains(t, out, `"content":[{"type":"text","text":"OK"}]`)
 }
 
 func TestRequestOpenAI2ClaudeMessage_IgnoresUnsupportedFileContent(t *testing.T) {
