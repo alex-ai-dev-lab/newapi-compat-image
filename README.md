@@ -44,6 +44,14 @@ curl -fsS http://127.0.0.1:3002/healthz
 
 SQLite is the default self-hosting path when `SQL_DSN` is empty. MySQL/Postgres examples are documented in `compose.yaml` and `docs/deploy.md`.
 
+### 按渠道兼容自签/过期/不受信 TLS 证书
+
+当上游地址为 `https://IP:443/v1`，或者证书过期、自签、不受信任、SAN 不匹配时，可以在渠道设置中开启“跳过上游 TLS 证书校验”。
+
+注意：该选项会降低 TLS 安全性，只建议对可信的私有上游或内网中转启用。公网陌生上游不建议开启。更安全的长期方案是为上游配置有效证书或导入可信 CA。
+
+全局环境变量 `TLS_INSECURE_SKIP_VERIFY` 仍然保留，但不推荐常开。推荐使用按渠道开关。
+
 ## GHCR
 
 GitHub Actions uses the built-in `GITHUB_TOKEN` for GHCR. Local push scripts load credentials from `Token/github-auth.env` without printing secret values:

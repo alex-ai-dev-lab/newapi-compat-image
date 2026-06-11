@@ -212,7 +212,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 }
 
 // FetchTask fetch task status
-func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string, tlsInsecureSkipVerify ...bool) (*http.Response, error) {
 	taskID, ok := body["task_id"].(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
@@ -253,9 +253,12 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 			return nil, errors.Wrap(err, "sign request failed")
 		}
 	}
-	client, err := service.GetHttpClientWithProxy(proxy)
+	client, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 proxy,
+		TLSInsecureSkipVerify: len(tlsInsecureSkipVerify) > 0 && tlsInsecureSkipVerify[0],
+	})
 	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		return nil, fmt.Errorf("new http client failed: %w", err)
 	}
 	return client.Do(req)
 }

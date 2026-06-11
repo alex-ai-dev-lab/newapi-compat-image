@@ -76,6 +76,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
+	if IsTLSVerificationError(err) {
+		return false
+	}
 	if types.IsChannelError(err) {
 		return true
 	}
@@ -92,6 +95,31 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	lowerMessage := strings.ToLower(err.Error())
 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
 	return search
+}
+
+func IsTLSVerificationError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	lowerMessage := strings.ToLower(err.Error())
+	keywords := []string{
+		"x509:",
+		"certificate has expired",
+		"certificate is not trusted",
+		"certificate is not valid",
+		"certificate signed by unknown authority",
+		"cannot validate certificate",
+		"failed to verify certificate",
+		"hostname mismatch",
+		"unknown authority",
+		"tls: failed to verify",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(lowerMessage, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

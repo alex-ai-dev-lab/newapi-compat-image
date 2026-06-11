@@ -608,7 +608,14 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyManagedUpstreamUserAgent(&http.Request{Header: targetHeader, URL: mustParseURL(fullRequestURL)}, info)
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+	dialer, err := service.NewWebSocketDialerWithOptions(service.HTTPClientOptions{
+		Proxy:                 info.ChannelSetting.Proxy,
+		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("new websocket dialer failed: %w", err)
+	}
+	targetConn, _, err := dialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
 		return nil, fmt.Errorf("dial failed to %s: %w", fullRequestURL, err)
 	}
@@ -715,15 +722,12 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	var client *http.Client
-	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
-		if err != nil {
-			return nil, fmt.Errorf("new proxy http client failed: %w", err)
-		}
-	} else {
-		client = service.GetHttpClient()
+	client, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 info.ChannelSetting.Proxy,
+		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("new http client failed: %w", err)
 	}
 
 	var stopPinger context.CancelFunc
@@ -747,7 +751,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg(upstreamTLSCompatibilityHint("upstream error: do request failed")))
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
@@ -760,6 +764,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	_ = req.Body.Close()
 	_ = c.Request.Body.Close()
 	return resp, nil
+}
+
+func upstreamTLSCompatibilityHint(prefix string) string {
+	return prefix + "；如果上游是自签证书、过期证书、不受信证书或 IP:443，可在渠道设置中开启“跳过上游 TLS 证书校验”。"
 }
 
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {

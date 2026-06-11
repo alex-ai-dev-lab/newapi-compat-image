@@ -44,7 +44,11 @@ func RefreshCodexOAuthToken(ctx context.Context, refreshToken string) (*CodexOAu
 }
 
 func RefreshCodexOAuthTokenWithProxy(ctx context.Context, refreshToken string, proxyURL string) (*CodexOAuthTokenResult, error) {
-	client, err := getCodexOAuthHTTPClient(proxyURL)
+	return RefreshCodexOAuthTokenWithOptions(ctx, refreshToken, HTTPClientOptions{Proxy: proxyURL})
+}
+
+func RefreshCodexOAuthTokenWithOptions(ctx context.Context, refreshToken string, options HTTPClientOptions) (*CodexOAuthTokenResult, error) {
+	client, err := getCodexOAuthHTTPClient(options)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +60,7 @@ func ExchangeCodexAuthorizationCode(ctx context.Context, code string, verifier s
 }
 
 func ExchangeCodexAuthorizationCodeWithProxy(ctx context.Context, code string, verifier string, proxyURL string) (*CodexOAuthTokenResult, error) {
-	client, err := getCodexOAuthHTTPClient(proxyURL)
+	client, err := getCodexOAuthHTTPClient(HTTPClientOptions{Proxy: proxyURL})
 	if err != nil {
 		return nil, err
 	}
@@ -197,8 +201,8 @@ func exchangeCodexAuthorizationCode(
 	}, nil
 }
 
-func getCodexOAuthHTTPClient(proxyURL string) (*http.Client, error) {
-	baseClient, err := GetHttpClientWithProxy(strings.TrimSpace(proxyURL))
+func getCodexOAuthHTTPClient(options HTTPClientOptions) (*http.Client, error) {
+	baseClient, err := GetHttpClientWithOptions(options)
 	if err != nil {
 		return nil, err
 	}

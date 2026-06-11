@@ -227,6 +227,13 @@ const OllamaModelModal = ({
             base_url: resolvedBaseUrl,
             type: CHANNEL_TYPE_OLLAMA,
             key: channelInfo?.key || '',
+            setting:
+              channelInfo?.setting ||
+              JSON.stringify({
+                proxy: channelInfo?.proxy || '',
+                tls_insecure_skip_verify:
+                  channelInfo?.tls_insecure_skip_verify === true,
+              }),
           };
 
           const res = await API.post('/api/channel/fetch_models', payload, {

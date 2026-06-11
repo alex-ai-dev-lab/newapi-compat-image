@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -111,15 +110,12 @@ func exchangeJwtForAccessToken(signedJWT string, info *relaycommon.RelayInfo) (s
 	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 	data.Set("assertion", signedJWT)
 
-	var client *http.Client
-	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
-		if err != nil {
-			return "", fmt.Errorf("new proxy http client failed: %w", err)
-		}
-	} else {
-		client = service.GetHttpClient()
+	client, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 info.ChannelSetting.Proxy,
+		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		return "", fmt.Errorf("new http client failed: %w", err)
 	}
 
 	resp, err := client.PostForm(authURL, data)
@@ -148,21 +144,27 @@ func AcquireAccessToken(creds Credentials, proxy string) (string, error) {
 	return exchangeJwtForAccessTokenWithProxy(signedJWT, proxy)
 }
 
+func AcquireAccessTokenWithOptions(creds Credentials, options service.HTTPClientOptions) (string, error) {
+	signedJWT, err := createSignedJWT(creds.ClientEmail, creds.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create signed JWT: %w", err)
+	}
+	return exchangeJwtForAccessTokenWithOptions(signedJWT, options)
+}
+
 func exchangeJwtForAccessTokenWithProxy(signedJWT string, proxy string) (string, error) {
+	return exchangeJwtForAccessTokenWithOptions(signedJWT, service.HTTPClientOptions{Proxy: proxy})
+}
+
+func exchangeJwtForAccessTokenWithOptions(signedJWT string, options service.HTTPClientOptions) (string, error) {
 	authURL := "https://www.googleapis.com/oauth2/v4/token"
 	data := url.Values{}
 	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 	data.Set("assertion", signedJWT)
 
-	var client *http.Client
-	var err error
-	if proxy != "" {
-		client, err = service.NewProxyHttpClient(proxy)
-		if err != nil {
-			return "", fmt.Errorf("new proxy http client failed: %w", err)
-		}
-	} else {
-		client = service.GetHttpClient()
+	client, err := service.GetHttpClientWithOptions(options)
+	if err != nil {
+		return "", fmt.Errorf("new http client failed: %w", err)
 	}
 
 	resp, err := client.PostForm(authURL, data)

@@ -214,6 +214,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
+    values.tls_insecure_skip_verify ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
@@ -793,6 +794,11 @@ export function ChannelMutateDrawer({
       type: form.getValues('type'),
       key: form.getValues('key'),
       base_url: form.getValues('base_url') || '',
+      setting: JSON.stringify({
+        proxy: form.getValues('proxy') || '',
+        tls_insecure_skip_verify:
+          form.getValues('tls_insecure_skip_verify') === true,
+      }),
     })
     if (response.success && response.data) {
       return response.data
@@ -3857,6 +3863,31 @@ export function ChannelMutateDrawer({
                                 <FormLabel>{t('Pass Through Body')}</FormLabel>
                                 <FormDescription>
                                   {t('Pass request body directly to upstream')}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='tls_insecure_skip_verify'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between px-4 py-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>
+                                  {t('跳过上游 TLS 证书校验')}
+                                </FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    '仅用于兼容 IP:443、自签证书、证书过期、证书不受信任或 SAN 不匹配的上游。开启后会降低中间人攻击防护能力，请只对可信私有上游启用。'
+                                  )}
                                 </FormDescription>
                               </div>
                               <FormControl>

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -59,6 +60,9 @@ func recordCompatChannelFailure(channelID int, info *relaycommon.RelayInfo) int 
 
 func shouldTrackCompatUpstream5xxFailure(openaiErr *types.NewAPIError) bool {
 	if openaiErr == nil {
+		return false
+	}
+	if service.IsTLSVerificationError(openaiErr) {
 		return false
 	}
 	switch openaiErr.StatusCode {

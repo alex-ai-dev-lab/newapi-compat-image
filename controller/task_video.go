@@ -67,7 +67,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
-	proxy := channel.GetSetting().Proxy
+	setting := channel.GetSetting()
 
 	task := taskM[taskId]
 	if task == nil {
@@ -83,7 +83,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
 		"task_id": taskId,
 		"action":  task.Action,
-	}, proxy)
+	}, setting.Proxy, setting.TLSInsecureSkipVerify)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
 	}

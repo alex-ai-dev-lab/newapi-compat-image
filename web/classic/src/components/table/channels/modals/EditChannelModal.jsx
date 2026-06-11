@@ -192,6 +192,7 @@ const EditChannelModal = (props) => {
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    tls_insecure_skip_verify: false,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -516,6 +517,7 @@ const EditChannelModal = (props) => {
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    tls_insecure_skip_verify: false,
     pass_through_body_enabled: false,
     system_prompt: '',
   });
@@ -870,6 +872,8 @@ const EditChannelModal = (props) => {
           data.thinking_to_content =
             parsedSettings.thinking_to_content || false;
           data.proxy = parsedSettings.proxy || '';
+          data.tls_insecure_skip_verify =
+            parsedSettings.tls_insecure_skip_verify === true;
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
           data.system_prompt = parsedSettings.system_prompt || '';
@@ -880,6 +884,7 @@ const EditChannelModal = (props) => {
           data.force_format = false;
           data.thinking_to_content = false;
           data.proxy = '';
+          data.tls_insecure_skip_verify = false;
           data.pass_through_body_enabled = false;
           data.system_prompt = '';
           data.system_prompt_override = false;
@@ -888,6 +893,7 @@ const EditChannelModal = (props) => {
         data.force_format = false;
         data.thinking_to_content = false;
         data.proxy = '';
+        data.tls_insecure_skip_verify = false;
         data.pass_through_body_enabled = false;
         data.system_prompt = '';
         data.system_prompt_override = false;
@@ -1001,6 +1007,7 @@ const EditChannelModal = (props) => {
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
         proxy: data.proxy,
+        tls_insecure_skip_verify: data.tls_insecure_skip_verify,
         pass_through_body_enabled: data.pass_through_body_enabled,
         system_prompt: data.system_prompt,
         system_prompt_override: data.system_prompt_override || false,
@@ -1041,6 +1048,7 @@ const EditChannelModal = (props) => {
         (data.priority && data.priority !== 0) ||
         (data.weight && data.weight !== 0) ||
         (data.proxy && data.proxy.trim()) ||
+        data.tls_insecure_skip_verify ||
         (data.system_prompt && data.system_prompt.trim()) ||
         data.thinking_to_content ||
         data.pass_through_body_enabled ||
@@ -1089,6 +1097,11 @@ const EditChannelModal = (props) => {
               base_url: inputs['base_url'],
               type: inputs['type'],
               key: inputs['key'],
+              setting: JSON.stringify({
+                proxy: inputs.proxy || '',
+                tls_insecure_skip_verify:
+                  inputs.tls_insecure_skip_verify === true,
+              }),
             },
             { skipErrorHandler: true },
           );
@@ -1390,6 +1403,7 @@ const EditChannelModal = (props) => {
       force_format: false,
       thinking_to_content: false,
       proxy: '',
+      tls_insecure_skip_verify: false,
       pass_through_body_enabled: false,
       system_prompt: '',
       system_prompt_override: false,
@@ -1760,6 +1774,8 @@ const EditChannelModal = (props) => {
       force_format: localInputs.force_format || false,
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
+      tls_insecure_skip_verify:
+        localInputs.tls_insecure_skip_verify === true,
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
@@ -1843,6 +1859,7 @@ const EditChannelModal = (props) => {
     delete localInputs.force_format;
     delete localInputs.thinking_to_content;
     delete localInputs.proxy;
+    delete localInputs.tls_insecure_skip_verify;
     delete localInputs.pass_through_body_enabled;
     delete localInputs.system_prompt;
     delete localInputs.system_prompt_override;
@@ -2537,6 +2554,7 @@ const EditChannelModal = (props) => {
 
                   <Form.Switch field='thinking_to_content' label={t('思考内容转换')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('thinking_to_content', value)} extraText={t('将 reasoning_content 转换为 <think> 标签拼接到内容中')} />
                   <Form.Switch field='pass_through_body_enabled' label={t('透传请求体')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('pass_through_body_enabled', value)} extraText={t('启用请求体透传功能')} />
+                  <Form.Switch field='tls_insecure_skip_verify' label={t('跳过上游 TLS 证书校验')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('tls_insecure_skip_verify', value)} extraText={t('仅用于兼容 IP:443、自签证书、证书过期、证书不受信任或 SAN 不匹配的上游。开启后会降低中间人攻击防护能力，请只对可信私有上游启用。')} />
                   <Form.Switch field='auto_test_and_recover_enabled' label={t('允许自动测试及恢复')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelOtherSettingsChange('auto_test_and_recover_enabled', value)} extraText={t('开启后，系统会按全局自动测试间隔检测该渠道，并在测试通过后自动启用；关闭后，即使全局自动测试开启，该渠道也会保持禁用，直到你手动启用。')} />
 
                   <Form.Input field='proxy' label={t('代理地址')} placeholder={t('例如: socks5://user:pass@host:port')} onChange={(value) => handleChannelSettingsChange('proxy', value)} showClear extraText={t('用于配置网络代理，支持 socks5 协议')} />

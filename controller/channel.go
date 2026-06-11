@@ -1013,6 +1013,7 @@ func FetchModels(c *gin.Context) {
 		BaseURL string `json:"base_url"`
 		Type    int    `json:"type"`
 		Key     string `json:"key"`
+		Setting string `json:"setting"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1021,6 +1022,16 @@ func FetchModels(c *gin.Context) {
 			"message": "Invalid request",
 		})
 		return
+	}
+	channelSetting := dto.ChannelSettings{}
+	if strings.TrimSpace(req.Setting) != "" {
+		if err := common.Unmarshal([]byte(req.Setting), &channelSetting); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid channel setting",
+			})
+			return
+		}
 	}
 
 	baseURL := req.BaseURL
@@ -1033,7 +1044,10 @@ func FetchModels(c *gin.Context) {
 	key = strings.Split(key, "\n")[0]
 
 	if req.Type == constant.ChannelTypeOllama {
-		models, err := ollama.FetchOllamaModels(baseURL, key)
+		models, err := ollama.FetchOllamaModels(baseURL, key, service.HTTPClientOptions{
+			Proxy:                 channelSetting.Proxy,
+			TLSInsecureSkipVerify: channelSetting.TLSInsecureSkipVerify,
+		})
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -1055,7 +1069,7 @@ func FetchModels(c *gin.Context) {
 	}
 
 	if req.Type == constant.ChannelTypeGemini {
-		models, err := gemini.FetchGeminiModels(baseURL, key, "")
+		models, err := gemini.FetchGeminiModels(baseURL, key, channelSetting.Proxy, channelSetting.TLSInsecureSkipVerify)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -1071,7 +1085,17 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{}
+	client, err := service.GetHttpClientWithOptions(service.HTTPClientOptions{
+		Proxy:                 channelSetting.Proxy,
+		TLSInsecureSkipVerify: channelSetting.TLSInsecureSkipVerify,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 	url := fmt.Sprintf("%s/v1/models", baseURL)
 
 	request, err := http.NewRequest("GET", url, nil)

@@ -108,11 +108,12 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 		return fmt.Errorf("failed to decode credentials: %w", err)
 	}
 
-	proxy := ""
+	options := service.HTTPClientOptions{}
 	if info != nil {
-		proxy = info.ChannelSetting.Proxy
+		options.Proxy = info.ChannelSetting.Proxy
+		options.TLSInsecureSkipVerify = info.ChannelSetting.TLSInsecureSkipVerify
 	}
-	token, err := vertexcore.AcquireAccessToken(*adc, proxy)
+	token, err := vertexcore.AcquireAccessTokenWithOptions(*adc, options)
 	if err != nil {
 		return fmt.Errorf("failed to acquire access token: %w", err)
 	}
@@ -242,7 +243,7 @@ func buildFetchOperationURL(baseURL, upstreamName string) (string, error) {
 }
 
 // FetchTask fetch task status
-func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string, tlsInsecureSkipVerify ...bool) (*http.Response, error) {
 	taskID, ok := body["task_id"].(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
@@ -264,7 +265,11 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if err := common.Unmarshal([]byte(key), adc); err != nil {
 		return nil, fmt.Errorf("failed to decode credentials: %w", err)
 	}
-	token, err := vertexcore.AcquireAccessToken(*adc, proxy)
+	options := service.HTTPClientOptions{
+		Proxy:                 proxy,
+		TLSInsecureSkipVerify: len(tlsInsecureSkipVerify) > 0 && tlsInsecureSkipVerify[0],
+	}
+	token, err := vertexcore.AcquireAccessTokenWithOptions(*adc, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire access token: %w", err)
 	}
@@ -276,9 +281,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("x-goog-user-project", adc.ProjectID)
-	client, err := service.GetHttpClientWithProxy(proxy)
+	client, err := service.GetHttpClientWithOptions(options)
 	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		return nil, fmt.Errorf("new http client failed: %w", err)
 	}
 	return client.Do(req)
 }
