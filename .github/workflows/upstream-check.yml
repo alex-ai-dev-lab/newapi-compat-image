@@ -16,4 +16,6 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check upstream
+        env:
+          UPSTREAM_REPOSITORY_URL: https://github.com/QuantumNous/new-api.git
         run: bash scripts/check-upstream.sh

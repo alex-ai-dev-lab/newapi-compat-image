@@ -474,7 +474,7 @@ index 0000000..8f6aa06
 +	return ""
 +}
 diff --git a/controller/channel-test.go b/controller/channel-test.go
-index 037b849..1c5c361 100644
+index 037b849..c58ba26 100644
 --- a/controller/channel-test.go
 +++ b/controller/channel-test.go
 @@ -2,6 +2,8 @@ package controller
@@ -499,11 +499,13 @@ index 037b849..1c5c361 100644
  	"github.com/QuantumNous/new-api/setting/ratio_setting"
  	"github.com/QuantumNous/new-api/types"
  
-@@ -43,20 +45,77 @@ type testResult struct {
+@@ -43,20 +45,98 @@ type testResult struct {
  	newAPIError *types.NewAPIError
  }
  
 +const channelTestNoncePrefix = "NEWAPI_TEST_"
++const channelTestClaudeUserAgent = "claude-cli/2.1.177 (external, cli)"
++const channelTestClaudeVersion = "2023-06-01"
 +
 +func newChannelTestNonce() string {
 +	var b [8]byte
@@ -515,6 +517,25 @@ index 037b849..1c5c361 100644
 +
 +func channelTestNoncePrompt(nonce string) string {
 +	return "Reply with exactly this token and nothing else. Do not add quotes, markdown, spaces, or punctuation:\n" + nonce
++}
++
++func buildChannelTestHeaders(endpointType string, isStream bool) http.Header {
++	headers := make(http.Header)
++	headers.Set("Content-Type", "application/json")
++	if isStream {
++		headers.Set("Accept", "text/event-stream")
++	} else {
++		headers.Set("Accept", "application/json")
++	}
++
++	switch constant.EndpointType(strings.TrimSpace(endpointType)) {
++	case constant.EndpointTypeAnthropic:
++		headers.Set("User-Agent", channelTestClaudeUserAgent)
++		headers.Set("X-App", "cli")
++		headers.Set("anthropic-version", channelTestClaudeVersion)
++	}
++
++	return headers
 +}
 +
  func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -579,7 +600,7 @@ index 037b849..1c5c361 100644
  func resolveChannelTestUserID(c *gin.Context) (int, error) {
  	if c != nil {
  		if userID := c.GetInt("id"); userID > 0 {
-@@ -111,6 +170,10 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -111,6 +191,10 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  
  	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
  
@@ -590,7 +611,16 @@ index 037b849..1c5c361 100644
  	requestPath := "/v1/chat/completions"
  
  	// 如果指定了端点类型，使用指定的端点类型
-@@ -236,7 +299,11 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -157,7 +241,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+ 		Method: "POST",
+ 		URL:    &url.URL{Path: requestPath}, // 使用动态路径
+ 		Body:   nil,
+-		Header: make(http.Header),
++		Header: buildChannelTestHeaders(endpointType, isStream),
+ 	}
+ 
+ 	cache, err := model.GetUserCache(testUserID)
+@@ -236,7 +320,11 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  		}
  	}
  
@@ -603,7 +633,7 @@ index 037b849..1c5c361 100644
  
  	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
  
-@@ -347,6 +414,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -347,6 +435,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  	case relayconstant.RelayModeResponses:
  		// Response 请求 - request 已经是正确的类型
  		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
@@ -611,7 +641,7 @@ index 037b849..1c5c361 100644
  			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *responseReq)
  		} else {
  			return testResult{
-@@ -359,13 +427,16 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -359,13 +448,16 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  		// Response compaction request - convert to OpenAIResponsesRequest before adapting
  		switch req := request.(type) {
  		case *dto.OpenAIResponsesCompactionRequest:
@@ -630,7 +660,25 @@ index 037b849..1c5c361 100644
  			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *req)
  		default:
  			return testResult{
-@@ -441,8 +512,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -375,6 +467,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+ 			}
+ 		}
+ 	default:
++		if info.RelayFormat == types.RelayFormatClaude {
++			if claudeReq, ok := request.(*dto.ClaudeRequest); ok {
++				convertedRequest, err = adaptor.ConvertClaudeRequest(c, info, claudeReq)
++				break
++			}
++			return testResult{
++				context:     c,
++				localErr:    errors.New("invalid claude request type"),
++				newAPIError: types.NewError(errors.New("invalid claude request type"), types.ErrorCodeConvertRequestFailed),
++			}
++		}
+ 		// Chat/Completion 等其他请求类型
+ 		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
+ 			convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, generalReq)
+@@ -441,8 +544,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  		}
  	}
  	var httpResp *http.Response
@@ -643,7 +691,7 @@ index 037b849..1c5c361 100644
  		if httpResp.StatusCode != http.StatusOK {
  			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
  			common.SysError(fmt.Sprintf(
-@@ -470,16 +545,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -470,16 +577,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: respErr,
  		}
  	}
@@ -661,7 +709,7 @@ index 037b849..1c5c361 100644
  	if err != nil {
  		return testResult{
  			context:     c,
-@@ -487,7 +554,20 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
+@@ -487,7 +586,20 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
  			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
  		}
  	}
@@ -683,7 +731,7 @@ index 037b849..1c5c361 100644
  		return testResult{
  			context:     c,
  			localErr:    bodyErr,
-@@ -595,7 +675,7 @@ func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dt
+@@ -595,7 +707,7 @@ func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dt
  
  func readTestResponseBody(body io.ReadCloser, isStream bool) ([]byte, error) {
  	defer func() { _ = body.Close() }()
@@ -692,7 +740,7 @@ index 037b849..1c5c361 100644
  	if isStream {
  		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
  	}
-@@ -653,18 +733,144 @@ func validateStreamTestResponseBody(respBody []byte) error {
+@@ -653,18 +765,144 @@ func validateStreamTestResponseBody(respBody []byte) error {
  	return errors.New("stream response body does not contain a valid stream event")
  }
  
@@ -839,7 +887,7 @@ index 037b849..1c5c361 100644
  }
  
  func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
-@@ -696,8 +902,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
+@@ -696,8 +934,17 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
  	return message
  }
  
@@ -858,7 +906,7 @@ index 037b849..1c5c361 100644
  
  	// 根据端点类型构建不同的测试请求
  	if endpointType != "" {
-@@ -728,7 +943,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -728,7 +975,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  			// 返回 OpenAIResponsesRequest
  			return &dto.OpenAIResponsesRequest{
  				Model:  model,
@@ -867,7 +915,28 @@ index 037b849..1c5c361 100644
  				Stream: lo.ToPtr(isStream),
  			}
  		case constant.EndpointTypeOpenAIResponseCompact:
-@@ -749,7 +964,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -737,7 +984,19 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+ 				Model: model,
+ 				Input: testResponsesInput,
+ 			}
+-		case constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
++		case constant.EndpointTypeAnthropic:
++			return &dto.ClaudeRequest{
++				Model:  model,
++				Stream: lo.ToPtr(isStream),
++				Messages: []dto.ClaudeMessage{
++					{
++						Role:    "user",
++						Content: prompt,
++					},
++				},
++				MaxTokens: lo.ToPtr(uint(16)),
++			}
++		case constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
+ 			// 返回 GeneralOpenAIRequest
+ 			maxTokens := uint(16)
+ 			if constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
+@@ -749,7 +1008,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  				Messages: []dto.Message{
  					{
  						Role:    "user",
@@ -876,7 +945,7 @@ index 037b849..1c5c361 100644
  					},
  				},
  				MaxTokens: lo.ToPtr(maxTokens),
-@@ -794,7 +1009,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -794,7 +1053,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  	if strings.Contains(strings.ToLower(model), "codex") {
  		return &dto.OpenAIResponsesRequest{
  			Model:  model,
@@ -885,7 +954,7 @@ index 037b849..1c5c361 100644
  			Stream: lo.ToPtr(isStream),
  		}
  	}
-@@ -806,7 +1021,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
+@@ -806,7 +1065,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
  		Messages: []dto.Message{
  			{
  				Role:    "user",
@@ -894,7 +963,7 @@ index 037b849..1c5c361 100644
  			},
  		},
  	}
-@@ -923,7 +1138,12 @@ func testAllChannels(notify bool) error {
+@@ -923,7 +1182,12 @@ func testAllChannels(notify bool) error {
  		}()
  
  		for _, channel := range channels {
@@ -908,7 +977,7 @@ index 037b849..1c5c361 100644
  				continue
  			}
  			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-@@ -936,7 +1156,7 @@ func testAllChannels(notify bool) error {
+@@ -936,7 +1200,7 @@ func testAllChannels(notify bool) error {
  			newAPIError := result.newAPIError
  			// request error disables the channel
  			if newAPIError != nil {
@@ -917,7 +986,7 @@ index 037b849..1c5c361 100644
  			}
  
  			// 当错误检查通过，才检查响应时间
-@@ -949,7 +1169,7 @@ func testAllChannels(notify bool) error {
+@@ -949,7 +1213,7 @@ func testAllChannels(notify bool) error {
  			}
  
  			// disable channel
@@ -926,7 +995,7 @@ index 037b849..1c5c361 100644
  				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
  			}
  
-@@ -989,22 +1209,8 @@ func AutomaticallyTestChannels() {
+@@ -989,22 +1253,8 @@ func AutomaticallyTestChannels() {
  		return
  	}
  	autoTestChannelsOnce.Do(func() {
@@ -981,7 +1050,7 @@ index c59e492..8410780 100644
  	keyword := c.Query("keyword")
  	group := c.Query("group")
 diff --git a/controller/channel_test_internal_test.go b/controller/channel_test_internal_test.go
-index 0254080..11b1eed 100644
+index 0254080..df1bd13 100644
 --- a/controller/channel_test_internal_test.go
 +++ b/controller/channel_test_internal_test.go
 @@ -1,11 +1,15 @@
@@ -1000,7 +1069,7 @@ index 0254080..11b1eed 100644
  	"github.com/QuantumNous/new-api/pkg/billingexpr"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/types"
-@@ -80,3 +84,131 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
+@@ -80,3 +84,154 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
  	require.NoError(t, err)
  	require.Equal(t, 2, userID)
  }
@@ -1031,6 +1100,29 @@ index 0254080..11b1eed 100644
 +	}
 +
 +	require.Equal(t, string(constant.EndpointTypeAnthropic), normalizeChannelTestEndpoint(channel, "claude-sonnet-4-20250514", ""))
++}
++
++func TestBuildChannelTestHeadersClaude(t *testing.T) {
++	t.Parallel()
++
++	headers := buildChannelTestHeaders(string(constant.EndpointTypeAnthropic), true)
++	require.Equal(t, "claude-cli/2.1.177 (external, cli)", headers.Get("User-Agent"))
++	require.Equal(t, "cli", headers.Get("X-App"))
++	require.Equal(t, "2023-06-01", headers.Get("anthropic-version"))
++	require.Equal(t, "text/event-stream", headers.Get("Accept"))
++}
++
++func TestBuildTestRequestUsesClaudeRequestForAnthropicEndpoint(t *testing.T) {
++	t.Parallel()
++
++	req := buildTestRequest("claude-opus-4-6", string(constant.EndpointTypeAnthropic), &model.Channel{}, true, "NEWAPI_TEST_deadbeef")
++	claudeReq, ok := req.(*dto.ClaudeRequest)
++	require.True(t, ok)
++	require.Equal(t, "claude-opus-4-6", claudeReq.Model)
++	require.NotNil(t, claudeReq.Stream)
++	require.Len(t, claudeReq.Messages, 1)
++	require.Equal(t, "user", claudeReq.Messages[0].Role)
++	require.Contains(t, claudeReq.Messages[0].GetStringContent(), "NEWAPI_TEST_deadbeef")
 +}
 +
 +func TestShouldUseStreamForChannelTestUsesStreamingTextEndpoints(t *testing.T) {
@@ -1944,6 +2036,30 @@ index eada490..69a1ee8 100644
  
  		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
  		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
+diff --git a/controller/model_list_test.go b/controller/model_list_test.go
+index 97d27ca..f9ba639 100644
+--- a/controller/model_list_test.go
++++ b/controller/model_list_test.go
+@@ -221,9 +221,19 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
+ 		"zz-token-tiered-empty-expr-model": "",
+ 	})
+ 
++	db := setupModelListControllerTestDB(t)
++	require.NoError(t, db.Create(&model.User{
++		Id:       1001,
++		Username: "model-list-user",
++		Password: "password",
++		Group:    "default",
++		Status:   common.UserStatusEnabled,
++	}).Error)
++
+ 	recorder := httptest.NewRecorder()
+ 	ctx, _ := gin.CreateTestContext(recorder)
+ 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
++	ctx.Set("id", 1001)
+ 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+ 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+ 		"zz-token-tiered-visible-model":      true,
 diff --git a/controller/official_price_sync.go b/controller/official_price_sync.go
 new file mode 100644
 index 0000000..f59df81
@@ -10452,10 +10568,22 @@ index f697f85..1140a6e 100644
 +	require.False(t, shouldForceCodexIdentity(claudeInfo, "https://api.anthropic-compatible.test/v1/messages"))
 +}
 diff --git a/relay/channel/claude/relay-claude.go b/relay/channel/claude/relay-claude.go
-index 6356cd3..be835a7 100644
+index 6356cd3..53816a8 100644
 --- a/relay/channel/claude/relay-claude.go
 +++ b/relay/channel/claude/relay-claude.go
-@@ -11,6 +11,7 @@ import (
+@@ -1,16 +1,19 @@
+ package claude
+ 
+ import (
++	"encoding/base64"
+ 	"encoding/json"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
++	"path/filepath"
+ 	"strings"
+ 
+ 	"github.com/QuantumNous/new-api/common"
  	"github.com/QuantumNous/new-api/constant"
  	"github.com/QuantumNous/new-api/dto"
  	"github.com/QuantumNous/new-api/logger"
@@ -10463,7 +10591,77 @@ index 6356cd3..be835a7 100644
  	"github.com/QuantumNous/new-api/relay/channel/openrouter"
  	relaycommon "github.com/QuantumNous/new-api/relay/common"
  	"github.com/QuantumNous/new-api/relay/helper"
-@@ -587,6 +588,11 @@ type ClaudeResponseInfo struct {
+@@ -31,6 +34,21 @@ const (
+ 	WebSearchMaxUsesHigh   = 10
+ )
+ 
++func inferClaudeMimeTypeFromFileName(file *dto.MessageFile) string {
++	if file == nil {
++		return ""
++	}
++	name := strings.TrimSpace(file.FileName)
++	if name == "" {
++		return ""
++	}
++	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
++	if ext == "" {
++		return ""
++	}
++	return service.GetMimeTypeByExtension(ext)
++}
++
+ func stopReasonClaude2OpenAI(reason string) string {
+ 	return reasonmap.ClaudeStopReasonToOpenAIFinishReason(reason)
+ }
+@@ -381,23 +399,41 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
+ 						if source == nil {
+ 							continue
+ 						}
+-						base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Claude")
++						base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting file for Claude")
+ 						if err != nil {
+ 							return nil, fmt.Errorf("get file data failed: %s", err.Error())
+ 						}
++						if mimeType == "" || mimeType == "application/octet-stream" {
++							mimeType = inferClaudeMimeTypeFromFileName(mediaMessage.GetFile())
++						}
+ 						claudeMediaMessage := dto.ClaudeMediaMessage{
+ 							Source: &dto.ClaudeMessageSource{
+ 								Type: "base64",
+ 							},
+ 						}
+-						if strings.HasPrefix(mimeType, "application/pdf") {
++						switch {
++						case strings.HasPrefix(mimeType, "text/"):
++							textData, decodeErr := base64.StdEncoding.DecodeString(base64Data)
++							if decodeErr != nil {
++								continue
++							}
++							if len(textData) == 0 {
++								continue
++							}
++							claudeMediaMessage.Type = "text"
++							text := string(textData)
++							claudeMediaMessage.Text = common.GetPointer(text)
++						case strings.HasPrefix(mimeType, "application/pdf"):
+ 							claudeMediaMessage.Type = "document"
+-						} else {
++							claudeMediaMessage.Source.MediaType = mimeType
++							claudeMediaMessage.Source.Data = base64Data
++						case strings.HasPrefix(mimeType, "image/"):
+ 							claudeMediaMessage.Type = "image"
++							claudeMediaMessage.Source.MediaType = mimeType
++							claudeMediaMessage.Source.Data = base64Data
++						default:
++							continue
+ 						}
+-
+-						claudeMediaMessage.Source.MediaType = mimeType
+-						claudeMediaMessage.Source.Data = base64Data
+ 						claudeMediaMessages = append(claudeMediaMessages, claudeMediaMessage)
+ 						continue
+ 					}
+@@ -587,6 +623,11 @@ type ClaudeResponseInfo struct {
  	Done         bool
  }
  
@@ -10475,7 +10673,7 @@ index 6356cd3..be835a7 100644
  func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
  	if usage == nil {
  		return 0
-@@ -790,6 +796,11 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+@@ -790,6 +831,11 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
  	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
  		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
  	}
@@ -10487,7 +10685,7 @@ index 6356cd3..be835a7 100644
  	if claudeResponse.StopReason != "" {
  		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
  	}
-@@ -827,6 +838,28 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+@@ -827,6 +873,28 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
  	return nil
  }
  
@@ -10516,7 +10714,7 @@ index 6356cd3..be835a7 100644
  func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
  	if claudeInfo.Usage.PromptTokens == 0 {
  		//上游出错
-@@ -874,7 +907,41 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
+@@ -874,7 +942,41 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
  		Usage:        &dto.Usage{},
  	}
  	var err *types.NewAPIError
@@ -10558,7 +10756,7 @@ index 6356cd3..be835a7 100644
  		err = HandleStreamResponseData(c, info, claudeInfo, data)
  		if err != nil {
  			sr.Stop(err)
-@@ -883,6 +950,12 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
+@@ -883,6 +985,12 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
  	if err != nil {
  		return nil, err
  	}
@@ -10571,7 +10769,7 @@ index 6356cd3..be835a7 100644
  
  	HandleStreamFinalResponse(c, info, claudeInfo)
  	return claudeInfo.Usage, nil
-@@ -897,6 +970,25 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
+@@ -897,6 +1005,25 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
  	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
  		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
  	}
