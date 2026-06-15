@@ -1,0 +1,234 @@
+name: Build NewAPI compat release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional upstream NewAPI tag, for example v1.0.0-rc.10"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: newapi-compat-release
+  cancel-in-progress: false
+
+jobs:
+  detect-version:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_tag: ${{ steps.detect.outputs.upstream_tag }}
+      release_tag: ${{ steps.detect.outputs.release_tag }}
+      should_build: ${{ steps.detect.outputs.should_build }}
+    steps:
+      - name: Detect upstream version
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          if [ -n "$REQUESTED_TAG" ]; then
+            upstream_tag="$REQUESTED_TAG"
+          else
+            upstream_tag=$(curl -fsSL \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/QuantumNous/new-api/releases/latest \
+              | jq -r '.tag_name // empty')
+          fi
+
+          if [ -z "$upstream_tag" ]; then
+            echo "Failed to detect upstream tag" >&2
+            exit 1
+          fi
+
+          release_tag="newapi-compat-$upstream_tag"
+          echo "upstream_tag=$upstream_tag" >> $GITHUB_OUTPUT
+          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
+
+          # Check if release already exists (intentionally not -f so 404 doesn't abort)
+          status=$(curl -sSL -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")
+
+          if [ "$status" = "200" ] && [ -z "$REQUESTED_TAG" ]; then
+            echo "Release $release_tag already exists, skipping"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            if [ "$status" = "200" ] && [ -n "$REQUESTED_TAG" ]; then
+              echo "Release exists but manual run requested, will recreate"
+              # Delete existing release
+              release_id=$(curl -fsSL \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" \
+                | jq -r '.id')
+              curl -fsSL -X DELETE \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id" || true
+              curl -fsSL -X DELETE \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs/tags/$release_tag" || true
+            fi
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-images:
+    needs: detect-version
+    if: needs.detect-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant:
+          - name: runtime
+            patch: newapi-runtime-compat.patch
+            image: newapi-runtime-compat
+          - name: homepage
+            patch: newapi-runtime-compat-with-homepage.patch
+            image: newapi-runtime-compat-homepage
+    steps:
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+
+      - name: Download upstream source
+        env:
+          UPSTREAM_TAG: ${{ needs.detect-version.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          rm -rf upstream-source upstream.zip upstream.tar.gz
+
+          clone_upstream() {
+            local repo_url="$1"
+            local attempt=1
+            while [ "$attempt" -le 5 ]; do
+              if git clone --depth 1 --branch "$UPSTREAM_TAG" "$repo_url" upstream-source; then
+                return 0
+              fi
+              rm -rf upstream-source
+              sleep "$attempt"
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          if ! clone_upstream "https://github.com/QuantumNous/new-api.git"; then
+            curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o upstream.tar.gz \
+              "https://codeload.github.com/QuantumNous/new-api/tar.gz/refs/tags/$UPSTREAM_TAG"
+            tar -xzf upstream.tar.gz
+            mv new-api-* upstream-source
+          fi
+
+      - name: Apply compat patch
+        working-directory: upstream-source
+        env:
+          PATCH_FILE: ${{ matrix.variant.patch }}
+          UPSTREAM_TAG: ${{ needs.detect-version.outputs.upstream_tag }}
+        run: |
+          if ! git apply --check "../$PATCH_FILE"; then
+            echo "::error::Patch $PATCH_FILE does not apply cleanly to $UPSTREAM_TAG"
+            grep -nE '^(diff --git|@@ )' "../$PATCH_FILE" | tail -n 80 || true
+            exit 1
+          fi
+
+          git apply "../$PATCH_FILE"
+          echo "$UPSTREAM_TAG" > VERSION
+
+      - name: Build and push Docker image
+        env:
+          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/${{ matrix.variant.image }}:${{ needs.detect-version.outputs.upstream_tag }}
+          GHCR_USERNAME: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+          DOCKER_BUILDKIT=1 docker build -t "$IMAGE_TAG" upstream-source
+          docker push "$IMAGE_TAG"
+
+      - name: Export Docker image to tarball
+        env:
+          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/${{ matrix.variant.image }}:${{ needs.detect-version.outputs.upstream_tag }}
+          UPSTREAM_TAG: ${{ needs.detect-version.outputs.upstream_tag }}
+          VARIANT: ${{ matrix.variant.name }}
+        run: |
+          docker pull "$IMAGE_TAG"
+          mkdir -p artifacts
+          if [ "$VARIANT" = "homepage" ]; then
+            ASSET_NAME="newapi-runtime-compat-homepage-docker-image-$UPSTREAM_TAG.tar.gz"
+          else
+            ASSET_NAME="newapi-runtime-compat-docker-image-$UPSTREAM_TAG.tar.gz"
+          fi
+          docker save "$IMAGE_TAG" | gzip -9 > "artifacts/$ASSET_NAME"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.variant.name }}
+          path: artifacts/
+          retention-days: 1
+
+  create-release:
+    needs: [detect-version, build-images]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+
+      - name: Download all image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: image-*
+
+      - name: Prepare release assets
+        env:
+          UPSTREAM_TAG: ${{ needs.detect-version.outputs.upstream_tag }}
+        run: |
+          mkdir -p release-assets
+
+          # Move image tarballs
+          find artifacts -name '*.tar.gz' -exec mv {} release-assets/ \;
+
+          # Copy patches and checksums
+          cp newapi-runtime-compat.patch release-assets/
+          cp newapi-runtime-compat-with-homepage.patch release-assets/
+          cp SHA256SUMS.txt release-assets/
+
+          # Generate release notes
+          cat > release-assets/RELEASE_NOTES.md <<EOF
+          Upstream version: $UPSTREAM_TAG
+          Runtime compat image: ghcr.io/${{ github.repository_owner }}/newapi-runtime-compat:$UPSTREAM_TAG
+          Runtime + homepage image: ghcr.io/${{ github.repository_owner }}/newapi-runtime-compat-homepage:$UPSTREAM_TAG
+
+          这个 Release 同时包含两个镜像：
+          - 普通功能补丁镜像：newapi-runtime-compat-docker-image-$UPSTREAM_TAG.tar.gz
+          - 功能补丁 + 首页美化镜像：newapi-runtime-compat-homepage-docker-image-$UPSTREAM_TAG.tar.gz
+
+          注意：
+          - 当前补丁是混合架构，不是全量 pkg/compat hook 化。
+          - 后台是局部增强，不是完整 Phase3 重写。
+          - 官方价格同步以 models.dev 官方 provider 元数据为源，并过滤转售/聚合商别名。
+          - 生产环境仍建议保留 docker compose user: "0:0"，否则挂载日志目录权限可能导致 failed to open log file。
+          EOF
+
+          # Generate artifact checksums
+          cd release-assets
+          sha256sum * > ARTIFACTS.SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.detect-version.outputs.release_tag }}
+          name: NewAPI compat images ${{ needs.detect-version.outputs.upstream_tag }}
+          body_path: release-assets/RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.patch
+            release-assets/SHA256SUMS.txt
+            release-assets/ARTIFACTS.SHA256SUMS
+            release-assets/RELEASE_NOTES.md
