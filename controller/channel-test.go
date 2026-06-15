@@ -46,6 +46,8 @@ type testResult struct {
 }
 
 const channelTestNoncePrefix = "NEWAPI_TEST_"
+const channelTestClaudeUserAgent = "claude-cli/2.1.177 (external, cli)"
+const channelTestClaudeVersion = "2023-06-01"
 
 func newChannelTestNonce() string {
 	var b [8]byte
@@ -57,6 +59,25 @@ func newChannelTestNonce() string {
 
 func channelTestNoncePrompt(nonce string) string {
 	return "Reply with exactly this token and nothing else. Do not add quotes, markdown, spaces, or punctuation:\n" + nonce
+}
+
+func buildChannelTestHeaders(endpointType string, isStream bool) http.Header {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	if isStream {
+		headers.Set("Accept", "text/event-stream")
+	} else {
+		headers.Set("Accept", "application/json")
+	}
+
+	switch constant.EndpointType(strings.TrimSpace(endpointType)) {
+	case constant.EndpointTypeAnthropic:
+		headers.Set("User-Agent", channelTestClaudeUserAgent)
+		headers.Set("X-App", "cli")
+		headers.Set("anthropic-version", channelTestClaudeVersion)
+	}
+
+	return headers
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -220,7 +241,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		Method: "POST",
 		URL:    &url.URL{Path: requestPath}, // 使用动态路径
 		Body:   nil,
-		Header: make(http.Header),
+		Header: buildChannelTestHeaders(endpointType, isStream),
 	}
 
 	cache, err := model.GetUserCache(testUserID)
@@ -446,6 +467,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			}
 		}
 	default:
+		if info.RelayFormat == types.RelayFormatClaude {
+			if claudeReq, ok := request.(*dto.ClaudeRequest); ok {
+				convertedRequest, err = adaptor.ConvertClaudeRequest(c, info, claudeReq)
+				break
+			}
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid claude request type"),
+				newAPIError: types.NewError(errors.New("invalid claude request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
 		// Chat/Completion 等其他请求类型
 		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
 			convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, generalReq)
@@ -952,7 +984,19 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Model: model,
 				Input: testResponsesInput,
 			}
-		case constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
+		case constant.EndpointTypeAnthropic:
+			return &dto.ClaudeRequest{
+				Model:  model,
+				Stream: lo.ToPtr(isStream),
+				Messages: []dto.ClaudeMessage{
+					{
+						Role:    "user",
+						Content: prompt,
+					},
+				},
+				MaxTokens: lo.ToPtr(uint(16)),
+			}
+		case constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
 			// 返回 GeneralOpenAIRequest
 			maxTokens := uint(16)
 			if constant.EndpointType(endpointType) == constant.EndpointTypeGemini {

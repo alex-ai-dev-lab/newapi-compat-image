@@ -113,6 +113,32 @@ func TestNormalizeChannelTestEndpointKeepsAnthropicForClaudeModel(t *testing.T) 
 	require.Equal(t, string(constant.EndpointTypeAnthropic), normalizeChannelTestEndpoint(channel, "claude-sonnet-4-20250514", ""))
 }
 
+func TestBuildChannelTestHeadersClaude(t *testing.T) {
+	headers := buildChannelTestHeaders(string(constant.EndpointTypeAnthropic), true)
+
+	require.Equal(t, "application/json", headers.Get("Content-Type"))
+	require.Equal(t, "text/event-stream", headers.Get("Accept"))
+	require.Equal(t, channelTestClaudeUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, "cli", headers.Get("X-App"))
+	require.Equal(t, channelTestClaudeVersion, headers.Get("anthropic-version"))
+}
+
+func TestBuildTestRequestUsesClaudeRequestForAnthropicEndpoint(t *testing.T) {
+	request := buildTestRequest("claude-opus-4-6", string(constant.EndpointTypeAnthropic), &model.Channel{
+		Id:   71,
+		Type: constant.ChannelTypeAnthropic,
+	}, false, "")
+
+	claudeRequest, ok := request.(*dto.ClaudeRequest)
+	require.True(t, ok)
+	require.Equal(t, "claude-opus-4-6", claudeRequest.Model)
+	require.NotNil(t, claudeRequest.MaxTokens)
+	require.Equal(t, uint(16), *claudeRequest.MaxTokens)
+	require.Len(t, claudeRequest.Messages, 1)
+	require.Equal(t, "user", claudeRequest.Messages[0].Role)
+	require.Equal(t, "hi", claudeRequest.Messages[0].Content)
+}
+
 func TestShouldUseStreamForChannelTestUsesStreamingTextEndpoints(t *testing.T) {
 	channel := &model.Channel{
 		Id:      77,
