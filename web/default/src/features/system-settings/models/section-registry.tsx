@@ -22,6 +22,7 @@ import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { ClaudeSettingsCard } from './claude-settings-card'
 import { ClientIdentitySettingsCard } from './client-identity-settings-card'
+import { HeaderRulesSettingsCard } from './header-rules-settings-card'
 import { GeminiSettingsCard } from './gemini-settings-card'
 import { GlobalSettingsCard } from './global-settings-card'
 import { GrokSettingsCard } from './grok-settings-card'
@@ -163,6 +164,11 @@ const MODELS_SECTIONS = [
     id: 'client-identity',
     titleKey: 'Client Identity',
     build: () => <ClientIdentitySettingsCard />,
+  },
+  {
+    id: 'header-rules',
+    titleKey: 'Header Rules',
+    build: () => <HeaderRulesSettingsCard />,
   },
   {
     id: 'model-pricing',

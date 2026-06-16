@@ -30,7 +30,6 @@ import (
 
 const (
 	defaultCodexCLIUserAgent  = "codex-cli_rs/0.59.0"
-	defaultCodexOriginator    = "codex_cli_rs"
 	defaultClaudeCLIUserAgent = "claude-cli/2.1.80 (external, cli)"
 )
 
@@ -102,7 +101,10 @@ func resolveUserAgentCategory(info *common.RelayInfo, req *http.Request) string 
 		return model.ModelCategoryOther
 	}
 	modelName := strings.ToLower(strings.TrimSpace(info.OriginModelName))
-	upstreamModelName := strings.ToLower(strings.TrimSpace(info.UpstreamModelName))
+	upstreamModelName := ""
+	if info.ChannelMeta != nil {
+		upstreamModelName = strings.ToLower(strings.TrimSpace(info.UpstreamModelName))
+	}
 	combinedModelName := modelName + " " + upstreamModelName
 	if strings.Contains(combinedModelName, "claude") {
 		return model.ModelCategoryClaude
@@ -126,11 +128,13 @@ func resolveUserAgentCategory(info *common.RelayInfo, req *http.Request) string 
 		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction {
 		return model.ModelCategoryOpenAI
 	}
-	if info.ChannelType == rootconstant.ChannelTypeGemini {
-		return model.ModelCategoryGemini
-	}
-	if info.ChannelType == rootconstant.ChannelTypeXai {
-		return model.ModelCategoryGrok
+	if info.ChannelMeta != nil {
+		if info.ChannelType == rootconstant.ChannelTypeGemini {
+			return model.ModelCategoryGemini
+		}
+		if info.ChannelType == rootconstant.ChannelTypeXai {
+			return model.ModelCategoryGrok
+		}
 	}
 	if info.RelayFormat == types.RelayFormatOpenAI ||
 		info.RelayFormat == types.RelayFormatEmbedding ||
@@ -202,21 +206,84 @@ func applyManagedUpstreamUserAgent(req *http.Request, info *common.RelayInfo) {
 	req.Header.Set("User-Agent", ua)
 }
 
-func applyDefaultCodexOriginator(req *http.Request, info *common.RelayInfo) {
-	if req == nil || info == nil || req.URL == nil {
-		return
+func resolveHeaderRuleCategory(info *common.RelayInfo, req *http.Request) string {
+	if info == nil || req == nil || req.URL == nil {
+		return model.ModelCategoryOther
 	}
-	if strings.TrimSpace(req.Header.Get("Originator")) != "" {
-		return
-	}
-
 	path := strings.ToLower(strings.TrimSpace(req.URL.Path))
-	if info.ChannelType == rootconstant.ChannelTypeCodex ||
+	if strings.Contains(path, "/responses") ||
 		info.RelayFormat == types.RelayFormatOpenAIResponses ||
-		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction ||
-		strings.Contains(path, "/v1/responses") ||
-		strings.Contains(path, "/backend-api/codex/responses") {
-		req.Header.Set("Originator", defaultCodexOriginator)
+		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction {
+		return "codex"
+	}
+	switch resolveUserAgentCategory(info, req) {
+	case model.ModelCategoryClaude:
+		return model.ModelCategoryClaude
+	case model.ModelCategoryGemini:
+		return model.ModelCategoryGemini
+	case model.ModelCategoryGrok:
+		return model.ModelCategoryGrok
+	case model.ModelCategoryOpenAI:
+		return model.ModelCategoryOpenAI
+	}
+	return model.ModelCategoryOther
+}
+
+func applyHeaderRules(req *http.Request, info *common.RelayInfo) {
+	if req == nil {
+		return
+	}
+	setting := model.GetHeaderRuleSetting()
+	applyHeaderRulesWithSetting(req, info, setting)
+}
+
+func applyHeaderRulesWithSetting(req *http.Request, info *common.RelayInfo, setting model.HeaderRuleSetting) {
+	if req == nil {
+		return
+	}
+	if !setting.Enabled {
+		return
+	}
+	if info != nil && info.IsChannelTest && !setting.ApplyToChannelTest {
+		return
+	}
+	category := resolveHeaderRuleCategory(info, req)
+	for _, group := range setting.Groups {
+		if !group.Enabled {
+			continue
+		}
+		if group.Category != model.HeaderRuleCategoryAll && group.Category != category {
+			continue
+		}
+		for _, rule := range group.Rules {
+			if !rule.Enabled || strings.TrimSpace(rule.Name) == "" {
+				continue
+			}
+			applyOneHeaderRule(req.Header, rule)
+		}
+	}
+}
+
+func applyOneHeaderRule(headers http.Header, rule model.HeaderRule) {
+	name := http.CanonicalHeaderKey(strings.TrimSpace(rule.Name))
+	if name == "" {
+		return
+	}
+	switch rule.Action {
+	case model.HeaderActionDelete:
+		headers.Del(name)
+	case model.HeaderActionSetFixed:
+		headers.Set(name, rule.Value)
+	case model.HeaderActionReplace:
+		if strings.TrimSpace(headers.Get(name)) != "" {
+			headers.Set(name, rule.Value)
+		}
+	case model.HeaderActionSetIfAbsent:
+		if strings.TrimSpace(headers.Get(name)) == "" {
+			headers.Set(name, rule.Value)
+		}
+	case model.HeaderActionKeep:
+		// no-op
 	}
 }
 
@@ -563,8 +630,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	applyManagedUpstreamUserAgent(req, info)
-	applyDefaultCodexOriginator(req, info)
 	applyHeaderPatchToRequest(req, identityHeaders)
+	applyHeaderRules(req, info)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -599,6 +666,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	applyManagedUpstreamUserAgent(req, info)
+	applyHeaderRules(req, info)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -628,6 +696,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyManagedUpstreamUserAgent(&http.Request{Header: targetHeader, URL: mustParseURL(fullRequestURL)}, info)
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	applyHeaderRules(&http.Request{Header: targetHeader, URL: mustParseURL(fullRequestURL)}, info)
 	dialer, err := service.NewWebSocketDialerWithOptions(service.HTTPClientOptions{
 		Proxy:                 info.ChannelSetting.Proxy,
 		TLSInsecureSkipVerify: info.ChannelSetting.TLSInsecureSkipVerify,

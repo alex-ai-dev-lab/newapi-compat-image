@@ -200,6 +200,11 @@ func SetApiRouter(router *gin.Engine) {
 			// Client Identity Management
 			optionRoute.GET("/client_identity", controller.GetClientIdentitySetting)
 			optionRoute.PUT("/client_identity", controller.UpdateClientIdentitySetting)
+
+			// Header Rule Management
+			optionRoute.GET("/header_rules", controller.GetHeaderRuleSetting)
+			optionRoute.PUT("/header_rules", controller.UpdateHeaderRuleSetting)
+			optionRoute.GET("/header_rules/categories", controller.GetHeaderRuleCategories)
 			optionRoute.POST("/client_identity/codex/generate", controller.GenerateCodexInstallationID)
 			optionRoute.POST("/client_identity/codex/rotate", controller.RotateCodexInstallationID)
 			optionRoute.POST("/client_identity/claude/generate", controller.GenerateClaudeDeviceID)

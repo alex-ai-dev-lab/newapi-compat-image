@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -210,35 +211,38 @@ func TestApplyDefaultUpstreamUserAgentOpenAI(t *testing.T) {
 	require.Equal(t, defaultCodexCLIUserAgent, req.Header.Get("User-Agent"))
 }
 
-func TestApplyDefaultCodexOriginatorOpenAIResponses(t *testing.T) {
+func TestApplyOneHeaderRuleActions(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
-	info := &relaycommon.RelayInfo{
-		RelayFormat: types.RelayFormatOpenAIResponses,
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ApiType: constant.APITypeOpenAI,
-		},
-	}
+	headers := http.Header{}
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionSetIfAbsent, Value: "first"})
+	require.Equal(t, "first", headers.Get("X-Test"))
 
-	applyDefaultCodexOriginator(req, info)
-	require.Equal(t, defaultCodexOriginator, req.Header.Get("Originator"))
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionSetIfAbsent, Value: "second"})
+	require.Equal(t, "first", headers.Get("X-Test"))
+
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionReplace, Value: "replaced"})
+	require.Equal(t, "replaced", headers.Get("X-Test"))
+
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Missing", Action: model.HeaderActionReplace, Value: "nope"})
+	require.Empty(t, headers.Get("X-Missing"))
+
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionSetFixed, Value: "fixed"})
+	require.Equal(t, "fixed", headers.Get("X-Test"))
+
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionKeep, Value: "ignored"})
+	require.Equal(t, "fixed", headers.Get("X-Test"))
+
+	applyOneHeaderRule(headers, model.HeaderRule{Enabled: true, Name: "X-Test", Action: model.HeaderActionDelete})
+	require.Empty(t, headers.Get("X-Test"))
 }
 
-func TestApplyDefaultCodexOriginatorKeepsExistingHeader(t *testing.T) {
+func TestResolveHeaderRuleCategoryCodexResponses(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
-	req.Header.Set("Originator", "custom_originator")
-	info := &relaycommon.RelayInfo{
-		RelayFormat: types.RelayFormatOpenAIResponses,
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ApiType: constant.APITypeOpenAI,
-		},
-	}
-
-	applyDefaultCodexOriginator(req, info)
-	require.Equal(t, "custom_originator", req.Header.Get("Originator"))
+	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIResponses}
+	require.Equal(t, "codex", resolveHeaderRuleCategory(info, req))
 }
 
 func TestApplyDefaultUpstreamUserAgentClaude(t *testing.T) {
