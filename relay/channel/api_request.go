@@ -30,6 +30,7 @@ import (
 
 const (
 	defaultCodexCLIUserAgent  = "codex-cli_rs/0.59.0"
+	defaultCodexOriginator    = "codex_cli_rs"
 	defaultClaudeCLIUserAgent = "claude-cli/2.1.80 (external, cli)"
 )
 
@@ -199,6 +200,24 @@ func applyManagedUpstreamUserAgent(req *http.Request, info *common.RelayInfo) {
 		return
 	}
 	req.Header.Set("User-Agent", ua)
+}
+
+func applyDefaultCodexOriginator(req *http.Request, info *common.RelayInfo) {
+	if req == nil || info == nil || req.URL == nil {
+		return
+	}
+	if strings.TrimSpace(req.Header.Get("Originator")) != "" {
+		return
+	}
+
+	path := strings.ToLower(strings.TrimSpace(req.URL.Path))
+	if info.ChannelType == rootconstant.ChannelTypeCodex ||
+		info.RelayFormat == types.RelayFormatOpenAIResponses ||
+		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		strings.Contains(path, "/v1/responses") ||
+		strings.Contains(path, "/backend-api/codex/responses") {
+		req.Header.Set("Originator", defaultCodexOriginator)
+	}
 }
 
 const clientHeaderPlaceholderPrefix = "{client_header:"
@@ -544,6 +563,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	applyManagedUpstreamUserAgent(req, info)
+	applyDefaultCodexOriginator(req, info)
 	applyHeaderPatchToRequest(req, identityHeaders)
 	resp, err := doRequest(c, req, info)
 	if err != nil {

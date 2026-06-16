@@ -210,6 +210,37 @@ func TestApplyDefaultUpstreamUserAgentOpenAI(t *testing.T) {
 	require.Equal(t, defaultCodexCLIUserAgent, req.Header.Get("User-Agent"))
 }
 
+func TestApplyDefaultCodexOriginatorOpenAIResponses(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiType: constant.APITypeOpenAI,
+		},
+	}
+
+	applyDefaultCodexOriginator(req, info)
+	require.Equal(t, defaultCodexOriginator, req.Header.Get("Originator"))
+}
+
+func TestApplyDefaultCodexOriginatorKeepsExistingHeader(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	req.Header.Set("Originator", "custom_originator")
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiType: constant.APITypeOpenAI,
+		},
+	}
+
+	applyDefaultCodexOriginator(req, info)
+	require.Equal(t, "custom_originator", req.Header.Get("Originator"))
+}
+
 func TestApplyDefaultUpstreamUserAgentClaude(t *testing.T) {
 	t.Parallel()
 
