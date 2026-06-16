@@ -38,8 +38,7 @@ ARG UPSTREAM_REF=unknown
 ENV CGO_ENABLED=0 \
     GO111MODULE=on \
     GOOS=${TARGETOS} \
-    GOARCH=${TARGETARCH} \
-    GOEXPERIMENT=greenteagc
+    GOARCH=${TARGETARCH}
 
 WORKDIR /src
 RUN apk add --no-cache ca-certificates tzdata
@@ -124,8 +123,8 @@ exec "$@"
 EOF
 
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${SERVER_PORT:-3000}/healthz" >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null || exit 1
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/new-api", "--log-dir", "/app/logs"]

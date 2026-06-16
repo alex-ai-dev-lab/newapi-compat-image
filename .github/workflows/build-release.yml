@@ -94,8 +94,8 @@ jobs:
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: false
-          sbom: false
+          provenance: true
+          sbom: true
 
       - name: Export linux/amd64 image tarball
         shell: bash

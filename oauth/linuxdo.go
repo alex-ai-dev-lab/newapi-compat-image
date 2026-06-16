@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -47,19 +48,19 @@ func (p *LinuxDOProvider) ExchangeToken(ctx context.Context, code string, c *gin
 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, nil)
 	}
 
-	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: code=%s...", code[:min(len(code), 10)])
+	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: received authorization code")
 
 	// Get access token using Basic auth
 	tokenEndpoint := common.GetEnvOrDefaultString("LINUX_DO_TOKEN_ENDPOINT", "https://connect.linux.do/oauth2/token")
 	credentials := common.LinuxDOClientId + ":" + common.LinuxDOClientSecret
 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(credentials))
 
-	// Get redirect URI from request
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
+	// 使用配置的对外地址，避免 Host 头注入；与 generic.go 行为一致
+	base := strings.TrimRight(system_setting.ServerAddress, "/")
+	if base == "" {
+		return nil, NewOAuthError(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "Linux DO"})
 	}
-	redirectURI := fmt.Sprintf("%s://%s/api/oauth/linuxdo", scheme, c.Request.Host)
+	redirectURI := fmt.Sprintf("%s/api/oauth/linuxdo", base)
 
 	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: token_endpoint=%s, redirect_uri=%s", tokenEndpoint, redirectURI)
 
@@ -140,8 +141,7 @@ func (p *LinuxDOProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 		return nil, NewOAuthError(i18n.MsgOAuthUserInfoEmpty, map[string]any{"Provider": "Linux DO"})
 	}
 
-	logger.LogDebug(ctx, "[OAuth-LinuxDO] GetUserInfo: id=%d, username=%s, name=%s, trust_level=%d, active=%v, silenced=%v",
-		linuxdoUser.Id, linuxdoUser.Username, linuxdoUser.Name, linuxdoUser.TrustLevel, linuxdoUser.Active, linuxdoUser.Silenced)
+	logger.LogDebug(ctx, "[OAuth-LinuxDO] GetUserInfo: id=%d, trust_level=%d", linuxdoUser.Id, linuxdoUser.TrustLevel)
 
 	// Check trust level
 	if linuxdoUser.TrustLevel < common.LinuxDOMinimumTrustLevel {
@@ -153,7 +153,7 @@ func (p *LinuxDOProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 		}
 	}
 
-	logger.LogDebug(ctx, "[OAuth-LinuxDO] GetUserInfo success: id=%d, username=%s", linuxdoUser.Id, linuxdoUser.Username)
+	logger.LogDebug(ctx, "[OAuth-LinuxDO] GetUserInfo success: id=%d", linuxdoUser.Id)
 
 	return &OAuthUser{
 		ProviderUserID: strconv.Itoa(linuxdoUser.Id),

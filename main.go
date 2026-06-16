@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-contrib/sessions"
@@ -162,7 +163,7 @@ func main() {
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
-			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
+			log.Println(http.ListenAndServe("127.0.0.1:8005", nil))
 		})
 		go common.Monitor()
 		common.SysLog("pprof enabled")
@@ -179,7 +180,7 @@ func main() {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
-				"message": fmt.Sprintf("Panic detected, error: %v. Please submit a issue here: https://github.com/Calcium-Ion/new-api", err),
+				"message": fmt.Sprintf("Panic detected, error: %v. Please report at https://github.com/alex-ai-dev-lab/newapi-compat-image/issues", err),
 				"type":    "new_api_panic",
 			},
 		})
@@ -191,13 +192,23 @@ func main() {
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
 	// Initialize session store
+	// Refuse to boot with a missing or well-known session secret.
+	if s := strings.TrimSpace(common.SessionSecret); s == "" || s == "change-me" {
+		common.FatalLog("SESSION_SECRET is unset or uses the insecure default 'change-me'; " +
+			"set a strong random value (e.g. `openssl rand -hex 32`) before starting")
+	}
 	store := cookie.NewStore([]byte(common.SessionSecret))
+	// 依据对外地址协议决定是否仅 HTTPS 下发 Cookie；可用 COOKIE_SECURE 显式覆盖
+	secureCookie := strings.HasPrefix(strings.ToLower(system_setting.ServerAddress), "https")
+	if v := os.Getenv("COOKIE_SECURE"); v != "" {
+		secureCookie = v == "true"
+	}
 	store.Options(sessions.Options{
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   secureCookie,
+		SameSite: http.SameSiteLaxMode,
 	})
 	server.Use(sessions.Sessions("session", store))
 

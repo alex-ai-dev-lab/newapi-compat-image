@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "${NEWAPI_HOST_PORT:-3002}:3000"
+      - "${NEWAPI_HOST_PORT:-3002}:${PORT:-3000}"
     volumes:
       - ${NEWAPI_DATA_DIR:-./data}:/data
       - ${NEWAPI_LOG_DIR:-./logs}:/app/logs
@@ -15,14 +15,15 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       SQL_DSN: ${SQL_DSN:-}
-      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      PORT: ${PORT:-3000}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set to a strong random value, e.g. `openssl rand -hex 32`}
       ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
       BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
       NODE_NAME: ${NODE_NAME:-newapi-1}
       STREAMING_TIMEOUT: ${STREAMING_TIMEOUT:-300}
       OFFICIAL_PRICE_SYNC_ENABLED: ${OFFICIAL_PRICE_SYNC_ENABLED:-false}
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${PORT:-3000}/healthz >/dev/null"]
       interval: 30s
       timeout: 5s
       start_period: 20s

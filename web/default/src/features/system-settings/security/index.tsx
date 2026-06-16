@@ -41,7 +41,7 @@ const defaultSecuritySettings: SecuritySettings = {
   'fetch_setting.ip_list': [],
   'fetch_setting.allowed_ports': [],
   'fetch_setting.apply_ip_filter_for_domain': false,
-  'anti_poison_setting.enabled': true,
+  'anti_poison_setting.enabled': false,
   'anti_poison_setting.channel_test_nonce_enabled': true,
   'anti_poison_setting.response_proof_enabled': false,
   'anti_poison_setting.tool_call_guard_enabled': true,

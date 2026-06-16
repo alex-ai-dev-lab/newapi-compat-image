@@ -58,7 +58,7 @@ jobs:
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: false
-          sbom: false
+          provenance: true
+          sbom: true
       - name: Digest
         run: echo "digest=${{ steps.build.outputs.digest }}"

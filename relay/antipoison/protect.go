@@ -37,8 +37,11 @@ const redactedPlaceholder = "__AAD_REDACTED__"
 //
 // This is deliberately a pure function for cheap testing and is only invoked
 // when the channel enables string protection.
-func ProtectSensitiveStrings(text string) (protected string, changed bool) {
-	if text == "" {
+//
+// When userAskedHandling is true (user explicitly asked to handle/process keys),
+// protection is skipped to avoid breaking legitimate requests like "decode this JWT".
+func ProtectSensitiveStrings(text string, userAskedHandling bool) (protected string, changed bool) {
+	if text == "" || userAskedHandling {
 		return text, false
 	}
 	out := text

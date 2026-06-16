@@ -131,7 +131,7 @@ func TestProtectSensitiveStrings(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, changed := ProtectSensitiveStrings(tc.in)
+			out, changed := ProtectSensitiveStrings(tc.in, false)
 			if changed != tc.want {
 				t.Fatalf("changed=%v want=%v (out=%q)", changed, tc.want, out)
 			}
@@ -147,7 +147,7 @@ func TestProtectSensitiveStrings(t *testing.T) {
 
 func TestProtectSensitiveStringsKeepsJSONStructure(t *testing.T) {
 	in := `{"api_key":"abcdefghijklmnopqrstuvwxyz","model":"gpt-5"}`
-	out, changed := ProtectSensitiveStrings(in)
+	out, changed := ProtectSensitiveStrings(in, false)
 	if !changed {
 		t.Fatalf("expected change")
 	}

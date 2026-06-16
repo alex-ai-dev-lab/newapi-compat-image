@@ -228,7 +228,7 @@ func toolNamesFromRawToolCalls(raw json.RawMessage) []string {
 }
 
 func compactNonEmpty(items []string) []string {
-	out := items[:0]
+	out := make([]string, 0, len(items))
 	for _, item := range items {
 		item = strings.TrimSpace(item)
 		if item != "" {

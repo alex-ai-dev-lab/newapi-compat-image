@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-pattern='github_pat_|ghp_[A-Za-z0-9_]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}'
+# Pattern aligned with relay/antipoison/protect.go sensitivePatterns
+pattern='github_pat_|ghp_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9_]{20,}|ghu_[A-Za-z0-9_]{20,}|ghs_[A-Za-z0-9_]{20,}|ghr_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9._-]{16,}|sk-ant-[A-Za-z0-9._-]{16,}|sk-proj-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 
 hits="$(git grep -nE "$pattern" -- . \
   ':!docs/**' \
