@@ -124,7 +124,7 @@ EOF
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT:-3000}/api/status" >/dev/null || exit 1
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/new-api", "--log-dir", "/app/logs"]

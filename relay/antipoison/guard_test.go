@@ -145,6 +145,31 @@ func TestProtectSensitiveStrings(t *testing.T) {
 	}
 }
 
+func TestProtectSensitiveStringsUserAskedHandling(t *testing.T) {
+	// When userAskedHandling=true, sensitive strings should NOT be redacted
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"bearer", "Authorization: Bearer abcdefghijklmnop1234"},
+		{"openai", "key is sk-abcdefghijklmnop1234567890"},
+		{"anthropic", "sk-ant-abcdefghijklmnop1234567890"},
+		{"github", "ghp_abcdefghijklmnopqrstuvwxyz0123"},
+		{"aws", "AKIAIOSFODNN7EXAMPLE"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, changed := ProtectSensitiveStrings(tc.in, true)
+			if changed {
+				t.Fatalf("userAskedHandling=true but changed=%v, out=%q", changed, out)
+			}
+			if out != tc.in {
+				t.Fatalf("output differs from input when userAskedHandling=true: got=%q want=%q", out, tc.in)
+			}
+		})
+	}
+}
+
 func TestProtectSensitiveStringsKeepsJSONStructure(t *testing.T) {
 	in := `{"api_key":"abcdefghijklmnopqrstuvwxyz","model":"gpt-5"}`
 	out, changed := ProtectSensitiveStrings(in, false)
