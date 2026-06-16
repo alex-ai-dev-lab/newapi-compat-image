@@ -95,6 +95,17 @@ func TestNormalizeChannelTestEndpointUsesResponsesForCodexBaseURL(t *testing.T) 
 	require.Equal(t, string(constant.EndpointTypeOpenAIResponse), normalizeChannelTestEndpoint(channel, "gpt-5.5", ""))
 }
 
+func TestNormalizeChannelTestEndpointUsesResponsesForCodexUserAgentOverride(t *testing.T) {
+	channel := &model.Channel{
+		Id:      106,
+		Type:    constant.ChannelTypeOpenAI,
+		BaseURL: common.GetPointer("https://free.lyclaude.site"),
+		Setting: common.GetPointer(`{"user_agent_override":"Codex Desktop/0.137.0 (Windows 10.0.26200; x86_64) unknown (codex_exec; 0.137.0)"}`),
+	}
+
+	require.Equal(t, string(constant.EndpointTypeOpenAIResponse), normalizeChannelTestEndpoint(channel, "gpt-5.5", ""))
+}
+
 func TestNormalizeChannelTestEndpointUsesResponsesBeforeAnthropicForCodexModel(t *testing.T) {
 	channel := &model.Channel{
 		Id:   88,
@@ -123,6 +134,15 @@ func TestBuildChannelTestHeadersClaude(t *testing.T) {
 	require.Equal(t, channelTestClaudeVersion, headers.Get("anthropic-version"))
 }
 
+func TestBuildChannelTestHeadersCodexResponses(t *testing.T) {
+	headers := buildChannelTestHeaders(string(constant.EndpointTypeOpenAIResponse), false)
+
+	require.Equal(t, "application/json", headers.Get("Content-Type"))
+	require.Equal(t, "application/json", headers.Get("Accept"))
+	require.Equal(t, channelTestCodexUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, channelTestCodexOriginator, headers.Get("Originator"))
+}
+
 func TestBuildTestRequestUsesClaudeRequestForAnthropicEndpoint(t *testing.T) {
 	request := buildTestRequest("claude-opus-4-6", string(constant.EndpointTypeAnthropic), &model.Channel{
 		Id:   71,
@@ -137,6 +157,22 @@ func TestBuildTestRequestUsesClaudeRequestForAnthropicEndpoint(t *testing.T) {
 	require.Len(t, claudeRequest.Messages, 1)
 	require.Equal(t, "user", claudeRequest.Messages[0].Role)
 	require.Equal(t, "hi", claudeRequest.Messages[0].Content)
+}
+
+func TestBuildTestRequestUsesCodexShapedResponsesRequest(t *testing.T) {
+	request := buildTestRequest("gpt-5.5", string(constant.EndpointTypeOpenAIResponse), &model.Channel{
+		Id:   106,
+		Type: constant.ChannelTypeOpenAI,
+	}, false, "")
+
+	responseRequest, ok := request.(*dto.OpenAIResponsesRequest)
+	require.True(t, ok)
+	require.Equal(t, "gpt-5.5", responseRequest.Model)
+	require.JSONEq(t, `[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`, string(responseRequest.Input))
+	require.JSONEq(t, `false`, string(responseRequest.Store))
+	require.JSONEq(t, `"newapi-channel-test"`, string(responseRequest.PromptCacheKey))
+	require.NotNil(t, responseRequest.Stream)
+	require.False(t, *responseRequest.Stream)
 }
 
 func TestShouldUseStreamForChannelTestUsesStreamingTextEndpoints(t *testing.T) {

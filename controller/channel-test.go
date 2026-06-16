@@ -48,6 +48,8 @@ type testResult struct {
 const channelTestNoncePrefix = "NEWAPI_TEST_"
 const channelTestClaudeUserAgent = "claude-cli/2.1.177 (external, cli)"
 const channelTestClaudeVersion = "2023-06-01"
+const channelTestCodexUserAgent = "codex-cli_rs/0.59.0"
+const channelTestCodexOriginator = "codex_cli_rs"
 
 func newChannelTestNonce() string {
 	var b [8]byte
@@ -71,6 +73,9 @@ func buildChannelTestHeaders(endpointType string, isStream bool) http.Header {
 	}
 
 	switch constant.EndpointType(strings.TrimSpace(endpointType)) {
+	case constant.EndpointTypeOpenAIResponse:
+		headers.Set("User-Agent", channelTestCodexUserAgent)
+		headers.Set("Originator", channelTestCodexOriginator)
 	case constant.EndpointTypeAnthropic:
 		headers.Set("User-Agent", channelTestClaudeUserAgent)
 		headers.Set("X-App", "cli")
@@ -98,6 +103,9 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 		if channel.Type == constant.ChannelTypeCodex {
 			return string(constant.EndpointTypeOpenAIResponse)
 		}
+		if channelTestRequiresCodexResponses(channel) {
+			return string(constant.EndpointTypeOpenAIResponse)
+		}
 		if service.ShouldChatCompletionsUseResponsesForChannel(channel.Id, channel.Type, channel.GetBaseURL(), modelName) {
 			return string(constant.EndpointTypeOpenAIResponse)
 		}
@@ -106,6 +114,17 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 		}
 	}
 	return normalized
+}
+
+func channelTestRequiresCodexResponses(channel *model.Channel) bool {
+	if channel == nil {
+		return false
+	}
+	setting := channel.GetSetting()
+	if setting.RequiresCodexIdentity != nil && *setting.RequiresCodexIdentity {
+		return true
+	}
+	return strings.Contains(strings.ToLower(setting.UserAgentOverride), "codex")
 }
 
 func endpointTypeSupportsStreaming(endpointType constant.EndpointType) bool {
@@ -939,9 +958,15 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	if nonce != "" {
 		prompt = channelTestNoncePrompt(nonce)
 	}
-	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
+	testResponsesInput := json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`)
 	if nonce != "" {
-		if b, err := json.Marshal([]map[string]any{{"role": "user", "content": prompt}}); err == nil {
+		if b, err := json.Marshal([]map[string]any{{
+			"role": "user",
+			"content": []map[string]string{{
+				"type": "input_text",
+				"text": prompt,
+			}},
+		}}); err == nil {
 			testResponsesInput = b
 		}
 	}
@@ -974,9 +999,11 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest
 			return &dto.OpenAIResponsesRequest{
-				Model:  model,
-				Input:  testResponsesInput,
-				Stream: lo.ToPtr(isStream),
+				Model:          model,
+				Input:          testResponsesInput,
+				Store:          json.RawMessage(`false`),
+				PromptCacheKey: json.RawMessage(`"newapi-channel-test"`),
+				Stream:         lo.ToPtr(isStream),
 			}
 		case constant.EndpointTypeOpenAIResponseCompact:
 			// 返回 OpenAIResponsesCompactionRequest
@@ -1052,9 +1079,11 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	// Responses-only models (e.g. codex series)
 	if strings.Contains(strings.ToLower(model), "codex") {
 		return &dto.OpenAIResponsesRequest{
-			Model:  model,
-			Input:  testResponsesInput,
-			Stream: lo.ToPtr(isStream),
+			Model:          model,
+			Input:          testResponsesInput,
+			Store:          json.RawMessage(`false`),
+			PromptCacheKey: json.RawMessage(`"newapi-channel-test"`),
+			Stream:         lo.ToPtr(isStream),
 		}
 	}
 

@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	defaultCodexCLIUserAgent  = "codex_exec/0.136.0 (Windows 10.0.26200; x86_64) unknown (codex_exec; 0.136.0)"
+	defaultCodexCLIUserAgent  = "codex-cli_rs/0.59.0"
 	defaultClaudeCLIUserAgent = "claude-cli/2.1.80 (external, cli)"
 )
 
