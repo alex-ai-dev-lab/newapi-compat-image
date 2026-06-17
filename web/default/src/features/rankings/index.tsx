@@ -56,22 +56,7 @@ export function Rankings() {
   return (
     <PublicLayout showMainContainer={false}>
       <div className='relative'>
-        <div
-          aria-hidden
-          className='pointer-events-none absolute inset-x-0 top-0 h-[600px] opacity-20 dark:opacity-[0.10]'
-          style={{
-            background: [
-              'radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 40% 35% at 50% 70%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%)',
-            ].join(', '),
-            maskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-            WebkitMaskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-          }}
-        />
-        <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-8 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
+        <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-6 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
           <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
 
           {rankingsQuery.isLoading ? (
@@ -86,18 +71,52 @@ export function Rankings() {
             />
           ) : (
             <>
-              <ModelsSection
-                history={snapshot.models_history}
-                rows={snapshot.models}
-                period={period}
-              />
+              {/* KPI Bar */}
+              <div className='grid grid-cols-3 gap-4 rounded-xl border bg-card/30 p-4'>
+                <div className='space-y-1'>
+                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
+                    {t('Total Tokens')}
+                  </div>
+                  <div className='text-foreground font-mono text-2xl font-bold tabular-nums'>
+                    {snapshot.models
+                      .reduce((sum, m) => sum + m.total_tokens, 0)
+                      .toLocaleString()}
+                  </div>
+                </div>
+                <div className='space-y-1'>
+                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
+                    {t('Active Models')}
+                  </div>
+                  <div className='text-foreground font-mono text-2xl font-bold tabular-nums'>
+                    {snapshot.models.length}
+                  </div>
+                </div>
+                <div className='space-y-1'>
+                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
+                    {t('Top Vendor')}
+                  </div>
+                  <div className='text-foreground truncate font-mono text-2xl font-bold'>
+                    {snapshot.vendors[0]?.vendor_name || '-'}
+                  </div>
+                </div>
+              </div>
 
-              <MarketShareSection
-                history={snapshot.vendor_share_history}
-                rows={snapshot.vendors}
-                period={period}
-              />
+              {/* Side-by-side: Top Models + Market Share */}
+              <div className='grid gap-6 xl:grid-cols-2'>
+                <ModelsSection
+                  history={snapshot.models_history}
+                  rows={snapshot.models}
+                  period={period}
+                />
 
+                <MarketShareSection
+                  history={snapshot.vendor_share_history}
+                  rows={snapshot.vendors}
+                  period={period}
+                />
+              </div>
+
+              {/* Pulse Section: bottom compact dual cards */}
               <PulseSection
                 movers={snapshot.top_movers}
                 droppers={snapshot.top_droppers}
