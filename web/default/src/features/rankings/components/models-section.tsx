@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { formatTokens } from '../lib/format'
+import { FALLBACK_PALETTE } from '../lib/vendor-colors'
 import type { ModelHistorySeries, ModelRanking, RankingPeriod } from '../types'
 import { ModelLeaderboard } from './model-leaderboard'
 
@@ -85,6 +86,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       yField: 'tokens',
       seriesField: 'model',
       stack: true,
+      color: FALLBACK_PALETTE, // v3 blue scale, explicit to avoid VChart defaults
       legends: { visible: false },
       axes: [
         {
