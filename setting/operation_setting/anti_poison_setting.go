@@ -71,7 +71,7 @@ type AntiPoisonSetting struct {
 }
 
 var antiPoisonSetting = AntiPoisonSetting{
-	Enabled:                  true,
+	Enabled:                  false,
 	ChannelTestNonceEnabled:  true,
 	ResponseProofEnabled:     false,
 	ToolCallGuardEnabled:     true,

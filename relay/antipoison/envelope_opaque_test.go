@@ -9,6 +9,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func requiredEnvelopeConfig() Config {
 	return Config{
 		Enabled:        true,
@@ -72,7 +76,9 @@ func TestProbationExactOKAfterEnvelopeStrip(t *testing.T) {
 			Message: dto.Message{Role: "assistant", Content: `<newapi_answer nonce="n1">OK</newapi_answer>`},
 		}},
 	}
-	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{})
+	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{
+		AntiPoisonEnabled: boolPtr(true),
+	})
 	if cfg.CanaryEcho {
 		t.Fatalf("101 must not use real-user canary for exact-output requests")
 	}
@@ -90,7 +96,9 @@ func TestProbationBlocksHTTP200AdWithoutEnvelopeAsSuspicious(t *testing.T) {
 			Message: dto.Message{Role: "assistant", Content: "OpenAI Chat 接口未开启，请加群充值联系客服"},
 		}},
 	}
-	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{})
+	cfg := FromChannelSettingsForChannel(101, dto.ChannelSettings{
+		AntiPoisonEnabled: boolPtr(true),
+	})
 	err := ValidateAndStripOpenAIAnswerEnvelope(resp, "n1", cfg)
 	if !errors.Is(err, ErrEnvelopeMissing) {
 		t.Fatalf("err=%v, want envelope missing", err)
@@ -135,7 +143,9 @@ func TestProfilesDefaultChannels(t *testing.T) {
 	if got := FromChannelSettingsForChannel(77, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileTrusted || EnvelopeRequired(got, false) {
 		t.Fatalf("77 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
 	}
-	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileProbation || !EnvelopeRequired(got, false) {
+	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{
+		AntiPoisonEnabled: boolPtr(true),
+	}); got.Profile != operation_setting.AntiPoisonProfileProbation || !EnvelopeRequired(got, false) {
 		t.Fatalf("101 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
 	}
 	if ProductionRoutingAllowed(94, dto.ChannelSettings{}) {
@@ -144,7 +154,9 @@ func TestProfilesDefaultChannels(t *testing.T) {
 	if got := FromChannelSettingsForChannel(94, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileQuarantine || got.ProductionRouting || !got.ScheduledProbeOnly {
 		t.Fatalf("94 profile=%s production=%v scheduledProbe=%v", got.Profile, got.ProductionRouting, got.ScheduledProbeOnly)
 	}
-	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{}); !got.ProbeBeforeEveryRequest || got.StreamMode != operation_setting.AntiPoisonStreamAggregateThenReplay {
+	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{
+		AntiPoisonEnabled: boolPtr(true),
+	}); !got.ProbeBeforeEveryRequest || got.StreamMode != operation_setting.AntiPoisonStreamAggregateThenReplay {
 		t.Fatalf("101 probe=%v stream=%s", got.ProbeBeforeEveryRequest, got.StreamMode)
 	}
 }
