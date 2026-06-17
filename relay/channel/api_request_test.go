@@ -5,14 +5,35 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func resetAPIRequestHTTPClientState(t *testing.T) {
+	t.Helper()
+
+	oldTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
+	oldRelayTimeout := common.RelayTimeout
+
+	common.TLSInsecureSkipVerify = false
+	common.RelayTimeout = 0
+	service.ResetProxyClientCache()
+	service.InitHttpClient()
+
+	t.Cleanup(func() {
+		common.TLSInsecureSkipVerify = oldTLSInsecureSkipVerify
+		common.RelayTimeout = oldRelayTimeout
+		service.ResetProxyClientCache()
+		service.InitHttpClient()
+	})
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()
@@ -35,6 +56,61 @@ func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	headers, err := processHeaderOverride(info, ctx)
 	require.NoError(t, err)
 	require.Empty(t, headers)
+}
+
+func TestDoRequestLeavesNonTLSTransportErrorsUnhinted(t *testing.T) {
+	resetAPIRequestHTTPClientState(t)
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/v1/chat/completions", nil)
+	require.NoError(t, err)
+
+	info := &relaycommon.RelayInfo{}
+	info.ChannelMeta = &relaycommon.ChannelMeta{
+		ChannelSetting: dto.ChannelSettings{
+			Proxy: "http://127.0.0.1:9",
+		},
+	}
+
+	_, err = doRequest(ctx, req, info)
+	require.Error(t, err)
+
+	var newAPIErr *types.NewAPIError
+	require.ErrorAs(t, err, &newAPIErr)
+	require.Equal(t, "upstream error: do request failed", newAPIErr.Error())
+	require.NotContains(t, newAPIErr.Error(), "TLS")
+	require.NotContains(t, newAPIErr.Error(), "跳过上游 TLS 证书校验")
+}
+
+func TestDoRequestAddsHintOnlyForTLSVerificationErrors(t *testing.T) {
+	resetAPIRequestHTTPClientState(t)
+	gin.SetMode(gin.TestMode)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+	_, err = doRequest(ctx, req, info)
+	require.Error(t, err)
+
+	var newAPIErr *types.NewAPIError
+	require.ErrorAs(t, err, &newAPIErr)
+	require.Contains(t, newAPIErr.Error(), "跳过上游 TLS 证书校验")
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsClientHeaderPlaceholder(t *testing.T) {

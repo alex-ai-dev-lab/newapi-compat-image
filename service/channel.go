@@ -1,6 +1,9 @@
 package service
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -97,29 +100,59 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	return search
 }
 
-func IsTLSVerificationError(err *types.NewAPIError) bool {
+var tlsVerificationErrorKeywords = []string{
+	"x509:",
+	"certificate has expired",
+	"certificate is not trusted",
+	"certificate is not valid",
+	"certificate signed by unknown authority",
+	"cannot validate certificate",
+	"failed to verify certificate",
+	"hostname mismatch",
+	"unknown authority",
+	"tls: failed to verify",
+	"跳过上游 tls 证书校验",
+}
+
+func IsTLSVerificationRawError(err error) bool {
 	if err == nil {
 		return false
 	}
-	lowerMessage := strings.ToLower(err.Error())
-	keywords := []string{
-		"x509:",
-		"certificate has expired",
-		"certificate is not trusted",
-		"certificate is not valid",
-		"certificate signed by unknown authority",
-		"cannot validate certificate",
-		"failed to verify certificate",
-		"hostname mismatch",
-		"unknown authority",
-		"tls: failed to verify",
+
+	var certificateVerificationError *tls.CertificateVerificationError
+	if errors.As(err, &certificateVerificationError) {
+		return true
 	}
-	for _, keyword := range keywords {
+
+	var unknownAuthorityError *x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthorityError) {
+		return true
+	}
+
+	var certificateInvalidError *x509.CertificateInvalidError
+	if errors.As(err, &certificateInvalidError) {
+		return true
+	}
+
+	var hostnameError *x509.HostnameError
+	if errors.As(err, &hostnameError) {
+		return true
+	}
+
+	lowerMessage := strings.ToLower(err.Error())
+	for _, keyword := range tlsVerificationErrorKeywords {
 		if strings.Contains(lowerMessage, keyword) {
 			return true
 		}
 	}
 	return false
+}
+
+func IsTLSVerificationError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	return IsTLSVerificationRawError(err)
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

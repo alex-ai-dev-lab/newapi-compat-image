@@ -1,7 +1,7 @@
 # Upstream
 
 - Upstream repository: `QuantumNous/new-api`
-- Baseline tag: `v1.0.0-rc.10`
+- Baseline tag: `v1.0.0-rc.11`
 - Baseline commit: `74985fa877b4a85decdf31044b2435cf688af395`
 - Sync strategy for `main`: merge upstream, do not long-term rebase production history.
 

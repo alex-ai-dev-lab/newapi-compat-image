@@ -10,7 +10,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Image) { $Image = "ghcr.io/alex-ai-dev-lab/newapi-compat-image:$Version" }
 $commit = (git -C $root rev-parse --short=12 HEAD)
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$upstream = (git -C $root rev-parse --short=12 v1.0.0-rc.10 2>$null)
+$upstream = (git -C $root rev-parse --short=12 v1.0.0-rc.11 2>$null)
 $platforms = if ($Load) { "linux/amd64" } else { "linux/amd64,linux/arm64" }
 $args = @(
   "buildx","build",

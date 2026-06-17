@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,53 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRequestOpenAI2ClaudeMessage_PreservesToolUseWithEmptyArguments(t *testing.T) {
+	t.Parallel()
+
+	req := dto.GeneralOpenAIRequest{
+		Model: "claude-test",
+		Messages: []dto.Message{
+			{
+				Role: "assistant",
+				Content: []any{
+					map[string]any{
+						"type": "text",
+						"text": "calling tool",
+					},
+				},
+			},
+		},
+	}
+	req.Messages[0].SetToolCalls([]dto.ToolCallRequest{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "lookup_weather",
+				Arguments: "",
+			},
+		},
+	})
+
+	claudeReq, err := RequestOpenAI2ClaudeMessage(nil, req)
+	require.NoError(t, err)
+	require.Len(t, claudeReq.Messages, 2)
+	require.Equal(t, "user", claudeReq.Messages[0].Role)
+	require.Equal(t, "assistant", claudeReq.Messages[1].Role)
+
+	content, ok := claudeReq.Messages[1].Content.([]dto.ClaudeMediaMessage)
+	require.True(t, ok)
+	require.Len(t, content, 2)
+
+	require.Equal(t, "text", content[0].Type)
+	require.Equal(t, "tool_use", content[1].Type)
+	require.Equal(t, "call_1", content[1].Id)
+	require.Equal(t, "lookup_weather", content[1].Name)
+	inputJSON, err := json.Marshal(content[1].Input)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(inputJSON))
+}
 
 func TestFormatClaudeResponseInfo_MessageStart(t *testing.T) {
 	claudeInfo := &ClaudeResponseInfo{

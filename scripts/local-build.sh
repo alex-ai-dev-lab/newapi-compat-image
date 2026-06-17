@@ -6,7 +6,7 @@ version="${VERSION:-dev}"
 image="${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/newapi-compat-image:$version}"
 commit="$(git -C "$root" rev-parse --short=12 HEAD)"
 date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-upstream="$(git -C "$root" rev-parse --short=12 v1.0.0-rc.10 2>/dev/null || true)"
+upstream="$(git -C "$root" rev-parse --short=12 v1.0.0-rc.11 2>/dev/null || true)"
 platforms="${PLATFORMS:-linux/amd64,linux/arm64}"
 extra=()
 case "${1:-}" in

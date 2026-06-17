@@ -840,7 +840,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg(upstreamTLSCompatibilityHint("upstream error: do request failed")))
+		msg := "upstream error: do request failed"
+		if service.IsTLSVerificationRawError(err) {
+			msg = upstreamTLSCompatibilityHint(msg)
+		}
+		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg(msg))
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
