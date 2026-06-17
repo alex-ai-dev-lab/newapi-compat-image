@@ -42,6 +42,7 @@ export const VENDOR_COLOURS: Record<string, string> = {
   // Teal/cyan accents
   DeepSeek: '#3aa89f',    // v3 teal
   Mistral: '#14b8a6',     // brighter teal (distinct from DeepSeek)
+  Moonshot: '#5eead4',    // light teal (was #ec4899 magenta, too vivid for blue-gray base)
 
   // Slate/gray accents
   Meta: '#64748b',        // v3 slate
@@ -50,7 +51,6 @@ export const VENDOR_COLOURS: Record<string, string> = {
   // Special colors
   Anthropic: '#F0794A',   // v3 warn (coral orange)
   xAI: '#111111',         // v3 ink (dark)
-  Moonshot: '#ec4899',    // pink accent
   Tencent: '#16a34a',     // v3 success green
   Baidu: '#dc4d47',       // v3 error red
   Others: '#cbd5e1',      // neutral light gray
