@@ -51,7 +51,7 @@ For each **⚠️** or **❌** item:
    - `useTranslation()` + `t('English key')` for all user-visible strings
    - TypeScript — explicit types, no `any`
    - No dead code, no redundant comments
-3. Follow **Rule 6** (pointer types for optional relay DTOs) if touching relay-related TS types.
+3. Follow **Rule 5** (pointer types for optional relay DTOs) if touching relay-related TS types.
 4. After editing, run `ReadLints` on changed files and fix any introduced lint errors.
 
 ### Step 5 — i18n
