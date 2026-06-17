@@ -61,11 +61,11 @@ const ACCENT_CLASSES: Record<
     badge:
       'bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400',
   },
-  violet: {
-    activeText: 'text-violet-600 dark:text-violet-400',
-    activeBorder: 'border-violet-500 dark:border-violet-400',
+  teal: {
+    activeText: 'text-teal-600 dark:text-teal-400',
+    activeBorder: 'border-teal-500 dark:border-teal-400',
     badge:
-      'bg-violet-500/10 text-violet-600 dark:bg-violet-400/10 dark:text-violet-400',
+      'bg-teal-500/10 text-teal-600 dark:bg-teal-400/10 dark:text-teal-400',
   },
 }
 
@@ -156,7 +156,7 @@ const API_DEMOS: ApiDemoConfig[] = [
     responseHighlights: ['<text>', '<tokens>'],
     tokens: 25,
     latency: 93,
-    accent: 'violet',
+    accent: 'teal',
   },
 ]
 
@@ -529,7 +529,7 @@ function StringText(props: { children: ReactNode }) {
 
 function NumberText(props: { children: ReactNode }) {
   return (
-    <span className='font-medium text-violet-600 dark:text-violet-300'>
+    <span className='font-medium text-blue-600 dark:text-blue-300'>
       {props.children}
     </span>
   )

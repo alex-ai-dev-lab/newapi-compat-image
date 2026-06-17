@@ -36,40 +36,39 @@ const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
 
 /** Stable colour palette for vendors, used in both the share chart and the
  * legend dots. Falls back to a neutral palette for unknown vendors so that
- * future additions still render. */
+ * future additions still render.
+ *
+ * v3 Design: restrained blue scale + neutral grays, NO purple colors.
+ * Uses blue gradient (#0070f3 → #cadff9) with teal/slate accents.
+ */
 const VENDOR_COLOURS: Record<string, string> = {
-  OpenAI: '#10a37f',
-  Anthropic: '#d97757',
-  Google: '#4285f4',
-  DeepSeek: '#7c5cff',
-  Alibaba: '#ff9900',
-  xAI: '#1f2937',
-  Meta: '#1877f2',
-  Moonshot: '#ec4899',
-  Zhipu: '#06b6d4',
-  Mistral: '#ff7000',
-  ByteDance: '#3b82f6',
-  Tencent: '#22c55e',
-  MiniMax: '#a855f7',
-  Cohere: '#fb923c',
-  Baidu: '#ef4444',
-  Others: '#94a3b8',
+  OpenAI: '#0070f3',    // v3 primary blue
+  Anthropic: '#F0794A', // v3 warn (coral orange)
+  Google: '#5a9bf0',    // v3 blue-2
+  DeepSeek: '#3aa89f',  // teal accent (was #7c5cff purple)
+  Alibaba: '#9cc4f5',   // v3 blue-3
+  xAI: '#111111',       // v3 ink
+  Meta: '#64748b',      // slate
+  Moonshot: '#94a3b8',  // slate-lighter
+  Zhipu: '#cadff9',     // v3 blue-4
+  Mistral: '#3aa89f',   // teal accent
+  ByteDance: '#5a9bf0', // v3 blue-2
+  Tencent: '#16a34a',   // v3 success green
+  MiniMax: '#64748b',   // slate (was #a855f7 purple)
+  Cohere: '#9cc4f5',    // v3 blue-3
+  Baidu: '#dc4d47',     // v3 error red
+  Others: '#cbd5e1',    // neutral gray
 }
 
 const FALLBACK_PALETTE = [
-  '#0ea5e9',
-  '#22c55e',
-  '#a855f7',
-  '#f97316',
-  '#14b8a6',
-  '#eab308',
-  '#ec4899',
-  '#84cc16',
-  '#6366f1',
-  '#10b981',
-  '#f43f5e',
-  '#0891b2',
-  '#94a3b8',
+  '#0070f3', // v3 primary blue
+  '#5a9bf0', // v3 blue-2
+  '#9cc4f5', // v3 blue-3
+  '#cadff9', // v3 blue-4
+  '#3aa89f', // teal accent
+  '#64748b', // slate
+  '#94a3b8', // slate-lighter
+  '#cbd5e1', // neutral gray
 ]
 
 function buildVendorColourMap(names: string[]): Record<string, string> {

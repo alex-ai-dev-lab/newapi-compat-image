@@ -55,7 +55,7 @@ export function CTA(props: CTAProps) {
         <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-4xl'>
           {t('Ready to simplify')}
           <br />
-          <span className='bg-gradient-to-r from-blue-400 via-violet-400 to-purple-500 bg-clip-text text-transparent'>
+          <span className='bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600 bg-clip-text text-transparent'>
             {t('your AI integration?')}
           </span>
         </h2>

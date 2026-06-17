@@ -43,8 +43,8 @@ interface ThemeStore {
 const defaultTheme = {
   mode: 'system' as ThemeMode,
   fontSize: 14,
-  primaryColor: '#0ea5e9', // sky-500
-  accentColor: '#8b5cf6', // violet-500
+  primaryColor: '#0070f3', // v3 primary blue
+  accentColor: '#3aa89f', // v3 teal accent (was #8b5cf6 violet)
 }
 
 export const useThemeStore = create<ThemeStore>()(
