@@ -9,10 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
-func boolPtr(v bool) *bool {
-	return &v
-}
-
 func requiredEnvelopeConfig() Config {
 	return Config{
 		Enabled:        true,
@@ -143,19 +139,24 @@ func TestProfilesDefaultChannels(t *testing.T) {
 	if got := FromChannelSettingsForChannel(77, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileTrusted || EnvelopeRequired(got, false) {
 		t.Fatalf("77 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
 	}
+	enabled := true
 	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{
-		AntiPoisonEnabled: boolPtr(true),
+		AntiPoisonEnabled: &enabled,
 	}); got.Profile != operation_setting.AntiPoisonProfileProbation || !EnvelopeRequired(got, false) {
 		t.Fatalf("101 profile=%s envelope=%v", got.Profile, EnvelopeRequired(got, false))
 	}
-	if ProductionRoutingAllowed(94, dto.ChannelSettings{}) {
+	if ProductionRoutingAllowed(94, dto.ChannelSettings{
+		AntiPoisonEnabled: &enabled,
+	}) {
 		t.Fatalf("94 should not be production routable")
 	}
-	if got := FromChannelSettingsForChannel(94, dto.ChannelSettings{}); got.Profile != operation_setting.AntiPoisonProfileQuarantine || got.ProductionRouting || !got.ScheduledProbeOnly {
+	if got := FromChannelSettingsForChannel(94, dto.ChannelSettings{
+		AntiPoisonEnabled: &enabled,
+	}); got.Profile != operation_setting.AntiPoisonProfileQuarantine || got.ProductionRouting || !got.ScheduledProbeOnly {
 		t.Fatalf("94 profile=%s production=%v scheduledProbe=%v", got.Profile, got.ProductionRouting, got.ScheduledProbeOnly)
 	}
 	if got := FromChannelSettingsForChannel(101, dto.ChannelSettings{
-		AntiPoisonEnabled: boolPtr(true),
+		AntiPoisonEnabled: &enabled,
 	}); !got.ProbeBeforeEveryRequest || got.StreamMode != operation_setting.AntiPoisonStreamAggregateThenReplay {
 		t.Fatalf("101 probe=%v stream=%s", got.ProbeBeforeEveryRequest, got.StreamMode)
 	}

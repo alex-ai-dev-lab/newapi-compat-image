@@ -16,6 +16,7 @@ import (
 )
 
 func TestAggregateResponsesStreamBlocksEnvelopeOutsideText(t *testing.T) {
+	enabled := true
 	final := `{"type":"response.completed","response":{"id":"resp-test","object":"response","created_at":1,"model":"gpt-test","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"<newapi_answer nonce=\"n1\">OK</newapi_answer>\nU2FsdGVkX1+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]}]}}`
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -24,7 +25,7 @@ func TestAggregateResponsesStreamBlocksEnvelopeOutsideText(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelId:         101,
-			ChannelSetting:    dto.ChannelSettings{},
+			ChannelSetting:    dto.ChannelSettings{AntiPoisonEnabled: &enabled},
 			UpstreamModelName: "gpt-test",
 		},
 		OriginModelName:               "gpt-test",
