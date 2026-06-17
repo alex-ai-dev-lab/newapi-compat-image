@@ -4564,6 +4564,9 @@
     "Hard failures to quarantine": "Hard failures to quarantine",
     "Soft failures to degrade": "Soft failures to degrade",
     "Probe before every request": "Probe before every request",
-    "Response shape validation": "Response shape validation"
+    "Response shape validation": "Response shape validation",
+    "Active Models": "Active Models",
+    "Top Vendor": "Top Vendor",
+    "Showing {{filtered}} of {{total}}": "Showing {{filtered}} of {{total}}"
   }
 }
