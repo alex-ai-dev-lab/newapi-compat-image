@@ -58,7 +58,6 @@ const antiPoisonSchema = z.object({
   'anti_poison_setting.tool_call_guard_enabled': z.boolean(),
   'anti_poison_setting.tool_call_guard_strict': z.boolean(),
   'anti_poison_setting.failure_mode': z.enum(['block', 'warn']),
-  'anti_poison_setting.string_protection': z.boolean(),
   'anti_poison_setting.strip_guard_output': z.boolean(),
   'anti_poison_setting.signed_header_audit_enabled': z.boolean(),
   'anti_poison_setting.signed_header_audit_secret': z.string().optional(),
@@ -381,27 +380,6 @@ export function AntiPoisonGuardSection({
               )}
             />
           </div>
-
-          <FormField
-            control={form.control}
-            name='anti_poison_setting.string_protection'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Secret String Redaction')}</FormLabel>
-                  <FormDescription>
-                    {t('Redact high-confidence secrets before upstream calls')}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
 
           <SettingsPageFormActions
             isSaving={updateOption.isPending}

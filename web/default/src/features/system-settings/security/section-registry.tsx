@@ -110,8 +110,6 @@ const SECURITY_SECTIONS = [
             normalizeAntiPoisonFailureMode(
               settings['anti_poison_setting.failure_mode']
             ),
-          'anti_poison_setting.string_protection':
-            settings['anti_poison_setting.string_protection'],
           'anti_poison_setting.strip_guard_output':
             settings['anti_poison_setting.strip_guard_output'],
           'anti_poison_setting.signed_header_audit_enabled':

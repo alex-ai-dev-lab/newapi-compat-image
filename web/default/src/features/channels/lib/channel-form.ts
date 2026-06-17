@@ -216,7 +216,6 @@ export const channelFormSchema = z
     anti_poison_hard_failures_to_quarantine: z.number().optional(),
     anti_poison_soft_failures_to_degrade: z.number().optional(),
     anti_poison_failure_mode: z.enum(['inherit', 'block', 'warn']).optional(),
-    anti_poison_string_protection: z.boolean().optional(),
     anti_poison_canary_echo_enabled: z.boolean().optional(),
     anti_poison_shape_check_enabled: z.boolean().optional(),
     requires_codex_identity: z.enum(['auto', 'true', 'false']).optional(),
@@ -370,7 +369,6 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   anti_poison_hard_failures_to_quarantine: 0,
   anti_poison_soft_failures_to_degrade: 0,
   anti_poison_failure_mode: 'inherit',
-  anti_poison_string_protection: true,
   anti_poison_canary_echo_enabled: false,
   anti_poison_shape_check_enabled: true,
   requires_codex_identity: 'auto',
@@ -435,7 +433,6 @@ export function transformChannelToFormDefaults(
     | 'anti_poison_hard_failures_to_quarantine'
     | 'anti_poison_soft_failures_to_degrade'
     | 'anti_poison_failure_mode'
-    | 'anti_poison_string_protection'
     | 'anti_poison_canary_echo_enabled'
     | 'anti_poison_shape_check_enabled'
     | 'requires_codex_identity'
@@ -469,7 +466,6 @@ export function transformChannelToFormDefaults(
     anti_poison_hard_failures_to_quarantine: 0,
     anti_poison_soft_failures_to_degrade: 0,
     anti_poison_failure_mode: 'inherit',
-    anti_poison_string_protection: true,
     anti_poison_canary_echo_enabled: false,
     anti_poison_shape_check_enabled: true,
     requires_codex_identity: 'auto',
@@ -518,8 +514,6 @@ export function transformChannelToFormDefaults(
           parsed.anti_poison_soft_failures_to_degrade || 0
         ),
         anti_poison_failure_mode: parsed.anti_poison_failure_mode || 'inherit',
-        anti_poison_string_protection:
-          parsed.anti_poison_string_protection !== false,
         anti_poison_canary_echo_enabled:
           parsed.anti_poison_canary_echo_enabled === true,
         anti_poison_shape_check_enabled:
@@ -736,8 +730,6 @@ function buildSettingJSON(formData: ChannelFormValues): string {
   ) {
     settingObj.anti_poison_failure_mode = formData.anti_poison_failure_mode
   }
-  settingObj.anti_poison_string_protection =
-    formData.anti_poison_string_protection !== false
   return JSON.stringify(settingObj)
 }
 

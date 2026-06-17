@@ -102,7 +102,6 @@ export interface ChannelSettings {
   anti_poison_hard_failures_to_quarantine?: number
   anti_poison_soft_failures_to_degrade?: number
   anti_poison_failure_mode?: 'block' | 'warn'
-  anti_poison_string_protection?: boolean
   anti_poison_canary_echo_enabled?: boolean
   anti_poison_shape_check_enabled?: boolean
   requires_codex_identity?: boolean
@@ -359,7 +358,6 @@ export interface ChannelFormData {
   anti_poison_hard_failures_to_quarantine?: number
   anti_poison_soft_failures_to_degrade?: number
   anti_poison_failure_mode?: 'inherit' | 'block' | 'warn'
-  anti_poison_string_protection?: boolean
   anti_poison_canary_echo_enabled?: boolean
   anti_poison_shape_check_enabled?: boolean
   requires_codex_identity?: 'auto' | 'true' | 'false'

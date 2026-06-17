@@ -231,7 +231,6 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     Number(values.anti_poison_hard_failures_to_quarantine || 0) > 0 ||
     Number(values.anti_poison_soft_failures_to_degrade || 0) > 0 ||
     Boolean(values.anti_poison_failure_mode) ||
-    values.anti_poison_string_protection === false ||
     values.requires_codex_identity !== 'auto' ||
     values.claude_beta_query ||
     values.auto_test_and_recover_enabled === false ||
@@ -2982,27 +2981,6 @@ export function ChannelMutateDrawer({
                               <FormControl>
                                 <Switch
                                   checked={field.value === true}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name='anti_poison_string_protection'
-                          render={({ field }) => (
-                            <FormItem className='flex items-center justify-between rounded-md border p-3'>
-                              <div className='space-y-0.5'>
-                                <FormLabel>{t('String protection')}</FormLabel>
-                                <FormDescription>
-                                  {t('Protect high-confidence secrets before upstream calls.')}
-                                </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value !== false}
                                   onCheckedChange={field.onChange}
                                 />
                               </FormControl>

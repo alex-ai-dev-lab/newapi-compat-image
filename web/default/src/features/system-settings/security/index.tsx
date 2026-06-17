@@ -47,7 +47,6 @@ const defaultSecuritySettings: SecuritySettings = {
   'anti_poison_setting.tool_call_guard_enabled': true,
   'anti_poison_setting.tool_call_guard_strict': true,
   'anti_poison_setting.failure_mode': 'warn',
-  'anti_poison_setting.string_protection': false,
   'anti_poison_setting.strip_guard_output': true,
   'anti_poison_setting.signed_header_audit_enabled': false,
   'anti_poison_setting.signed_header_audit_secret': '',
