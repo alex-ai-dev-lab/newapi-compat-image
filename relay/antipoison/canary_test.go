@@ -100,7 +100,6 @@ func TestCanaryEnabledRequiresProfileOptInForRealUserRequests(t *testing.T) {
 				AntiPoisonEnabled:             boolPtr(true),
 				AntiPoisonCanaryEchoEnabled:   boolPtr(true),
 				AntiPoisonShapeCheckEnabled:   boolPtr(false),
-				AntiPoisonStringProtection:    boolPtr(false),
 				AntiPoisonToolCallGuardStrict: boolPtr(false),
 			},
 		},

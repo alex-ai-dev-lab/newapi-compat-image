@@ -42,7 +42,6 @@ type Config struct {
 	Profile                      string
 	StrictMode                   bool
 	FailureMode                  string // "block" | "warn"
-	StringProtection             bool
 	StripOutput                  bool
 	MaxScanBytes                 int
 	ResponseProof                bool

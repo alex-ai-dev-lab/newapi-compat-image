@@ -30,7 +30,6 @@ type AntiPoisonProfileConfig struct {
 	AnswerEnvelope               string `json:"answer_envelope"`
 	ResponseProof                string `json:"response_proof"`
 	ShapeCheck                   bool   `json:"shape_check"`
-	StringProtection             bool   `json:"string_protection"`
 	ToolCallGuard                string `json:"tool_call_guard"`
 	OpaqueScan                   string `json:"opaque_scan"`
 	ProbeTTLSeconds              int    `json:"probe_ttl_seconds"`
@@ -55,7 +54,6 @@ type AntiPoisonSetting struct {
 	ToolCallGuardEnabled     bool   `json:"tool_call_guard_enabled"`
 	ToolCallGuardStrict      bool   `json:"tool_call_guard_strict"`
 	FailureMode              string `json:"failure_mode"`
-	StringProtection         bool   `json:"string_protection"`
 	StripGuardOutput         bool   `json:"strip_guard_output"`
 	SignedHeaderAuditEnabled bool   `json:"signed_header_audit_enabled"`
 	SignedHeaderAuditSecret  string `json:"signed_header_audit_secret"`
@@ -93,7 +91,6 @@ var antiPoisonSetting = AntiPoisonSetting{
 			AnswerEnvelope:               AntiPoisonModeOff,
 			ResponseProof:                AntiPoisonModeWarn,
 			ShapeCheck:                   true,
-			StringProtection:             true,
 			ToolCallGuard:                AntiPoisonModeAuto,
 			OpaqueScan:                   AntiPoisonModeWarn,
 			ProductionRouting:            true,
@@ -106,7 +103,6 @@ var antiPoisonSetting = AntiPoisonSetting{
 			AnswerEnvelope:               AntiPoisonModeAuto,
 			ResponseProof:                AntiPoisonModeAuto,
 			ShapeCheck:                   true,
-			StringProtection:             true,
 			ToolCallGuard:                AntiPoisonModeStrictWhenTools,
 			OpaqueScan:                   AntiPoisonModeScore,
 			ProbeTTLSeconds:              60,
@@ -121,7 +117,6 @@ var antiPoisonSetting = AntiPoisonSetting{
 			AnswerEnvelope:               AntiPoisonModeRequired,
 			ResponseProof:                AntiPoisonModeRequiredNonStream,
 			ShapeCheck:                   true,
-			StringProtection:             true,
 			ToolCallGuard:                AntiPoisonModeStrict,
 			OpaqueScan:                   AntiPoisonModeScoreStrict,
 			ProbeBeforeEveryRequest:      true,
@@ -138,7 +133,6 @@ var antiPoisonSetting = AntiPoisonSetting{
 			AnswerEnvelope:               AntiPoisonModeRequired,
 			ResponseProof:                AntiPoisonModeRequiredNonStream,
 			ShapeCheck:                   true,
-			StringProtection:             true,
 			ToolCallGuard:                AntiPoisonModeStrict,
 			OpaqueScan:                   AntiPoisonModeScoreStrict,
 			ProductionRouting:            false,

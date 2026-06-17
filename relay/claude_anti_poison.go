@@ -1,8 +1,6 @@
 package relay
 
 import (
-	"strings"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -12,8 +10,7 @@ import (
 )
 
 // applyClaudeAntiPoisonRequest injects the guard prompt into the Claude system
-// field and, when string protection is enabled, scrubs sensitive values from
-// visible user messages before they leave the gateway.
+// field when anti-poison is enabled.
 //
 // The guard prefix is stored on the RelayInfo for response-side validation.
 // Defaults to a no-op when the channel has not enabled anti-poison.
@@ -34,19 +31,6 @@ func applyClaudeAntiPoisonRequest(c *gin.Context, info *relaycommon.RelayInfo, r
 
 	prompt := antipoison.BuildGuardPrompt(prefix)
 	injectClaudeGuardSystem(req, prompt)
-
-	if cfg.StringProtection {
-		// 检测用户是否主动要求处理密钥/编码等（如"解码这个JWT"）
-		userAskedHandling := detectUserAskedHandling(req)
-		for i := range req.Messages {
-			if req.Messages[i].IsStringContent() {
-				protected, changed := antipoison.ProtectSensitiveStrings(req.Messages[i].GetStringContent(), userAskedHandling)
-				if changed {
-					req.Messages[i].SetStringContent(protected)
-				}
-			}
-		}
-	}
 
 	// Canary echo: inject nonce into the last user message
 	antipoison.ApplyClaudeCanaryRequest(info, req)
@@ -175,32 +159,4 @@ func applyClaudeAntiPoisonStreamFinal(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	return nil
-}
-
-// detectUserAskedHandling checks if the user explicitly asked to handle/process
-// keys or encoded data (e.g. "decode this JWT", "verify this key").
-// Returns true when string protection should be skipped to avoid breaking such requests.
-func detectUserAskedHandling(req *dto.ClaudeRequest) bool {
-	if req == nil || len(req.Messages) == 0 {
-		return false
-	}
-	// Combine all user messages to detect intent
-	var combined strings.Builder
-	for _, msg := range req.Messages {
-		if msg.Role == "user" && msg.IsStringContent() {
-			combined.WriteString(msg.GetStringContent())
-			combined.WriteString(" ")
-		}
-	}
-	lowerPrompt := strings.ToLower(combined.String())
-	return strings.Contains(lowerPrompt, "decode") ||
-		strings.Contains(lowerPrompt, "verify") ||
-		strings.Contains(lowerPrompt, "validate") ||
-		strings.Contains(lowerPrompt, "parse") ||
-		strings.Contains(lowerPrompt, "jwt") ||
-		strings.Contains(lowerPrompt, "base64") ||
-		strings.Contains(lowerPrompt, "key") ||
-		strings.Contains(lowerPrompt, "token") ||
-		strings.Contains(lowerPrompt, "secret") ||
-		strings.Contains(lowerPrompt, "certificate")
 }
