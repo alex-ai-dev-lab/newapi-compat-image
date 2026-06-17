@@ -44,7 +44,6 @@ type ChannelSettings struct {
 	AntiPoisonHardFailuresToQuarantine int    `json:"anti_poison_hard_failures_to_quarantine,omitempty"`
 	AntiPoisonSoftFailuresToDegrade    int    `json:"anti_poison_soft_failures_to_degrade,omitempty"`
 	AntiPoisonFailureMode              string `json:"anti_poison_failure_mode,omitempty"`
-	AntiPoisonStringProtection         *bool  `json:"anti_poison_string_protection,omitempty"`
 	// Canary echo: server-injected nonce in the last user message that the
 	// model must echo at the end of its reply. Drops 200-OK ad payloads that
 	// can not see per-request user content. Nil = inherit global; default off.

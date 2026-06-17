@@ -360,7 +360,6 @@ export type SecuritySettings = {
   'anti_poison_setting.tool_call_guard_enabled': boolean
   'anti_poison_setting.tool_call_guard_strict': boolean
   'anti_poison_setting.failure_mode': string
-  'anti_poison_setting.string_protection': boolean
   'anti_poison_setting.strip_guard_output': boolean
   'anti_poison_setting.signed_header_audit_enabled': boolean
   'anti_poison_setting.signed_header_audit_secret': string

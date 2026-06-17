@@ -31,7 +31,6 @@ func FromChannelSettingsForChannel(channelID int, s dto.ChannelSettings) Config 
 		Profile:                      profileName,
 		StrictMode:                   global.ToolCallGuardStrict || profile.ToolCallGuard == operation_setting.AntiPoisonModeStrict || profile.ToolCallGuard == operation_setting.AntiPoisonModeStrictWhenTools,
 		FailureMode:                  global.FailureMode,
-		StringProtection:             profile.StringProtection || global.StringProtection,
 		StripOutput:                  global.StripGuardOutput,
 		MaxScanBytes:                 global.MaxGuardScanBytes,
 		ResponseProof:                profile.ResponseProof == operation_setting.AntiPoisonModeRequired || profile.ResponseProof == operation_setting.AntiPoisonModeRequiredNonStream || (global.ResponseProofEnabled && profile.ResponseProof != operation_setting.AntiPoisonModeOff),
@@ -89,9 +88,6 @@ func FromChannelSettingsForChannel(channelID int, s dto.ChannelSettings) Config 
 	}
 	if s.AntiPoisonFailureMode != "" {
 		cfg.FailureMode = s.AntiPoisonFailureMode
-	}
-	if s.AntiPoisonStringProtection != nil {
-		cfg.StringProtection = *s.AntiPoisonStringProtection
 	}
 	if s.AntiPoisonCanaryEchoEnabled != nil {
 		cfg.CanaryEcho = *s.AntiPoisonCanaryEchoEnabled && profile.CanaryOnUserRequest
@@ -186,14 +182,13 @@ func StreamModeForConfig(cfg Config) string {
 func LegacyGlobalConfig() Config {
 	global := operation_setting.GetAntiPoisonSetting()
 	return Config{
-		Enabled:          global.Enabled,
-		StrictMode:       global.ToolCallGuardStrict,
-		FailureMode:      global.FailureMode,
-		StringProtection: global.StringProtection,
-		StripOutput:      global.StripGuardOutput,
-		MaxScanBytes:     global.MaxGuardScanBytes,
-		ResponseProof:    global.ResponseProofEnabled,
-		CanaryEcho:       global.CanaryEchoEnabled,
-		ShapeCheck:       global.ShapeCheckEnabled,
+		Enabled:       global.Enabled,
+		StrictMode:    global.ToolCallGuardStrict,
+		FailureMode:   global.FailureMode,
+		StripOutput:   global.StripGuardOutput,
+		MaxScanBytes:  global.MaxGuardScanBytes,
+		ResponseProof: global.ResponseProofEnabled,
+		CanaryEcho:    global.CanaryEchoEnabled,
+		ShapeCheck:    global.ShapeCheckEnabled,
 	}.Normalized()
 }
