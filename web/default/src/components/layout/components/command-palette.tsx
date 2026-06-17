@@ -275,7 +275,7 @@ export function CommandPalette() {
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
-            params: { section: 'overview' },
+            params: { section: 'email' },
           })
           close()
         },

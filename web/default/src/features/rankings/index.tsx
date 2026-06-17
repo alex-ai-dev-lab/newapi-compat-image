@@ -96,7 +96,7 @@ export function Rankings() {
                     {t('Top Vendor')}
                   </div>
                   <div className='text-foreground truncate font-mono text-2xl font-bold'>
-                    {snapshot.vendors[0]?.vendor_name || '-'}
+                    {snapshot.vendors[0]?.vendor || '-'}
                   </div>
                 </div>
               </div>

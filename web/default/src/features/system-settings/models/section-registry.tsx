@@ -18,17 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChannelAffinitySection } from '../general/channel-affinity'
 import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
+import { UpstreamErrorRulesSection } from '../security/upstream-error-rules-section'
 import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { ClaudeSettingsCard } from './claude-settings-card'
-import { ClientIdentitySettingsCard } from './client-identity-settings-card'
 import { HeaderRulesSettingsCard } from './header-rules-settings-card'
 import { GeminiSettingsCard } from './gemini-settings-card'
 import { GlobalSettingsCard } from './global-settings-card'
 import { GrokSettingsCard } from './grok-settings-card'
 import { ModelOperationsOverview } from './model-operations-overview'
-import { RatioSettingsCard } from './ratio-settings-card'
-import { UserAgentSettingsSection } from './user-agent-settings-section'
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
@@ -39,31 +37,6 @@ function formatJsonForEditor(value: string, fallback: string) {
     return fallback
   }
 }
-
-const getModelDefaults = (settings: ModelSettings) => ({
-  ModelPrice: settings.ModelPrice,
-  ModelRatio: settings.ModelRatio,
-  CacheRatio: settings.CacheRatio,
-  CreateCacheRatio: settings.CreateCacheRatio,
-  CompletionRatio: settings.CompletionRatio,
-  ImageRatio: settings.ImageRatio,
-  AudioRatio: settings.AudioRatio,
-  AudioCompletionRatio: settings.AudioCompletionRatio,
-  ExposeRatioEnabled: settings.ExposeRatioEnabled,
-  BillingMode: settings['billing_setting.billing_mode'],
-  BillingExpr: settings['billing_setting.billing_expr'],
-})
-
-const getGroupDefaults = (settings: ModelSettings) => ({
-  TopupGroupRatio: settings.TopupGroupRatio,
-  GroupRatio: settings.GroupRatio,
-  UserUsableGroups: settings.UserUsableGroups,
-  GroupGroupRatio: settings.GroupGroupRatio,
-  AutoGroups: settings.AutoGroups,
-  DefaultUseAutoGroup: settings.DefaultUseAutoGroup,
-  GroupSpecialUsableGroup:
-    settings['group_ratio_setting.group_special_usable_group'],
-})
 
 const MODELS_SECTIONS = [
   {
@@ -156,32 +129,14 @@ const MODELS_SECTIONS = [
     ),
   },
   {
-    id: 'user-agents',
-    titleKey: 'User-Agent Management',
-    build: () => <UserAgentSettingsSection />,
-  },
-  {
-    id: 'client-identity',
-    titleKey: 'Client Identity',
-    build: () => <ClientIdentitySettingsCard />,
-  },
-  {
     id: 'header-rules',
     titleKey: 'Header Rules',
     build: () => <HeaderRulesSettingsCard />,
   },
   {
-    id: 'model-pricing',
-    titleKey: 'Model Pricing',
-    build: (settings: ModelSettings) => (
-      <RatioSettingsCard
-        titleKey='Model Pricing'
-        modelDefaults={getModelDefaults(settings)}
-        groupDefaults={getGroupDefaults(settings)}
-        toolPricesDefault={settings['tool_price_setting.prices']}
-        visibleTabs={['models', 'tool-prices', 'upstream-sync']}
-      />
-    ),
+    id: 'upstream-error-rules',
+    titleKey: 'Upstream Error Rules',
+    build: () => <UpstreamErrorRulesSection />,
   },
   {
     id: 'channel-affinity',

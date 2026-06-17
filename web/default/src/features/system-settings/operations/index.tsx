@@ -63,6 +63,8 @@ const defaultOperationsSettings: OperationsSettings = {
   'perf_metrics_setting.flush_interval': 5,
   'perf_metrics_setting.bucket_time': 'hour',
   'perf_metrics_setting.retention_days': 0,
+  'console_setting.uptime_kuma_groups': '[]',
+  'console_setting.uptime_kuma_enabled': false,
 }
 
 export function OperationsSettings() {

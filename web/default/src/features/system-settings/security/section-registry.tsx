@@ -19,10 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
+import { ClientIdentitySettingsCard } from '../models/client-identity-settings-card'
+import { UserAgentSettingsSection } from '../models/user-agent-settings-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AntiPoisonGuardSection } from './anti-poison-guard-section'
-import { UpstreamErrorRulesSection } from './upstream-error-rules-section'
 
 type AntiPoisonFailureMode = 'block' | 'warn'
 
@@ -86,11 +87,6 @@ const SECURITY_SECTIONS = [
     ),
   },
   {
-    id: 'upstream-error-rules',
-    titleKey: 'Upstream Error Rules',
-    build: () => <UpstreamErrorRulesSection />,
-  },
-  {
     id: 'anti-poison-guard',
     titleKey: 'Anti-Poison Guard',
     build: (settings: SecuritySettings) => (
@@ -128,6 +124,16 @@ const SECURITY_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'client-identity',
+    titleKey: 'Client Identity',
+    build: () => <ClientIdentitySettingsCard />,
+  },
+  {
+    id: 'user-agents',
+    titleKey: 'User-Agent Management',
+    build: () => <UserAgentSettingsSection />,
   },
 ] as const
 

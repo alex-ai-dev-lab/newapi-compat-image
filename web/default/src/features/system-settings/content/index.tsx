@@ -70,6 +70,11 @@ const defaultContentSettings: ContentSettings = {
   MjForwardUrlEnabled: false,
   MjModeClearEnabled: false,
   MjActionCheckSuccessEnabled: false,
+  HeaderNavModules: '',
+  SidebarModulesAdmin: '',
+  SidebarSectionOrder: '',
+  SystemSettingsNavigation: '',
+  'general_setting.docs_link': '',
 }
 
 function resolveContentSettings(

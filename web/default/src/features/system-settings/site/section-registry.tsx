@@ -17,20 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemInfoSection } from '../general/system-info-section'
-import {
-  parseHeaderNavModules,
-  parseSidebarModulesAdmin,
-  parseSidebarSectionOrder,
-  parseSystemSettingsNavigation,
-  serializeHeaderNavModules,
-  serializeSidebarModulesAdmin,
-  serializeSidebarSectionOrder,
-  serializeSystemSettingsNavigation,
-} from '../maintenance/config'
-import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
-import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
-import { SettingsNavigationSection } from '../maintenance/settings-navigation-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -64,64 +51,6 @@ const SITE_SECTIONS = [
     build: (settings: SiteSettings) => (
       <NoticeSection defaultValue={settings.Notice ?? ''} />
     ),
-  },
-  {
-    id: 'header-navigation',
-    titleKey: 'Header navigation',
-    build: (settings: SiteSettings) => {
-      const headerNavConfig = parseHeaderNavModules(settings.HeaderNavModules)
-      const headerNavSerialized = serializeHeaderNavModules(headerNavConfig)
-      return (
-        <HeaderNavigationSection
-          config={headerNavConfig}
-          initialSerialized={headerNavSerialized}
-          docsLink={settings['general_setting.docs_link'] ?? ''}
-        />
-      )
-    },
-  },
-  {
-    id: 'sidebar-modules',
-    titleKey: 'Sidebar modules',
-    build: (settings: SiteSettings) => {
-      const sidebarConfig = parseSidebarModulesAdmin(
-        settings.SidebarModulesAdmin
-      )
-      const sidebarSerialized = serializeSidebarModulesAdmin(sidebarConfig)
-      const sectionOrder = parseSidebarSectionOrder(
-        settings.SidebarSectionOrder,
-        Object.keys(sidebarConfig)
-      )
-      const sectionOrderSerialized = serializeSidebarSectionOrder(
-        sectionOrder,
-        Object.keys(sidebarConfig)
-      )
-      return (
-        <SidebarModulesSection
-          config={sidebarConfig}
-          initialSerialized={sidebarSerialized}
-          sectionOrder={sectionOrder}
-          initialSectionOrderSerialized={sectionOrderSerialized}
-        />
-      )
-    },
-  },
-  {
-    id: 'settings-navigation',
-    titleKey: 'System settings navigation',
-    build: (settings: SiteSettings) => {
-      const navigationConfig = parseSystemSettingsNavigation(
-        settings.SystemSettingsNavigation
-      )
-      const navigationSerialized =
-        serializeSystemSettingsNavigation(navigationConfig)
-      return (
-        <SettingsNavigationSection
-          config={navigationConfig}
-          initialSerialized={navigationSerialized}
-        />
-      )
-    },
   },
 ] as const
 

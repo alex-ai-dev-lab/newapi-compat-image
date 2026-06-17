@@ -164,6 +164,12 @@ export type ContentSettings = {
   MjForwardUrlEnabled: boolean
   MjModeClearEnabled: boolean
   MjActionCheckSuccessEnabled: boolean
+  // Navigation config (migrated from site area)
+  HeaderNavModules: string
+  SidebarModulesAdmin: string
+  SidebarSectionOrder: string
+  SystemSettingsNavigation: string
+  'general_setting.docs_link': string
 }
 
 export type ModelSettings = {
@@ -335,6 +341,9 @@ export type OperationsSettings = {
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
   'perf_metrics_setting.retention_days': number
+  // Uptime Kuma (migrated from content area)
+  'console_setting.uptime_kuma_groups': string
+  'console_setting.uptime_kuma_enabled': boolean
 }
 
 export type SecuritySettings = {

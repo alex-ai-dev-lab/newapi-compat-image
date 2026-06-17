@@ -59,7 +59,7 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
       items: getSiteSectionNavItems(t),
     },
     auth: {
-      title: t('Authentication'),
+      title: t('Access & Identity'),
       icon: Shield,
       items: getAuthSectionNavItems(t),
     },
@@ -74,17 +74,17 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
       items: getModelsSectionNavItems(t),
     },
     security: {
-      title: t('Security & Limits'),
+      title: t('Security & Risk Control'),
       icon: ShieldAlert,
       items: getSecuritySectionNavItems(t),
     },
     content: {
-      title: t('Console Content'),
+      title: t('Console & Display'),
       icon: Layout,
       items: getContentSectionNavItems(t),
     },
     operations: {
-      title: t('Operations'),
+      title: t('Operations & Maintenance'),
       icon: Wrench,
       items: getOperationsSectionNavItems(t),
     },

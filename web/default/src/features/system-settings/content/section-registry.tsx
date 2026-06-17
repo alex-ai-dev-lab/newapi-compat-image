@@ -48,6 +48,19 @@ import {
   type ThemeScale,
 } from '@/lib/theme-customization'
 import type { ContentSettings } from '../types'
+import {
+  parseHeaderNavModules,
+  parseSidebarModulesAdmin,
+  parseSidebarSectionOrder,
+  parseSystemSettingsNavigation,
+  serializeHeaderNavModules,
+  serializeSidebarModulesAdmin,
+  serializeSidebarSectionOrder,
+  serializeSystemSettingsNavigation,
+} from '../maintenance/config'
+import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
+import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
+import { SettingsNavigationSection } from '../maintenance/settings-navigation-section'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AnnouncementsSection } from './announcements-section'
 import { ApiInfoSection } from './api-info-section'
@@ -56,7 +69,6 @@ import { ChatSettingsSection } from './chat-settings-section'
 import { DashboardSection } from './dashboard-section'
 import { DrawingSettingsSection } from './drawing-settings-section'
 import { FAQSection } from './faq-section'
-import { UptimeKumaSection } from './uptime-kuma-section'
 
 /**
  * Validate and coerce DataExportDefaultTime to a safe value
@@ -322,14 +334,62 @@ const CONTENT_SECTIONS = [
     ),
   },
   {
-    id: 'uptime-kuma',
-    titleKey: 'Uptime Kuma',
-    build: (settings: ContentSettings) => (
-      <UptimeKumaSection
-        enabled={settings['console_setting.uptime_kuma_enabled']}
-        data={settings['console_setting.uptime_kuma_groups']}
-      />
-    ),
+    id: 'header-navigation',
+    titleKey: 'Header navigation',
+    build: (settings: ContentSettings) => {
+      const headerNavConfig = parseHeaderNavModules(settings.HeaderNavModules)
+      const headerNavSerialized = serializeHeaderNavModules(headerNavConfig)
+      return (
+        <HeaderNavigationSection
+          config={headerNavConfig}
+          initialSerialized={headerNavSerialized}
+          docsLink={settings['general_setting.docs_link'] ?? ''}
+        />
+      )
+    },
+  },
+  {
+    id: 'sidebar-modules',
+    titleKey: 'Sidebar modules',
+    build: (settings: ContentSettings) => {
+      const sidebarConfig = parseSidebarModulesAdmin(
+        settings.SidebarModulesAdmin
+      )
+      const sidebarSerialized = serializeSidebarModulesAdmin(sidebarConfig)
+      const sectionOrder = parseSidebarSectionOrder(
+        settings.SidebarSectionOrder,
+        Object.keys(sidebarConfig)
+      )
+      const sectionOrderSerialized = serializeSidebarSectionOrder(
+        sectionOrder,
+        Object.keys(sidebarConfig)
+      )
+      return (
+        <SidebarModulesSection
+          config={sidebarConfig}
+          initialSerialized={sidebarSerialized}
+          sectionOrder={sectionOrder}
+          initialSectionOrderSerialized={sectionOrderSerialized}
+        />
+      )
+    },
+  },
+  {
+    id: 'settings-navigation',
+    titleKey: 'System settings navigation',
+    build: (settings: ContentSettings) => {
+      const navigationConfig = parseSystemSettingsNavigation(
+        settings.SystemSettingsNavigation
+      )
+      const navigationSerialized =
+        serializeSystemSettingsNavigation(navigationConfig)
+      return (
+        <SettingsNavigationSection
+          config={navigationConfig}
+          initialSerialized={navigationSerialized}
+        />
+      )
+    },
   },
   {
     id: 'chat',

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-type AccentTone = 'emerald' | 'amber' | 'blue' | 'violet'
+type AccentTone = 'emerald' | 'amber' | 'blue' | 'teal'
 
 interface ApiDemoConfig {
   id: string

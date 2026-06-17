@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
+import { UptimeKumaSection } from '../content/uptime-kuma-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -25,56 +26,8 @@ import { PerformanceSection } from '../maintenance/performance-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
-import { OperationsCenter } from './operations-center'
 
 const OPERATIONS_SECTIONS = [
-  {
-    id: 'overview',
-    titleKey: 'Operations Center',
-    build: (
-      _settings: OperationsSettings,
-      currentVersion?: string | null,
-      startTime?: number | null
-    ) => (
-      <OperationsCenter currentVersion={currentVersion} startTime={startTime} />
-    ),
-  },
-  {
-    id: 'behavior',
-    titleKey: 'System Behavior',
-    build: (settings: OperationsSettings) => (
-      <SystemBehaviorSection
-        defaultValues={{
-          RetryTimes: settings.RetryTimes,
-          DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
-          DemoSiteEnabled: settings.DemoSiteEnabled,
-          SelfUseModeEnabled: settings.SelfUseModeEnabled,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'monitoring',
-    titleKey: 'Monitoring & Alerts',
-    build: (settings: OperationsSettings) => (
-      <MonitoringSettingsSection
-        defaultValues={{
-          ChannelDisableThreshold: settings.ChannelDisableThreshold,
-          QuotaRemindThreshold: settings.QuotaRemindThreshold,
-          AutomaticDisableChannelEnabled:
-            settings.AutomaticDisableChannelEnabled,
-          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
-          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
-          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
-          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
-          'monitor_setting.auto_test_channel_enabled':
-            settings['monitor_setting.auto_test_channel_enabled'],
-          'monitor_setting.auto_test_channel_minutes':
-            settings['monitor_setting.auto_test_channel_minutes'],
-        }}
-      />
-    ),
-  },
   {
     id: 'email',
     titleKey: 'SMTP Email',
@@ -102,6 +55,52 @@ const OPERATIONS_SECTIONS = [
           WorkerValidKey: settings.WorkerValidKey,
           WorkerAllowHttpImageRequestEnabled:
             settings.WorkerAllowHttpImageRequestEnabled,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'monitoring',
+    titleKey: 'Monitoring & Alerts',
+    build: (settings: OperationsSettings) => (
+      <MonitoringSettingsSection
+        defaultValues={{
+          ChannelDisableThreshold: settings.ChannelDisableThreshold,
+          QuotaRemindThreshold: settings.QuotaRemindThreshold,
+          AutomaticDisableChannelEnabled:
+            settings.AutomaticDisableChannelEnabled,
+          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
+          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
+          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
+          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
+          'monitor_setting.auto_test_channel_enabled':
+            settings['monitor_setting.auto_test_channel_enabled'],
+          'monitor_setting.auto_test_channel_minutes':
+            settings['monitor_setting.auto_test_channel_minutes'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'uptime-kuma',
+    titleKey: 'Uptime Kuma',
+    build: (settings: OperationsSettings) => (
+      <UptimeKumaSection
+        enabled={settings['console_setting.uptime_kuma_enabled']}
+        data={settings['console_setting.uptime_kuma_groups']}
+      />
+    ),
+  },
+  {
+    id: 'behavior',
+    titleKey: 'System Behavior',
+    build: (settings: OperationsSettings) => (
+      <SystemBehaviorSection
+        defaultValues={{
+          RetryTimes: settings.RetryTimes,
+          DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
+          DemoSiteEnabled: settings.DemoSiteEnabled,
+          SelfUseModeEnabled: settings.SelfUseModeEnabled,
         }}
       />
     ),
@@ -173,7 +172,7 @@ const operationsRegistry = createSectionRegistry<
   [string | null | undefined, number | null | undefined]
 >({
   sections: OPERATIONS_SECTIONS,
-  defaultSection: 'overview',
+  defaultSection: 'email',
   basePath: '/system-settings/operations',
   urlStyle: 'path',
 })
