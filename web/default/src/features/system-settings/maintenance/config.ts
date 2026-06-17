@@ -96,6 +96,7 @@ export const SYSTEM_SETTINGS_SECTION_ORDER_DEFAULT: Record<string, string[]> = {
     'model-pricing',
     'channel-affinity',
     'model-deployment',
+    'header-rules',
   ],
   security: [
     'rate-limit',
