@@ -63,7 +63,7 @@ export function CreemProductsSection({
             <div className='text-muted-foreground mb-2 text-sm'>
               {t('Quota')}: {formatNumber(product.quota)}
             </div>
-            <div className='text-lg font-semibold text-indigo-600'>
+            <div className='text-lg font-semibold text-blue-600'>
               {formatCreemPrice(product.price, product.currency)}
             </div>
           </CardContent>

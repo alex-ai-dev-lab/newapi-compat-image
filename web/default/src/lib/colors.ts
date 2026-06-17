@@ -94,15 +94,15 @@ export const CHART_COLORS = [
   'hsl(217, 91%, 60%)', // blue
   'hsl(142, 76%, 36%)', // green
   'hsl(38, 92%, 50%)', // amber
-  'hsl(258, 90%, 66%)', // violet
+  'hsl(213, 90%, 70%)', // light-blue
   'hsl(330, 81%, 60%)', // pink
   'hsl(189, 94%, 43%)', // cyan
   'hsl(25, 95%, 53%)', // orange
   'hsl(239, 84%, 67%)', // indigo
   'hsl(173, 80%, 40%)', // teal
-  'hsl(271, 91%, 65%)', // purple
+  'hsl(173, 70%, 55%)', // light-teal
   'hsl(199, 89%, 48%)', // sky
-  'hsl(280, 65%, 60%)', // fuchsia
+  'hsl(215, 16%, 55%)', // slate
 ] as const
 
 /**
