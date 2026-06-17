@@ -6,7 +6,7 @@ Legacy patch artifacts from the previous patch-image workflow are retained under
 
 ## What Changed
 
-- Source-first fork based on upstream `QuantumNous/new-api` `v1.0.0-rc.10`.
+- Source-first fork based on upstream `QuantumNous/new-api` `v1.0.0-rc.11`.
 - Dockerfile builds the local source directly; it no longer downloads upstream zip files or applies patches.
 - GitHub Actions publish multi-arch GHCR images from this source tree.
 - Runtime defaults to non-root with `PUID` / `PGID`.
@@ -24,7 +24,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg VERSION=dev \
   --build-arg COMMIT_SHA="$(git rev-parse HEAD)" \
   --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --build-arg UPSTREAM_REF=v1.0.0-rc.10 \
+  --build-arg UPSTREAM_REF=v1.0.0-rc.11 \
   -t ghcr.io/alex-ai-dev-lab/newapi-compat-image:dev .
 ```
 

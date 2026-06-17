@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Optional image tag. Defaults to main-<short sha>."
+        description: "Optional image tag. Defaults to v1.0.0-rc.11."
         required: false
         type: string
       create_release:
@@ -51,11 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           short="${GITHUB_SHA::12}"
-          raw_tag="${INPUT_IMAGE_TAG:-main-$short}"
+          raw_tag="${INPUT_IMAGE_TAG:-v1.0.0-rc.11}"
           tag="$(printf '%s' "$raw_tag" | tr -c 'A-Za-z0-9_.-' '-')"
           tag="${tag%-}"
           if [ -z "$tag" ]; then
-            tag="main-$short"
+            tag="v1.0.0-rc.11"
           fi
           release_tag="${INPUT_RELEASE_TAG:-newapi-source-$tag}"
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat-image"
@@ -86,12 +86,10 @@ jobs:
             VERSION=${{ steps.meta.outputs.tag }}
             COMMIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.meta.outputs.created }}
-            UPSTREAM_REF=${{ github.sha }}
+            UPSTREAM_REF=v1.0.0-rc.11
           tags: |
-            ${{ steps.meta.outputs.image }}:latest
-            ${{ steps.meta.outputs.image }}:main
-            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short }}
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -113,7 +111,7 @@ jobs:
             --build-arg "VERSION=$TAG" \
             --build-arg "COMMIT_SHA=$GITHUB_SHA" \
             --build-arg "BUILD_DATE=$CREATED" \
-            --build-arg "UPSTREAM_REF=$GITHUB_SHA" \
+            --build-arg "UPSTREAM_REF=v1.0.0-rc.11" \
             -t "$IMAGE:$TAG-amd64-package" \
             .
           docker save "$IMAGE:$TAG-amd64-package" | gzip -9 > "release-assets/$TARBALL"
@@ -128,19 +126,15 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          TARBALL: ${{ steps.meta.outputs.tarball }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           cat > release-assets/RELEASE_NOTES.md <<EOF
           Image: ${IMAGE}:${TAG}
           Digest: ${DIGEST}
           Source commit: ${GITHUB_SHA}
+          Upstream tag baseline: v1.0.0-rc.11
 
           This package is built directly from the source fork.
-
-          Assets:
-          - ${TARBALL}: linux/amd64 Docker image export.
-          - compose.yaml and docker-compose.yml: deployment templates using NEWAPI_IMAGE.
           EOF
 
       - uses: actions/upload-artifact@v4
