@@ -21,6 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Code2, HeartPulse, Info, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -60,7 +61,11 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  getModelDescription,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { inferModelMetadata } from '../lib/model-metadata'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
@@ -86,6 +91,13 @@ function SectionTitle(props: { children: React.ReactNode }) {
       {props.children}
     </h2>
   )
+}
+
+function getDescription(
+  model: PricingModel,
+  t: TFunction<'translation', undefined>
+) {
+  return getModelDescription(model, t)
 }
 
 const CAPABILITY_LABEL_KEYS: Record<ModelCapability, string> = {
@@ -271,7 +283,7 @@ function ModelHeader(props: { model: PricingModel }) {
   const vendorIcon = model.vendor_icon
     ? getLobeIcon(model.vendor_icon, 20)
     : null
-  const description = model.description || model.vendor_description || null
+  const description = getDescription(model, t)
   const tags = parseTags(model.tags)
   const isSpecialExpression =
     model.billing_mode === 'tiered_expr' &&

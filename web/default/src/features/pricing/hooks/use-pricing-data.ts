@@ -54,7 +54,6 @@ export function usePricingData() {
         key: model.model_name,
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
-        vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
       }
     })

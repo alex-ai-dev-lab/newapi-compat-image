@@ -29,7 +29,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { getModelDescription, isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
@@ -80,6 +80,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
     Math.max(tags.length - 2, 0)
+  const modelDescription = getModelDescription(props.model, t)
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -223,7 +224,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
       {/* Description */}
       <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
-        {props.model.description || t('No description available.')}
+        {modelDescription}
       </p>
 
       {/* Footer: metadata and performance summary wrap without squeezing labels */}

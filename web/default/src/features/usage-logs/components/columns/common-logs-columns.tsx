@@ -601,7 +601,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   />
                 ) : (
                   <StatusBadge
-                    label='N/A'
+                    label='-'
                     variant='neutral'
                     size='sm'
                     showDot={false}
@@ -638,7 +638,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                           <p>
                             {t('Stream Status')}: {t('Error')}
                           </p>
-                          <p>{other.stream_status.end_reason || 'unknown'}</p>
+                          <p>{other.stream_status.end_reason || t('Unknown')}</p>
                           {(other.stream_status.error_count ?? 0) > 0 && (
                             <p>
                               {t('Soft Errors')}:{' '}

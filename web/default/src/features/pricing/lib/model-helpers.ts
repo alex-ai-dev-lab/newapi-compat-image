@@ -52,3 +52,47 @@ export function replaceModelInPath(path: string, modelName: string): string {
 export function isTokenBasedModel(model: PricingModel): boolean {
   return model.quota_type === QUOTA_TYPE_VALUES.TOKEN
 }
+
+function looksLikeGeneratedVendorDescription(
+  description: string | undefined,
+  modelName: string | undefined
+): boolean {
+  if (!description) return false
+  const normalized = description.trim()
+  if (!normalized) return false
+
+  const escapedModel = String(modelName || '')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .trim()
+  if (!escapedModel) return false
+
+  const pattern = new RegExp(
+    `^${escapedModel}\\s+is\\s+an\\s+ai\\s+model\\s+provided\\s+by\\s+.+\\.?$`,
+    'i'
+  )
+
+  return pattern.test(normalized)
+}
+
+export function getModelDescription(
+  model: PricingModel,
+  t: (key: string) => string
+): string {
+  const primary = model.description?.trim()
+  if (
+    primary &&
+    !looksLikeGeneratedVendorDescription(primary, model.model_name)
+  ) {
+    return primary
+  }
+
+  const vendorDescription = model.vendor_description?.trim()
+  if (
+    vendorDescription &&
+    !looksLikeGeneratedVendorDescription(vendorDescription, model.model_name)
+  ) {
+    return vendorDescription
+  }
+
+  return t('No description available.')
+}

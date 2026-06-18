@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { getCanvasChartColors } from '@/lib/canvas-chart-colors'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
+import i18next from 'i18next'
 import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
 import type {
   QuotaDataItem,
@@ -72,6 +73,7 @@ export function processChartData(
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
+  const unknownLabel = tt('Unknown')
 
   const formatInt = (value: number) =>
     Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
@@ -225,7 +227,7 @@ export function processChartData(
   data.forEach((item) => {
     const timestamp = Number(item.created_at)
     const timeKey = formatChartTime(timestamp, timeGranularity)
-    const model = item.model_name || 'Unknown'
+    const model = item.model_name || unknownLabel
     const quota = Number(item.quota) || 0
     const count = Number(item.count) || 0
     const tokens = Number(item.token_used) || 0
@@ -755,7 +757,7 @@ export function processUserChartData(
 
   const userQuotaTotal = new Map<string, number>()
   data.forEach((item) => {
-    const username = item.username || 'unknown'
+    const username = item.username || i18next.t('Unknown')
     const prev = userQuotaTotal.get(username) || 0
     userQuotaTotal.set(username, prev + (Number(item.quota) || 0))
   })
@@ -788,7 +790,7 @@ export function processUserChartData(
     const ts = Number(item.created_at)
     const timeKey = formatChartTime(ts, timeGranularity)
     allTimePoints.add(timeKey)
-    const user = item.username || 'unknown'
+    const user = item.username || i18next.t('Unknown')
     if (!topUserSet.has(user)) return
     if (!timeUserMap.has(timeKey)) timeUserMap.set(timeKey, new Map())
     const map = timeUserMap.get(timeKey)!

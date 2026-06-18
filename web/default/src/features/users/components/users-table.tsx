@@ -196,7 +196,7 @@ export function UsersTable() {
 
   const activeRole = roleFilter[0] ?? 'all'
   const rolePillOptions = [
-    { value: 'all', label: t('All Roles') },
+    { value: 'all', label: t('All') },
     ...getUserRoleOptions(t).map((option) => ({
       value: option.value,
       label: option.label,
