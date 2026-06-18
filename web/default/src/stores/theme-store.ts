@@ -43,8 +43,8 @@ interface ThemeStore {
 const defaultTheme = {
   mode: 'system' as ThemeMode,
   fontSize: 14,
-  primaryColor: '#0070f3', // v3 primary blue
-  accentColor: '#3aa89f', // v3 teal accent (was #8b5cf6 violet)
+  primaryColor: '',
+  accentColor: '',
 }
 
 export const useThemeStore = create<ThemeStore>()(
@@ -109,67 +109,9 @@ function applyFontSize(size: number) {
   document.documentElement.style.setProperty('--font-size-base', `${size}px`)
 }
 
-// Convert hex to HSL
-function hexToHSL(hex: string): { h: number; s: number; l: number } {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return { h: 0, s: 0, l: 0 }
+function applyPrimaryColor(_color: string) {}
 
-  let r = parseInt(result[1], 16) / 255
-  let g = parseInt(result[2], 16) / 255
-  let b = parseInt(result[3], 16) / 255
-
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  let h = 0
-  let s = 0
-  const l = (max + min) / 2
-
-  if (max !== min) {
-    const d = max - min
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-    switch (max) {
-      case r:
-        h = ((g - b) / d + (g < b ? 6 : 0)) / 6
-        break
-      case g:
-        h = ((b - r) / d + 2) / 6
-        break
-      case b:
-        h = ((r - g) / d + 4) / 6
-        break
-    }
-  }
-
-  return {
-    h: Math.round(h * 360),
-    s: Math.round(s * 100),
-    l: Math.round(l * 100),
-  }
-}
-
-// Apply primary color to document
-function applyPrimaryColor(color: string) {
-  const hsl = hexToHSL(color)
-  document.documentElement.style.setProperty('--primary', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
-  // Adjust primary-foreground for contrast
-  const fgLightness = hsl.l > 50 ? 10 : 98
-  document.documentElement.style.setProperty(
-    '--primary-foreground',
-    `${hsl.h} ${hsl.s}% ${fgLightness}%`
-  )
-}
-
-// Apply accent color to document
-function applyAccentColor(color: string) {
-  const hsl = hexToHSL(color)
-  document.documentElement.style.setProperty('--accent', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
-  // Adjust accent-foreground for contrast
-  const fgLightness = hsl.l > 50 ? 10 : 98
-  document.documentElement.style.setProperty(
-    '--accent-foreground',
-    `${hsl.h} ${hsl.s}% ${fgLightness}%`
-  )
-}
+function applyAccentColor(_color: string) {}
 
 // Listen to system theme changes
 if (typeof window !== 'undefined') {

@@ -44,28 +44,24 @@ const ACCENT_CLASSES: Record<
   }
 > = {
   emerald: {
-    activeText: 'text-emerald-600 dark:text-emerald-400',
-    activeBorder: 'border-emerald-500 dark:border-emerald-400',
-    badge:
-      'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-400',
+    activeText: 'text-success',
+    activeBorder: 'border-success',
+    badge: 'bg-success/10 text-success',
   },
   amber: {
-    activeText: 'text-amber-600 dark:text-amber-400',
-    activeBorder: 'border-amber-500 dark:border-amber-400',
-    badge:
-      'bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-400',
+    activeText: 'text-warning',
+    activeBorder: 'border-warning',
+    badge: 'bg-warning/10 text-warning',
   },
   blue: {
-    activeText: 'text-blue-600 dark:text-blue-400',
-    activeBorder: 'border-blue-500 dark:border-blue-400',
-    badge:
-      'bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400',
+    activeText: 'text-chart-1',
+    activeBorder: 'border-chart-1',
+    badge: 'bg-chart-1/10 text-chart-1',
   },
   teal: {
-    activeText: 'text-teal-600 dark:text-teal-400',
-    activeBorder: 'border-teal-500 dark:border-teal-400',
-    badge:
-      'bg-teal-500/10 text-teal-600 dark:bg-teal-400/10 dark:text-teal-400',
+    activeText: 'text-primary',
+    activeBorder: 'border-primary',
+    badge: 'bg-primary/10 text-primary',
   },
 }
 
@@ -209,16 +205,15 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
     <div className={cn('mx-auto w-full max-w-2xl', props.className)}>
       <div
         className={cn(
-          'overflow-hidden rounded-2xl border backdrop-blur-sm',
-          'border-border/60 bg-white/95 shadow-[0_20px_50px_-25px_rgba(15,23,42,0.18)]',
-          'dark:border-white/[0.06] dark:bg-[#0b0f17]/95 dark:shadow-[0_20px_60px_-25px_rgba(0,0,0,0.7)]'
+          'bg-card overflow-hidden rounded-xl border backdrop-blur-sm',
+          'border-border'
         )}
       >
         {/* Tab strip */}
         <div
           className={cn(
             'flex items-center gap-1 border-b px-2 sm:gap-1.5 sm:px-3',
-            'border-border/50 dark:border-white/[0.05]'
+            'border-border/50'
           )}
         >
           {API_DEMOS.map((item, index) => {
@@ -240,7 +235,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
             )
           })}
           <div className='ml-auto flex items-center gap-2 pr-2 sm:pr-3'>
-            <span className='inline-block size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.45)]' />
+            <span className='bg-success inline-block size-1.5 rounded-full' />
             <span className='text-foreground/40 font-mono text-[10px] tracking-wider uppercase'>
               200 ok
             </span>
@@ -251,7 +246,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
         <div
           className={cn(
             'flex items-center gap-2.5 border-b px-5 py-3',
-            'border-border/40 dark:border-white/[0.04]'
+            'border-border/40'
           )}
         >
           <span
@@ -285,7 +280,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
         <div
           className={cn(
             'flex items-center justify-between border-t px-5 py-2.5',
-            'border-border/40 bg-muted/30 dark:border-white/[0.05] dark:bg-white/[0.02]'
+            'border-border/40 bg-muted/30'
           )}
         >
           <div className='text-foreground/40 flex items-center gap-3 text-[10px] tabular-nums'>
@@ -361,7 +356,7 @@ function ResponseBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
     <div
       className={cn(
         'relative border-t px-5 py-4',
-        'border-border/40 bg-muted/20 dark:border-white/[0.05] dark:bg-white/[0.015]'
+        'border-border/40 bg-muted/20'
       )}
     >
       <SectionLabel>Response</SectionLabel>
@@ -503,7 +498,7 @@ function CodeLine(props: { children: ReactNode; indent?: number }) {
 
 function Command(props: { children: ReactNode }) {
   return (
-    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
+    <span className='text-success font-medium'>
       {props.children}
     </span>
   )
@@ -511,25 +506,25 @@ function Command(props: { children: ReactNode }) {
 
 function Flag(props: { children: ReactNode }) {
   return (
-    <span className='text-blue-600 dark:text-blue-400'>{props.children}</span>
+    <span className='text-chart-1'>{props.children}</span>
   )
 }
 
 function Key(props: { children: ReactNode }) {
   return (
-    <span className='text-sky-700 dark:text-sky-300'>{props.children}</span>
+    <span className='text-foreground'>{props.children}</span>
   )
 }
 
 function StringText(props: { children: ReactNode }) {
   return (
-    <span className='text-amber-700 dark:text-amber-300'>{props.children}</span>
+    <span className='text-warning'>{props.children}</span>
   )
 }
 
 function NumberText(props: { children: ReactNode }) {
   return (
-    <span className='font-medium text-blue-600 dark:text-blue-300'>
+    <span className='text-chart-1 font-medium'>
       {props.children}
     </span>
   )
