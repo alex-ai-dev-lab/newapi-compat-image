@@ -32,7 +32,7 @@ export const PREFILL_GROUP_TYPES = [
     value: 'tag' as PrefillGroupType,
     label: 'Tag Group',
     description: 'Collections of metadata tags for bulk operations.',
-    badge: 'purple' as StatusBadgeProps['variant'],
+    badge: 'accent' as StatusBadgeProps['variant'],
   },
   {
     value: 'endpoint' as PrefillGroupType,

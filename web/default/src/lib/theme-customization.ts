@@ -129,12 +129,12 @@ export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
   scale: 'default',
   contentLayout: 'full',
   customAccentEnabled: false,
-  customAccentColor: '#2563eb',
+  customAccentColor: '#1f1f1f',
   customPaletteEnabled: false,
   customBackgroundColor: '#ffffff',
-  customSurfaceColor: '#f8fafc',
-  customSidebarColor: '#f8fafc',
-  customChartColor: '#14b8a6',
+  customSurfaceColor: '#f7f7f7',
+  customSidebarColor: '#f7f7f7',
+  customChartColor: '#f06a3d',
 }
 
 export const THEME_PRESET_VALUES = new Set(

@@ -115,7 +115,6 @@ const colorOptions = [
   { value: 'blue', label: 'Blue' },
   { value: 'green', label: 'Green' },
   { value: 'cyan', label: 'Cyan' },
-  { value: 'purple', label: 'Purple' },
   { value: 'pink', label: 'Pink' },
   { value: 'red', label: 'Red' },
   { value: 'orange', label: 'Orange' },
@@ -123,8 +122,6 @@ const colorOptions = [
   { value: 'yellow', label: 'Yellow' },
   { value: 'lime', label: 'Lime' },
   { value: 'teal', label: 'Teal' },
-  { value: 'indigo', label: 'Indigo' },
-  { value: 'violet', label: 'Violet' },
   { value: 'slate', label: 'Slate' },
 ]
 

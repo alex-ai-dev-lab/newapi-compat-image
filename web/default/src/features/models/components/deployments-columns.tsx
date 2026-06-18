@@ -299,7 +299,7 @@ export function useDeploymentsColumns(opts: {
               onClick={() => opts.onDelete(row.original)}
               title={t('Delete')}
             >
-              <Trash2 className='h-4 w-4 text-red-500' />
+              <Trash2 className='text-destructive h-4 w-4' />
             </Button>
           </div>
         )

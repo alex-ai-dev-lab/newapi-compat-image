@@ -43,7 +43,7 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
       <div className='bg-card overflow-hidden rounded-lg border'>
         <div className='p-4 sm:p-5'>
           <div className='flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left'>
-            <Skeleton className='h-16 w-16 rounded-2xl' />
+            <Skeleton className='h-16 w-16 rounded-xl' />
             <div className='space-y-3'>
               <div className='flex flex-col items-center gap-2 sm:flex-row sm:justify-start'>
                 <Skeleton className='h-8 w-48' />
@@ -102,8 +102,8 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
     <div className='bg-card overflow-hidden rounded-lg border'>
       <div className='p-3 sm:p-5'>
         <div className='flex items-center gap-3 text-left sm:gap-4'>
-          <Avatar className='ring-background h-12 w-12 rounded-xl text-sm ring-2 sm:h-16 sm:w-16 sm:rounded-2xl sm:text-lg sm:ring-4'>
-            <AvatarFallback className='bg-primary/10 text-primary rounded-xl sm:rounded-2xl'>
+          <Avatar className='ring-background h-12 w-12 rounded-xl text-sm ring-2 sm:h-16 sm:w-16 sm:text-lg sm:ring-4'>
+            <AvatarFallback className='bg-primary/10 text-primary rounded-xl'>
               {initials}
             </AvatarFallback>
           </Avatar>

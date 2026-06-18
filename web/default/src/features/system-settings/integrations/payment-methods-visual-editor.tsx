@@ -50,7 +50,7 @@ const PAYMENT_TEMPLATES = [
   {
     name: 'Alipay',
     template: {
-      color: 'rgba(var(--semi-blue-5), 1)',
+      color: 'var(--chart-1)',
       name: '支付宝',
       type: 'alipay',
     },
@@ -58,7 +58,7 @@ const PAYMENT_TEMPLATES = [
   {
     name: 'WeChat Pay',
     template: {
-      color: 'rgba(var(--semi-green-5), 1)',
+      color: 'var(--success)',
       name: '微信',
       type: 'wxpay',
     },
@@ -66,7 +66,7 @@ const PAYMENT_TEMPLATES = [
   {
     name: 'Stripe',
     template: {
-      color: 'rgba(var(--semi-green-5), 1)',
+      color: 'var(--primary)',
       name: 'Stripe',
       type: 'stripe',
     },
@@ -74,7 +74,7 @@ const PAYMENT_TEMPLATES = [
   {
     name: 'Custom',
     template: {
-      color: 'black',
+      color: 'var(--chart-1)',
       min_topup: '50',
       name: '自定义1',
       type: 'custom1',

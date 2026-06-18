@@ -504,7 +504,7 @@ export function AppearanceSettings({ defaultValues }: AppearanceSettingsProps) {
                       <Input
                         {...field}
                         disabled={!customAccentEnabled}
-                        placeholder='#2563eb'
+                        placeholder={DEFAULT_THEME_CUSTOMIZATION.customAccentColor}
                         className='font-mono'
                       />
                     </FormControl>

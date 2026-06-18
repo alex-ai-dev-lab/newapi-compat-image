@@ -82,14 +82,12 @@ const getColorPreview = (color: string) => {
 }
 
 const COLOR_PRESETS = [
-  { value: '#1677FF', label: 'Blue (Alipay)' },
-  { value: '#07C160', label: 'Green (WeChat)' },
-  { value: '#635BFF', label: 'Purple (Stripe)' },
-  { value: '#1890FF', label: 'Sky Blue' },
-  { value: '#52C41A', label: 'Lime Green' },
-  { value: 'black', label: 'Black' },
-  { value: '#FF4D4F', label: 'Red' },
-  { value: '#FFA940', label: 'Orange' },
+  { value: 'var(--primary)', label: 'Primary' },
+  { value: 'var(--chart-1)', label: 'Accent' },
+  { value: 'var(--success)', label: 'Success' },
+  { value: 'var(--warning)', label: 'Warning' },
+  { value: 'var(--destructive)', label: 'Destructive' },
+  { value: 'var(--muted-foreground)', label: 'Muted' },
 ].map((preset) => {
   const previewColor = getColorPreview(preset.value)
   return {
@@ -130,7 +128,7 @@ export function PaymentMethodDialog({
   const colorPreview = useMemo(() => {
     if (!colorValue) return null
     try {
-      // For CSS variables like rgba(var(--semi-blue-5), 1), we can't preview accurately
+      // CSS variable previews use the neutral placeholder; the saved value stays intact.
       // but we can detect common patterns
       if (colorValue.includes('var(--')) {
         return null // Can't preview CSS variables reliably

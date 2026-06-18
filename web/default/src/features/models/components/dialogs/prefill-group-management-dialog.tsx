@@ -181,7 +181,7 @@ export function PrefillGroupManagementDialog({
           <div
             className={cn(
               'prefill-dialog-panel border-border/70 bg-background flex max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden border shadow-2xl',
-              isMobile ? 'rounded-none' : 'rounded-2xl'
+              isMobile ? 'rounded-none' : 'rounded-xl'
             )}
           >
             <div

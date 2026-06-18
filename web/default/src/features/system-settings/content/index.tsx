@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SettingsPage } from '../components/settings-page'
 import type { ContentSettings, SystemOption } from '../types'
+import { DEFAULT_THEME_CUSTOMIZATION } from '@/lib/theme-customization'
 import {
   CONTENT_DEFAULT_SECTION,
   getContentSectionContent,
@@ -31,12 +32,12 @@ const defaultContentSettings: ContentSettings = {
   'theme.customization_scale': 'default',
   'theme.content_layout': 'full',
   'theme.custom_accent_enabled': false,
-  'theme.custom_accent_color': '#2563eb',
+  'theme.custom_accent_color': DEFAULT_THEME_CUSTOMIZATION.customAccentColor,
   'theme.custom_palette_enabled': false,
-  'theme.custom_background_color': '#ffffff',
-  'theme.custom_surface_color': '#f8fafc',
-  'theme.custom_sidebar_color': '#f8fafc',
-  'theme.custom_chart_color': '#14b8a6',
+  'theme.custom_background_color': DEFAULT_THEME_CUSTOMIZATION.customBackgroundColor,
+  'theme.custom_surface_color': DEFAULT_THEME_CUSTOMIZATION.customSurfaceColor,
+  'theme.custom_sidebar_color': DEFAULT_THEME_CUSTOMIZATION.customSidebarColor,
+  'theme.custom_chart_color': DEFAULT_THEME_CUSTOMIZATION.customChartColor,
   'console_setting.api_info': '[]',
   'console_setting.announcements': '[]',
   'console_setting.faq': '[]',

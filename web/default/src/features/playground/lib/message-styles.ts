@@ -30,7 +30,7 @@ export function getMessageContentStyles() {
     'group-[.is-user]:text-foreground',
     'group-[.is-user]:bg-secondary',
     'dark:group-[.is-user]:bg-muted',
-    'group-[.is-user]:rounded-3xl',
+    'group-[.is-user]:rounded-xl',
     // Assistant bubble: flat serif style (one-sided style)
     'group-[.is-assistant]:text-foreground',
     'group-[.is-assistant]:bg-transparent',

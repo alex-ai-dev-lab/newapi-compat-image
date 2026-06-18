@@ -73,7 +73,7 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
           <DataTableColumnHeader column={column} title={t('Price')} />
         ),
         cell: ({ row }) => (
-          <span className='font-semibold text-emerald-600'>
+          <span className='text-success font-semibold'>
             ${Number(row.original.plan.price_amount || 0).toFixed(2)}
           </span>
         ),
