@@ -20,7 +20,7 @@ import { useCallback, useMemo } from 'react'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SegmentedTabs } from '@/components/page-primitives'
 import { SectionPageLayout } from '@/components/layout'
 import type { NavGroup } from '@/components/layout/types'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
@@ -117,15 +117,14 @@ function UsageLogsContent() {
         <SectionPageLayout.Content>
           <div className='space-y-4'>
             {showTaskSwitcher && (
-              <Tabs value={activeCategory} onValueChange={handleSectionChange}>
-                <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
-                  {visibleSections.map((section) => (
-                    <TabsTrigger key={section} value={section}>
-                      {t(SECTION_META[section].titleKey)}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
+              <SegmentedTabs
+                value={activeCategory}
+                onValueChange={handleSectionChange}
+                options={visibleSections.map((section) => ({
+                  value: section,
+                  label: t(SECTION_META[section].titleKey),
+                }))}
+              />
             )}
             <UsageLogsTable logCategory={activeCategory} />
           </div>

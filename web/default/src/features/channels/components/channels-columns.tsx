@@ -575,7 +575,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
+                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-warning' />
                         }
                       ></TooltipTrigger>
                       <TooltipContent side='top'>
@@ -739,7 +739,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
                   >
                     <StatusBadge
                       label='IO.NET'
-                      variant='purple'
+                      variant='accent'
                       size='sm'
                       copyable={false}
                       className='cursor-pointer'

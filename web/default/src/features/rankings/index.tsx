@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { EmptyState, PageContainer, StatCard } from '@/components/page-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
@@ -56,7 +57,8 @@ export function Rankings() {
   return (
     <PublicLayout showMainContainer={false}>
       <div className='relative'>
-        <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-6 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
+        <PageTransition>
+          <PageContainer className='pt-16 sm:pt-20'>
           <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
 
           {rankingsQuery.isLoading ? (
@@ -72,33 +74,24 @@ export function Rankings() {
           ) : (
             <>
               {/* KPI Bar */}
-              <div className='grid grid-cols-3 gap-4 rounded-xl border bg-card/30 p-4'>
-                <div className='space-y-1'>
-                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
-                    {t('Total Tokens')}
-                  </div>
-                  <div className='text-foreground font-mono text-2xl font-bold tabular-nums'>
-                    {snapshot.models
-                      .reduce((sum, m) => sum + m.total_tokens, 0)
-                      .toLocaleString()}
-                  </div>
-                </div>
-                <div className='space-y-1'>
-                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
-                    {t('Active Models')}
-                  </div>
-                  <div className='text-foreground font-mono text-2xl font-bold tabular-nums'>
-                    {snapshot.models.length}
-                  </div>
-                </div>
-                <div className='space-y-1'>
-                  <div className='text-muted-foreground text-xs font-medium uppercase tracking-widest'>
-                    {t('Top Vendor')}
-                  </div>
-                  <div className='text-foreground truncate font-mono text-2xl font-bold'>
-                    {snapshot.vendors[0]?.vendor || '-'}
-                  </div>
-                </div>
+              <div className='grid gap-4 sm:grid-cols-3'>
+                <StatCard
+                  label={t('Total Tokens')}
+                  value={snapshot.models
+                    .reduce((sum, m) => sum + m.total_tokens, 0)
+                    .toLocaleString()}
+                  tone='accent'
+                />
+                <StatCard
+                  label={t('Active Models')}
+                  value={snapshot.models.length}
+                  tone='default'
+                />
+                <StatCard
+                  label={t('Top Vendor')}
+                  value={snapshot.vendors[0]?.vendor || '-'}
+                  tone='success'
+                />
               </div>
 
               {/* Side-by-side: Top Models + Market Share */}
@@ -123,6 +116,7 @@ export function Rankings() {
               />
             </>
           )}
+          </PageContainer>
         </PageTransition>
       </div>
     </PublicLayout>
@@ -142,13 +136,6 @@ function RankingsLoading() {
 function RankingsError(props: { message: string }) {
   const { t } = useTranslation()
   return (
-    <div className='bg-card rounded-xl border border-dashed px-6 py-12 text-center'>
-      <h2 className='text-foreground text-base font-semibold'>
-        {t('Unable to load rankings')}
-      </h2>
-      <p className='text-muted-foreground mx-auto mt-2 max-w-md text-sm'>
-        {props.message}
-      </p>
-    </div>
+    <EmptyState title={t('Unable to load rankings')} description={props.message} />
   )
 }

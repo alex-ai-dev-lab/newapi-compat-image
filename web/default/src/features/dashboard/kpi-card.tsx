@@ -34,7 +34,7 @@ interface KPICardProps {
 
 export function KPICard({ title, value, subtitle, icon: Icon, trend, className }: KPICardProps) {
   return (
-    <Card className={cn('transition-all hover:shadow-md', className)}>
+    <Card className={cn('transition-all', className)}>
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div className="space-y-2 flex-1">

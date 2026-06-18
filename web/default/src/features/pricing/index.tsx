@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageContainer, PageHeader } from '@/components/page-primitives'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
 import {
@@ -147,9 +148,9 @@ export function Pricing() {
   if (isLoading) {
     return (
       <PublicLayout showMainContainer={false}>
-        <div className='mx-auto w-full max-w-[1800px] px-3 pt-16 pb-8 sm:px-6 sm:pt-20 sm:pb-10 xl:px-8'>
+        <PageContainer className='pt-16 sm:pt-20'>
           <LoadingSkeleton viewMode={viewMode} />
-        </div>
+        </PageContainer>
       </PublicLayout>
     )
   }
@@ -157,31 +158,24 @@ export function Pricing() {
   return (
     <PublicLayout showMainContainer={false}>
       <div className='relative'>
-        <PageTransition className='relative mx-auto w-full max-w-[1800px] px-3 pt-16 pb-8 sm:px-6 sm:pt-20 sm:pb-10 xl:px-8'>
-          <header className='mb-6 sm:mb-8'>
-            <div className='flex items-end justify-between gap-4'>
-              <div className='min-w-0 flex-1'>
-                <p className='text-muted-foreground mb-2 text-xs font-medium tracking-widest uppercase'>
-                  {t('Models Directory')}
-                </p>
-                <h1 className='text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-bold tracking-tight'>
-                  {t('Model Square')}
-                </h1>
-                <p className='text-muted-foreground/80 mt-1.5 text-sm'>
-                  {t('This site currently has {{count}} models enabled', {
-                    count: models?.length || 0,
-                  })}
-                </p>
-              </div>
-              {filteredModels.length !== models?.length && (
-                <div className='text-muted-foreground hidden shrink-0 text-sm sm:block'>
+        <PageTransition>
+          <PageContainer className='pt-16 sm:pt-20'>
+          <PageHeader
+            title={t('Model Square')}
+            description={t('This site currently has {{count}} models enabled', {
+              count: models?.length || 0,
+            })}
+            actions={
+              filteredModels.length !== models?.length ? (
+                <div className='text-sm text-muted-foreground'>
                   {t('Showing {{filtered}} of {{total}}', {
                     filtered: filteredModels.length,
                     total: models?.length || 0,
                   })}
                 </div>
-              )}
-            </div>
+              ) : null
+            }
+          >
             <SearchBar
               value={searchInput}
               onChange={setSearchInput}
@@ -191,7 +185,7 @@ export function Pricing() {
               )}
               className='mt-4 max-w-2xl'
             />
-          </header>
+          </PageHeader>
 
           <div className='grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)]'>
             <PricingSidebar
@@ -273,6 +267,7 @@ export function Pricing() {
               showRechargePrice={showRechargePrice}
             />
           )}
+          </PageContainer>
         </PageTransition>
       </div>
     </PublicLayout>

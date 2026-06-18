@@ -166,7 +166,7 @@ export function OperationsInsightsPanel() {
 
   if (error) {
     return (
-      <section className='rounded-2xl border bg-card p-4 shadow-xs'>
+      <section className='rounded-xl border bg-card p-4'>
         <div className='flex items-center gap-2 text-sm font-medium text-destructive'>
           <AlertTriangle className='size-4' aria-hidden='true' />
           Admin operations analytics failed to load.
@@ -176,7 +176,7 @@ export function OperationsInsightsPanel() {
   }
 
   return (
-    <section className='overflow-hidden rounded-2xl border bg-card shadow-xs'>
+    <section className='overflow-hidden rounded-xl border bg-card'>
       <div className='flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5'>
         <div className='flex min-w-0 flex-col gap-1'>
           <div className='flex items-center gap-2'>

@@ -225,7 +225,7 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
 
   return (
     <>
-      <div className={cn('space-y-2.5 sm:space-y-3', props.className)}>
+      <div className={cn('space-y-4 sm:space-y-5', props.className)}>
         {toolbarNode}
         {mobileNode}
         {desktopNode}
@@ -303,13 +303,18 @@ function renderDesktop<TData>(
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-lg border transition-opacity duration-150',
+        'overflow-hidden rounded-xl border border-border bg-card transition-opacity duration-150',
         isFetchingOnly && 'pointer-events-none opacity-60',
         props.tableClassName
       )}
     >
       <Table>
-        <TableHeader className={props.tableHeaderClassName}>
+        <TableHeader
+          className={cn(
+            'bg-muted/30 [&_th]:text-muted-foreground',
+            props.tableHeaderClassName
+          )}
+        >
           {props.table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => (

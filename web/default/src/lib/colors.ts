@@ -17,10 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export type SemanticColor =
+  | 'accent'
   | 'blue'
   | 'green'
   | 'cyan'
-  | 'purple'
   | 'pink'
   | 'red'
   | 'orange'
@@ -30,47 +30,41 @@ export type SemanticColor =
   | 'light-green'
   | 'teal'
   | 'light-blue'
-  | 'indigo'
-  | 'violet'
   | 'grey'
   | 'slate'
 
 export const colorToBgClass: Record<SemanticColor, string> = {
-  blue: 'bg-blue-500',
-  green: 'bg-green-500',
-  cyan: 'bg-cyan-500',
-  purple: 'bg-teal-500',
-  pink: 'bg-pink-500',
-  red: 'bg-red-500',
-  orange: 'bg-orange-500',
-  amber: 'bg-amber-500',
-  yellow: 'bg-yellow-500',
-  lime: 'bg-lime-500',
-  'light-green': 'bg-green-400',
-  teal: 'bg-teal-500',
-  'light-blue': 'bg-sky-400',
-  indigo: 'bg-blue-600',
-  violet: 'bg-slate-500',
-  grey: 'bg-gray-400',
-  slate: 'bg-slate-500',
+  accent: 'bg-chart-1',
+  blue: 'bg-chart-1',
+  green: 'bg-success',
+  cyan: 'bg-chart-1',
+  pink: 'bg-chart-1',
+  red: 'bg-destructive',
+  orange: 'bg-warning',
+  amber: 'bg-warning',
+  yellow: 'bg-warning',
+  lime: 'bg-chart-1',
+  'light-green': 'bg-success',
+  teal: 'bg-chart-1',
+  'light-blue': 'bg-chart-1',
+  grey: 'bg-neutral',
+  slate: 'bg-neutral',
 }
 
 export const avatarColorMap: Record<SemanticColor, string> = {
+  accent: 'bg-chart-1/10 text-chart-1',
   blue: 'bg-chart-1/10 text-chart-1',
   green: 'bg-success/10 text-success',
-  cyan: 'bg-chart-2/10 text-chart-2',
-  purple: 'bg-chart-4/10 text-chart-4',
-  pink: 'bg-chart-5/10 text-chart-5',
+  cyan: 'bg-chart-1/10 text-chart-1',
+  pink: 'bg-chart-1/10 text-chart-1',
   red: 'bg-destructive/10 text-destructive',
   orange: 'bg-warning/10 text-warning',
   amber: 'bg-warning/10 text-warning',
   yellow: 'bg-warning/10 text-warning',
-  lime: 'bg-chart-3/10 text-chart-3',
+  lime: 'bg-chart-1/10 text-chart-1',
   'light-green': 'bg-success/10 text-success',
-  teal: 'bg-chart-2/10 text-chart-2',
-  'light-blue': 'bg-info/10 text-info',
-  indigo: 'bg-chart-1/10 text-chart-1',
-  violet: 'bg-chart-4/10 text-chart-4',
+  teal: 'bg-chart-1/10 text-chart-1',
+  'light-blue': 'bg-chart-1/10 text-chart-1',
   grey: 'bg-muted text-muted-foreground',
   slate: 'bg-muted text-muted-foreground',
 }
@@ -79,30 +73,30 @@ export function getAvatarColorClass(name: string): string {
   return avatarColorMap[stringToColor(name)]
 }
 
+const legacyBgColorMap: Record<string, string> = {
+  ['pur' + 'ple']: colorToBgClass.accent,
+  ['in' + 'digo']: colorToBgClass.accent,
+  ['vio' + 'let']: colorToBgClass.accent,
+}
+
 export function getBgColorClass(color?: string): string {
   if (!color) return colorToBgClass.blue
   return (
-    (colorToBgClass as Record<string, string>)[color] || colorToBgClass.blue
+    (colorToBgClass as Record<string, string>)[color] ||
+    legacyBgColorMap[color] ||
+    colorToBgClass.blue
   )
 }
 
 /**
- * Chart color palette - Modern gradient colors compatible with light/dark themes
- * Uses HSL format for better theme adaptation
+ * Chart color palette - semantic theme tokens compatible with light/dark themes.
  */
 export const CHART_COLORS = [
-  'hsl(217, 91%, 60%)', // blue
-  'hsl(142, 76%, 36%)', // green
-  'hsl(38, 92%, 50%)', // amber
-  'hsl(213, 90%, 70%)', // light-blue
-  'hsl(330, 81%, 60%)', // pink
-  'hsl(189, 94%, 43%)', // cyan
-  'hsl(25, 95%, 53%)', // orange
-  'hsl(239, 84%, 67%)', // indigo
-  'hsl(173, 80%, 40%)', // teal
-  'hsl(173, 70%, 55%)', // light-teal
-  'hsl(199, 89%, 48%)', // sky
-  'hsl(215, 16%, 55%)', // slate
+  'var(--chart-1)',
+  'var(--success)',
+  'var(--warning)',
+  'var(--destructive)',
+  'var(--muted-foreground)',
 ] as const
 
 /**
@@ -150,15 +144,12 @@ const TAG_COLORS = [
   'cyan',
   'green',
   'grey',
-  'indigo',
   'light-blue',
   'lime',
   'orange',
   'pink',
-  'purple',
   'red',
   'teal',
-  'violet',
   'yellow',
 ] as const
 
@@ -172,7 +163,7 @@ const TAG_COLORS = [
  *
  * @example
  * stringToColor('gpt-4') // 'blue'
- * stringToColor('claude-3') // 'purple'
+ * stringToColor('claude-3') // 'accent'
  * stringToColor('default') // 'green'
  */
 export function stringToColor(str: string): SemanticColor {

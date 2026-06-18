@@ -25,13 +25,7 @@ import {
 import { Database } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty'
+import { EmptyState } from '@/components/page-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
 
 interface MobileCardListProps<TData> {
@@ -73,7 +67,7 @@ function renderCellContent<TData>(cell: Cell<TData, unknown>): React.ReactNode {
 
 function ListSkeleton() {
   return (
-    <div className='divide-y overflow-hidden rounded-lg border'>
+    <div className='divide-y divide-border overflow-hidden rounded-xl border border-border bg-card'>
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className='px-3 py-2.5'>
           <div className='flex items-center justify-between'>
@@ -98,7 +92,7 @@ function ListSkeleton() {
 
 function FallbackListSkeleton() {
   return (
-    <div className='divide-y overflow-hidden rounded-lg border'>
+    <div className='divide-y divide-border overflow-hidden rounded-xl border border-border bg-card'>
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className='space-y-1.5 px-3 py-2.5'>
           {[1, 2, 3].map((j) => (
@@ -278,17 +272,11 @@ export function MobileCardList<TData>(props: MobileCardListProps<TData>) {
 
   if (!rows || rows.length === 0) {
     return (
-      <div className='rounded-lg border p-6'>
-        <Empty className='border-none p-0'>
-          <EmptyHeader>
-            <EmptyMedia variant='icon'>
-              <Database className='size-6' />
-            </EmptyMedia>
-            <EmptyTitle>{resolvedEmptyTitle}</EmptyTitle>
-            <EmptyDescription>{resolvedEmptyDescription}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
+      <EmptyState
+        icon={<Database className='size-6' />}
+        title={resolvedEmptyTitle}
+        description={resolvedEmptyDescription}
+      />
     )
   }
 
@@ -301,7 +289,10 @@ export function MobileCardList<TData>(props: MobileCardListProps<TData>) {
         return (
           <div
             key={key}
-            className={cn('bg-card px-3 py-2.5', getRowClassName?.(row))}
+            className={cn(
+              'bg-card px-3 py-3 transition-colors hover:bg-muted/40',
+              getRowClassName?.(row)
+            )}
           >
             <RowComponent row={row} />
           </div>

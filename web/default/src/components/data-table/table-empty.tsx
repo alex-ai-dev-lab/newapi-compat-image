@@ -18,13 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Database } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty'
+import { EmptyState } from '@/components/page-primitives'
 import { TableRow, TableCell } from '@/components/ui/table'
 
 interface TableEmptyProps {
@@ -71,16 +65,13 @@ export function TableEmpty({
   return (
     <TableRow>
       <TableCell colSpan={colSpan} className='h-[400px] p-0'>
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant='icon'>
-              {icon || <Database className='size-6' />}
-            </EmptyMedia>
-            <EmptyTitle>{resolvedTitle}</EmptyTitle>
-            <EmptyDescription>{resolvedDescription}</EmptyDescription>
-          </EmptyHeader>
-          {children}
-        </Empty>
+        <EmptyState
+          className='min-h-[400px] rounded-none border-0 bg-transparent'
+          icon={icon || <Database className='size-6' />}
+          title={resolvedTitle}
+          description={resolvedDescription}
+          action={children}
+        />
       </TableCell>
     </TableRow>
   )

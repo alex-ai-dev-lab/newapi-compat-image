@@ -54,9 +54,12 @@ export function TitledCard({
   descriptionClassName,
 }: TitledCardProps) {
   return (
-    <Card className={cn('gap-0 overflow-hidden py-0', className)}>
+    <Card className={cn('gap-0 overflow-hidden rounded-xl py-0', className)}>
       <CardHeader
-        className={cn('border-b p-3 !pb-3 sm:p-5 sm:!pb-5', headerClassName)}
+        className={cn(
+          'border-b border-border p-5 !pb-5 sm:p-6 sm:!pb-6',
+          headerClassName
+        )}
       >
         <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
           <div className='flex min-w-0 items-center gap-3'>
@@ -93,7 +96,7 @@ export function TitledCard({
           )}
         </div>
       </CardHeader>
-      <CardContent className={cn('p-3 sm:p-5', contentClassName)}>
+      <CardContent className={cn('p-5 sm:p-6', contentClassName)}>
         {children}
       </CardContent>
     </Card>

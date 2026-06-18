@@ -250,7 +250,7 @@ export function RechargeFormCard({
                               {formatNumber(displayValue)}
                             </div>
                             {hasDiscount && (
-                              <div className='text-xs font-medium text-green-600'>
+                              <div className='text-xs font-medium text-success'>
                                 {getDiscountLabel(discount)}
                               </div>
                             )}
@@ -258,7 +258,7 @@ export function RechargeFormCard({
                           <div className='text-muted-foreground mt-1.5 w-full text-xs sm:mt-2'>
                             Pay {formatCurrency(actualPrice)}
                             {hasDiscount && savedAmount > 0 && (
-                              <span className='text-green-600'>
+                              <span className='text-success'>
                                 {' '}
                                 • Save {formatCurrency(savedAmount)}
                               </span>

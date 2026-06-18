@@ -40,7 +40,7 @@ import { getLogTypeConfig } from '../lib/utils'
 
 const logTypeRowTint: Record<number, string> = {
   [LOG_TYPE_ENUM.ERROR]: 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-200/50 dark:border-rose-900/30',
-  [LOG_TYPE_ENUM.REFUND]: 'bg-blue-50/30 dark:bg-blue-950/15 border-blue-200/50 dark:border-blue-900/30',
+  [LOG_TYPE_ENUM.REFUND]: 'bg-chart-1/10 border-chart-1/25',
 }
 
 interface UsageLogsMobileListProps<TData> {

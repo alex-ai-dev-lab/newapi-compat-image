@@ -29,8 +29,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 import { ROLE } from '@/lib/roles'
+import { SegmentedTabs } from '@/components/page-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SectionPageLayout } from '@/components/layout'
 import { FadeIn } from '@/components/page-transition'
 import { ChannelAnalyticsDashboard } from './components/channels/channel-analytics-dashboard'
@@ -312,15 +312,14 @@ export function Dashboard() {
           {activeSection !== 'overview' && (
             <div className='flex flex-wrap items-center justify-between gap-1.5 sm:gap-2'>
               {showSectionTabs ? (
-                <Tabs value={activeSection} onValueChange={handleSectionChange}>
-                  <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
-                    {visibleSections.map((section) => (
-                      <TabsTrigger key={section} value={section}>
-                        {t(SECTION_META[section].titleKey)}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
+                <SegmentedTabs
+                  value={activeSection}
+                  onValueChange={handleSectionChange}
+                  options={visibleSections.map((section) => ({
+                    value: section,
+                    label: t(SECTION_META[section].titleKey),
+                  }))}
+                />
               ) : (
                 <div />
               )}

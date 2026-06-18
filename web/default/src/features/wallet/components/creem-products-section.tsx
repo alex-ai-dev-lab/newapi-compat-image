@@ -55,7 +55,7 @@ export function CreemProductsSection({
       {products.map((product) => (
         <Card
           key={product.productId}
-          className='hover:border-foreground/50 cursor-pointer transition-all hover:shadow-md'
+          className='hover:border-foreground/50 cursor-pointer transition-all'
           onClick={() => onProductSelect(product)}
         >
           <CardContent className='p-3 text-center sm:p-4'>
@@ -63,7 +63,7 @@ export function CreemProductsSection({
             <div className='text-muted-foreground mb-2 text-sm'>
               {t('Quota')}: {formatNumber(product.quota)}
             </div>
-            <div className='text-lg font-semibold text-blue-600'>
+            <div className='text-lg font-semibold text-chart-1'>
               {formatCreemPrice(product.price, product.currency)}
             </div>
           </CardContent>

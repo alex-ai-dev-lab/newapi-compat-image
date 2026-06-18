@@ -67,7 +67,7 @@ export function CreemConfirmDialog({
           </div>
           <div className='flex items-center justify-between'>
             <span className='text-muted-foreground'>{t('Price')}</span>
-            <span className='font-medium text-blue-600'>
+            <span className='font-medium text-chart-1'>
               {formatCreemPrice(product.price, product.currency)}
             </span>
           </div>
