@@ -55,7 +55,7 @@ export function KPICard({ title, value, subtitle, icon: Icon, trend, className }
             <span
               className={cn(
                 'font-medium',
-                trend.isPositive ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'
+                trend.isPositive ? 'text-success' : 'text-destructive'
               )}
             >
               {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value).toFixed(1)}%

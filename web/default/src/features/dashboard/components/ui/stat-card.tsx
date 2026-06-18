@@ -51,13 +51,13 @@ interface StatCardProps {
 }
 
 const TONE_CLASSES: Record<StatCardTone, string> = {
-  rose: 'from-rose-500/80 via-rose-300/70 to-rose-200/20 dark:from-rose-400/70 dark:via-rose-500/30 dark:to-rose-500/5',
-  teal: 'from-teal-500/80 via-teal-300/70 to-teal-200/20 dark:from-teal-400/70 dark:via-teal-500/30 dark:to-teal-500/5',
-  gray: 'from-muted-foreground/50 via-muted-foreground/20 to-transparent dark:from-muted-foreground/40 dark:via-muted-foreground/20',
+  rose: 'from-chart-1/80 via-chart-1/35 to-transparent',
+  teal: 'from-primary/70 via-primary/25 to-transparent',
+  gray: 'from-muted-foreground/50 via-muted-foreground/20 to-transparent',
 }
 
 const LINE_TONE_CLASSES: Record<StatCardTone, string> = {
-  rose: 'text-warning',
+  rose: 'text-chart-1',
   teal: 'text-primary',
   gray: 'text-muted-foreground',
 }

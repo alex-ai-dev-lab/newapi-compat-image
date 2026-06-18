@@ -30,9 +30,9 @@ const COLORS = [
   'var(--chart-3)',
   'var(--chart-4)',
   'var(--chart-5)',
-  'hsl(221.2 83.2% 53.3%)', // primary
-  'hsl(142.1 76.2% 36.3%)', // success
-  'hsl(47.9 95.8% 53.1%)', // warning
+  'var(--primary)',
+  'var(--success)',
+  'var(--warning)',
 ]
 
 export function ModelDistributionChart({ data }: ModelDistributionChartProps) {
@@ -66,7 +66,7 @@ export function ModelDistributionChart({ data }: ModelDistributionChartProps) {
                 `${name} ${(((percent ?? 0) as number) * 100).toFixed(0)}%`
               }
               outerRadius={80}
-              fill="#8884d8"
+              fill='var(--primary)'
               dataKey="value"
             >
               {chartData.map((_, index) => (

@@ -53,12 +53,12 @@ export function MarketShareSection(props: MarketShareSectionProps) {
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartTextColor =
     resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.68)'
-      : 'rgba(15, 23, 42, 0.58)'
+      ? 'color-mix(in oklch, var(--foreground) 68%, transparent)'
+      : 'color-mix(in oklch, var(--foreground) 58%, transparent)'
   const chartGridColor =
     resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.12)'
-      : 'rgba(15, 23, 42, 0.12)'
+      ? 'color-mix(in oklch, var(--foreground) 12%, transparent)'
+      : 'color-mix(in oklch, var(--foreground) 12%, transparent)'
 
   const colourMap = useMemo(
     () => buildVendorColourMap(props.history.vendors.map((v) => v.name)),
@@ -234,7 +234,7 @@ function VendorList(props: {
             aria-hidden
             className='size-2.5 shrink-0 rounded-full'
             style={{
-              backgroundColor: props.colourMap[vendor.vendor] ?? '#94a3b8',
+              backgroundColor: props.colourMap[vendor.vendor] ?? 'var(--border)',
             }}
           />
           <VendorLink

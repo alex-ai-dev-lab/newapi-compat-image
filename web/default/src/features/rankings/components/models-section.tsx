@@ -53,12 +53,12 @@ export function ModelsSection(props: ModelsSectionProps) {
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartTextColor =
     resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.68)'
-      : 'rgba(15, 23, 42, 0.58)'
+      ? 'color-mix(in oklch, var(--foreground) 68%, transparent)'
+      : 'color-mix(in oklch, var(--foreground) 58%, transparent)'
   const chartGridColor =
     resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.12)'
-      : 'rgba(15, 23, 42, 0.12)'
+      ? 'color-mix(in oklch, var(--foreground) 12%, transparent)'
+      : 'color-mix(in oklch, var(--foreground) 12%, transparent)'
 
   // Order points so the largest model appears at the bottom of every stack.
   const orderedPoints = useMemo(() => {
@@ -86,7 +86,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       yField: 'tokens',
       seriesField: 'model',
       stack: true,
-      color: FALLBACK_PALETTE, // v3 blue scale, explicit to avoid VChart defaults
+      color: FALLBACK_PALETTE,
       legends: { visible: false },
       axes: [
         {
@@ -211,7 +211,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       <div className='border-t'>
         <header className='px-5 pt-4 pb-2'>
           <h3 className='text-foreground inline-flex items-center gap-2 text-sm font-semibold'>
-            <Trophy className='size-3.5 text-amber-500' />
+            <Trophy className='size-3.5 text-chart-1' />
             {t('LLM Leaderboard')}
           </h3>
           <p className='text-muted-foreground/80 mt-0.5 text-xs'>

@@ -296,7 +296,7 @@ export function processChartData(
   )
   const otherColor = modelColorRange[modelColorDomain.indexOf(otherLabel)]
   const otherTooltipColor =
-    typeof otherColor === 'string' ? otherColor : '#FF8A00'
+    typeof otherColor === 'string' ? otherColor : 'var(--chart-1)'
   const modelColor = {
     type: 'ordinal',
     domain: modelColorDomain,
@@ -494,8 +494,8 @@ export function processChartData(
         style:
           chartCornerRadius == null ? {} : { cornerRadius: chartCornerRadius },
         state: {
-          hover: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
-          selected: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
+          hover: { outerRadius: 0.85, stroke: 'var(--foreground)', lineWidth: 1 },
+          selected: { outerRadius: 0.85, stroke: 'var(--foreground)', lineWidth: 1 },
         },
       },
       title: {
@@ -530,7 +530,7 @@ export function processChartData(
       color: modelColor,
       bar: {
         state: {
-          hover: { stroke: '#000', lineWidth: 1 },
+          hover: { stroke: 'var(--foreground)', lineWidth: 1 },
         },
       },
       tooltip: {
@@ -697,7 +697,7 @@ export function processChartData(
       },
       bar: {
         state: {
-          hover: { stroke: '#000', lineWidth: 1 },
+          hover: { stroke: 'var(--foreground)', lineWidth: 1 },
         },
       },
       tooltip: {
@@ -720,16 +720,16 @@ export function processChartData(
 }
 
 const USER_COLOR_FALLBACKS = [
-  '#5B8FF9',
-  '#5AD8A6',
-  '#F6BD16',
-  '#E8684A',
-  '#6DC8EC',
-  '#9270CA',
-  '#FF9D4D',
-  '#269A99',
-  '#FF99C3',
-  '#5D7092',
+  'var(--primary)',
+  'var(--chart-1)',
+  'var(--success)',
+  'var(--warning)',
+  'var(--destructive)',
+  'var(--muted-foreground)',
+  'color-mix(in oklch, var(--primary) 72%, var(--background))',
+  'color-mix(in oklch, var(--chart-1) 72%, var(--background))',
+  'color-mix(in oklch, var(--foreground) 48%, var(--background))',
+  'var(--border)',
 ]
 
 export function processUserChartData(
@@ -867,7 +867,7 @@ export function processUserChartData(
       },
       legends: { visible: false },
       bar: {
-        state: { hover: { stroke: '#000', lineWidth: 1 } },
+        state: { hover: { stroke: 'var(--foreground)', lineWidth: 1 } },
       },
       label: {
         visible: true,

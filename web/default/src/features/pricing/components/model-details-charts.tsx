@@ -51,12 +51,12 @@ function getChartThemeTokens(resolvedTheme: string) {
   return {
     textColor:
       resolvedTheme === 'dark'
-        ? 'rgba(255, 255, 255, 0.68)'
-        : 'rgba(15, 23, 42, 0.58)',
+        ? 'color-mix(in oklch, var(--foreground) 68%, transparent)'
+        : 'color-mix(in oklch, var(--foreground) 58%, transparent)',
     gridColor:
       resolvedTheme === 'dark'
-        ? 'rgba(255, 255, 255, 0.12)'
-        : 'rgba(15, 23, 42, 0.12)',
+        ? 'color-mix(in oklch, var(--foreground) 12%, transparent)'
+        : 'color-mix(in oklch, var(--foreground) 12%, transparent)',
   }
 }
 
@@ -88,7 +88,7 @@ export function LatencyTrendChart(props: {
       smooth: true,
       point: {
         visible: true,
-        style: { size: 5, stroke: '#ffffff', lineWidth: 1.5 },
+        style: { size: 5, stroke: 'var(--background)', lineWidth: 1.5 },
       },
       line: {
         style: { lineWidth: 2 },
@@ -187,18 +187,18 @@ export function UptimeTrendChart(props: {
       yField: 'uptime',
       smooth: true,
       line: {
-        style: { stroke: '#10b981', lineWidth: 2 },
+        style: { stroke: 'var(--success)', lineWidth: 2 },
       },
       point: {
         visible: true,
         style: {
           size: 5,
-          stroke: '#ffffff',
+          stroke: 'var(--background)',
           lineWidth: 1.5,
           fill: (datum: { uptime: number }) => {
-            if (datum.uptime >= 99.9) return '#10b981'
-            if (datum.uptime >= 99.0) return '#f59e0b'
-            return '#ef4444'
+            if (datum.uptime >= 99.9) return 'var(--success)'
+            if (datum.uptime >= 99.0) return 'var(--warning)'
+            return 'var(--destructive)'
           },
         },
       },
@@ -309,7 +309,7 @@ export function ThroughputBarChart(props: {
       yField: 'group',
       bar: {
         style: {
-          fill: '#0070f3', // v3 primary blue (was #6366f1 indigo)
+          fill: 'var(--primary)',
           ...(barRadius == null ? {} : { cornerRadius: barRadius }),
         },
       },
