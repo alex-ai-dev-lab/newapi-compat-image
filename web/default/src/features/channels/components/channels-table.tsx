@@ -86,6 +86,10 @@ export function ChannelsTable() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     models: false,
     tag: false,
+    id: false,
+    priority: false,
+    weight: false,
+    test_time: false,
   })
   const [rowSelection, setRowSelection] = useState({})
   const [expanded, setExpanded] = useState<ExpandedState>({})
@@ -391,7 +395,6 @@ export function ChannelsTable() {
             emptyTitle={t('未找到渠道')}
             emptyDescription={t('当前没有可用渠道，请先创建第一个渠道。')}
             skeletonKeyPrefix='channel-skeleton'
-            applyHeaderSize
             toolbarProps={{
               searchPlaceholder: t('按名称、ID 或密钥筛选...'),
               additionalSearch: (

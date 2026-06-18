@@ -167,7 +167,10 @@ export type DataTablePageProps<TData> = {
 
   /**
    * Render pagination via `PageFooterPortal` (sticks to page footer).
-   * Defaults to `true`. Set `false` to render inline below the table.
+   * Defaults to `false` — pagination renders inline at the bottom of the
+   * table card so it stays anchored to the table instead of floating in the
+   * page footer (which could overlap rows in internal scroll containers).
+   * Set `true` to opt back into the footer portal.
    */
   paginationInFooter?: boolean
 
@@ -219,9 +222,20 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const showMobile = isMobile && !props.hideMobile
 
+  // Pagination defaults to inline (rendered inside the table card on desktop)
+  // so it stays anchored to the table bottom instead of floating in the page
+  // footer portal, which could overlap data-dense rows in scroll containers.
+  const paginationInFooter = props.paginationInFooter === true
+  const showPagination = props.showPagination !== false
+  // On desktop, inline pagination is rendered inside the table card; on mobile
+  // (or when the footer portal is explicitly requested) it renders separately.
+  const inlineDesktopPagination = showPagination && !paginationInFooter
+
   const toolbarNode = renderToolbar(props)
   const mobileNode = renderMobile(props, showMobile)
-  const desktopNode = renderDesktop(props, showMobile)
+  const desktopNode = renderDesktop(props, showMobile, {
+    showPagination: inlineDesktopPagination && !showMobile,
+  })
 
   return (
     <>
@@ -236,16 +250,19 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
           handle its own visibility, we just gate it to non-mobile. */}
       {!showMobile && props.bulkActions}
 
-      {props.showPagination !== false &&
-        (props.paginationInFooter !== false ? (
-          <PageFooterPortal>
-            <DataTablePagination table={props.table} />
-          </PageFooterPortal>
-        ) : (
-          <div className='pt-2'>
-            <DataTablePagination table={props.table} />
-          </div>
-        ))}
+      {showPagination && paginationInFooter && (
+        <PageFooterPortal>
+          <DataTablePagination table={props.table} />
+        </PageFooterPortal>
+      )}
+
+      {/* Mobile inline pagination (desktop inline pagination is rendered
+          inside the table card by renderDesktop). */}
+      {showPagination && !paginationInFooter && showMobile && (
+        <div className='pt-2'>
+          <DataTablePagination table={props.table} />
+        </div>
+      )}
     </>
   )
 }
@@ -293,12 +310,14 @@ function renderMobile<TData>(
 
 function renderDesktop<TData>(
   props: DataTablePageProps<TData>,
-  showMobile: boolean
+  showMobile: boolean,
+  options?: { showPagination?: boolean }
 ): React.ReactNode {
   if (showMobile) return null
 
   const rows = props.table.getRowModel().rows
   const isFetchingOnly = props.isFetching && !props.isLoading
+  const showInlinePagination = options?.showPagination === true
 
   return (
     <div
@@ -308,67 +327,74 @@ function renderDesktop<TData>(
         props.tableClassName
       )}
     >
-      <Table>
-        <TableHeader
-          className={cn(
-            'bg-muted/35 [&_th]:text-muted-foreground',
-            props.tableHeaderClassName
-          )}
-        >
-          {props.table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  colSpan={header.colSpan}
-                  style={
-                    props.applyHeaderSize
-                      ? { width: header.getSize() }
-                      : undefined
-                  }
-                >
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {props.isLoading ? (
-            <TableSkeleton
-              table={props.table}
-              keyPrefix={props.skeletonKeyPrefix}
-            />
-          ) : rows.length === 0 ? (
-            <TableEmpty
-              colSpan={props.columns.length}
-              title={props.emptyTitle}
-              description={props.emptyDescription}
-              icon={props.emptyIcon}
-            >
-              {props.emptyAction}
-            </TableEmpty>
-          ) : (
-            rows.map((row) => {
-              if (props.renderRow) {
-                return props.renderRow(row)
-              }
-              return (
-                <DefaultRow
-                  key={row.id}
-                  row={row}
-                  className={props.getRowClassName?.(row, { isMobile: false })}
-                />
-              )
-            })
-          )}
-        </TableBody>
-      </Table>
+      <div className='overflow-x-auto'>
+        <Table>
+          <TableHeader
+            className={cn(
+              'bg-muted/35 [&_th]:text-muted-foreground',
+              props.tableHeaderClassName
+            )}
+          >
+            {props.table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    colSpan={header.colSpan}
+                    style={
+                      props.applyHeaderSize
+                        ? { width: header.getSize() }
+                        : undefined
+                    }
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {props.isLoading ? (
+              <TableSkeleton
+                table={props.table}
+                keyPrefix={props.skeletonKeyPrefix}
+              />
+            ) : rows.length === 0 ? (
+              <TableEmpty
+                colSpan={props.columns.length}
+                title={props.emptyTitle}
+                description={props.emptyDescription}
+                icon={props.emptyIcon}
+              >
+                {props.emptyAction}
+              </TableEmpty>
+            ) : (
+              rows.map((row) => {
+                if (props.renderRow) {
+                  return props.renderRow(row)
+                }
+                return (
+                  <DefaultRow
+                    key={row.id}
+                    row={row}
+                    className={props.getRowClassName?.(row, { isMobile: false })}
+                  />
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      {showInlinePagination && (
+        <div className='border-t border-border bg-card px-4 py-3'>
+          <DataTablePagination table={props.table} />
+        </div>
+      )}
     </div>
   )
 }
