@@ -59,7 +59,7 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
       items: getSiteSectionNavItems(t),
     },
     auth: {
-      title: t('Access & Identity'),
+      title: t('访问与身份'),
       icon: Shield,
       items: getAuthSectionNavItems(t),
     },
@@ -74,17 +74,17 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
       items: getModelsSectionNavItems(t),
     },
     security: {
-      title: t('Security & Risk Control'),
+      title: t('安全与风控'),
       icon: ShieldAlert,
       items: getSecuritySectionNavItems(t),
     },
     content: {
-      title: t('Console & Display'),
+      title: t('控制台与展示'),
       icon: Layout,
       items: getContentSectionNavItems(t),
     },
     operations: {
-      title: t('Operations & Maintenance'),
+      title: t('运维与操作'),
       icon: Wrench,
       items: getOperationsSectionNavItems(t),
     },

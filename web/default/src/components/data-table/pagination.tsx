@@ -57,7 +57,7 @@ export function DataTablePagination<TData>({
     >
       <div className='flex w-full items-center justify-between gap-2'>
         <div className='flex min-w-0 items-center text-xs font-medium whitespace-nowrap sm:min-w-[130px] sm:text-sm @2xl/content:hidden'>
-          {t('Page {{current}} of {{total}}', {
+          {t('第 {{current}} 页，共 {{total}} 页', {
             current: currentPage,
             total: totalPages,
           })}
@@ -89,14 +89,14 @@ export function DataTablePagination<TData>({
             </SelectContent>
           </Select>
           <p className='hidden text-sm font-medium sm:block'>
-            {t('Rows per page')}
+            {t('每页行数')}
           </p>
         </div>
       </div>
 
       <div className='flex items-center sm:space-x-6 lg:space-x-8'>
         <div className='flex min-w-[130px] items-center text-sm font-medium whitespace-nowrap @max-3xl/content:hidden'>
-          {t('Page {{current}} of {{total}}', {
+          {t('第 {{current}} 页，共 {{total}} 页', {
             current: currentPage,
             total: totalPages,
           })}
@@ -108,7 +108,7 @@ export function DataTablePagination<TData>({
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
           >
-            <span className='sr-only'>{t('Go to first page')}</span>
+            <span className='sr-only'>{t('前往首页')}</span>
             <DoubleArrowLeftIcon className='h-4 w-4' />
           </Button>
           <Button
@@ -117,7 +117,7 @@ export function DataTablePagination<TData>({
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
-            <span className='sr-only'>{t('Go to previous page')}</span>
+            <span className='sr-only'>{t('前往上一页')}</span>
             <ChevronLeftIcon className='h-4 w-4' />
           </Button>
 
@@ -133,7 +133,7 @@ export function DataTablePagination<TData>({
                   onClick={() => table.setPageIndex((pageNumber as number) - 1)}
                 >
                   <span className='sr-only'>
-                    {t('Go to page {{page}}', { page: pageNumber })}
+                    {t('前往第 {{page}} 页', { page: pageNumber })}
                   </span>
                   {pageNumber}
                 </Button>
@@ -147,7 +147,7 @@ export function DataTablePagination<TData>({
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
-            <span className='sr-only'>{t('Go to next page')}</span>
+            <span className='sr-only'>{t('前往下一页')}</span>
             <ChevronRightIcon className='h-4 w-4' />
           </Button>
           <Button
@@ -156,7 +156,7 @@ export function DataTablePagination<TData>({
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
           >
-            <span className='sr-only'>{t('Go to last page')}</span>
+            <span className='sr-only'>{t('前往末页')}</span>
             <DoubleArrowRightIcon className='h-4 w-4' />
           </Button>
         </div>

@@ -27,11 +27,11 @@ interface TimeRangeSelectorProps {
 }
 
 const TIME_RANGES: { value: TimeRange; label: string }[] = [
-  { value: '1d', label: '1 Day' },
-  { value: '7d', label: '7 Days' },
-  { value: '30d', label: '30 Days' },
-  { value: '1y', label: '1 Year' },
-  { value: 'all', label: 'All Time' },
+  { value: '1d', label: '1 天' },
+  { value: '7d', label: '7 天' },
+  { value: '30d', label: '30 天' },
+  { value: '1y', label: '1 年' },
+  { value: 'all', label: '全部时间' },
 ]
 
 export function TimeRangeSelector({ value, onChange, className }: TimeRangeSelectorProps) {

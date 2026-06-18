@@ -59,7 +59,7 @@ function formatLastUpdated(timestamp?: number): string | null {
   if (!timestamp) return null
   const updatedAt = new Date(timestamp)
   if (Number.isNaN(updatedAt.getTime())) return null
-  return `Updated ${updatedAt.toLocaleTimeString('en-US', {
+  return `已更新 ${updatedAt.toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -88,8 +88,8 @@ export function AutoRefreshToggle({
           size='icon-sm'
           onClick={() => onRefresh()}
           disabled={isRefreshing}
-          aria-label='Refresh statistics'
-          title='Refresh statistics'
+          aria-label='刷新统计'
+          title='刷新统计'
         >
           <RefreshCw
             className={cn('size-4', isRefreshing && 'animate-spin')}
@@ -104,7 +104,7 @@ export function AutoRefreshToggle({
       )}
       <Switch id={id} checked={value} onCheckedChange={onChange} />
       <Label htmlFor={id} className="text-sm text-muted-foreground cursor-pointer">
-        Auto Refresh
+        自动刷新
       </Label>
       {onIntervalChange ? (
         <Select
