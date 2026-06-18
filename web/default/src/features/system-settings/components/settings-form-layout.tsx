@@ -44,7 +44,7 @@ type SettingsSwitchFieldProps = SettingsSwitchRowProps & {
 }
 
 const settingsSwitchRowClassName =
-  'flex min-w-0 flex-row items-start justify-between gap-4 border-b border-border/70 py-4 last:border-b-0'
+  'flex min-w-0 flex-row items-start justify-between gap-5 rounded-xl border border-border/70 bg-card px-4 py-4.5 shadow-[0_1px_0_0_theme(colors.border)]'
 
 export function SettingsFormGrid(props: SettingsFormGridProps) {
   return (
@@ -122,6 +122,7 @@ export function SettingsSwitchField({
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
+        className='mt-0.5'
       />
     </SettingsSwitchRow>
   )
@@ -129,7 +130,7 @@ export function SettingsSwitchField({
 
 export function SettingsSwitchContent(props: SettingsFormGridProps) {
   return (
-    <div className={cn('min-w-0 space-y-0.5', props.className)}>
+    <div className={cn('min-w-0 space-y-1', props.className)}>
       {props.children}
     </div>
   )
@@ -143,7 +144,7 @@ export function SettingsControlGroup({
     <div
       data-settings-form-span='full'
       className={cn(
-        'bg-muted/20 border-border/70 min-w-0 space-y-4 rounded-xl border px-4 py-4',
+        'bg-muted/20 border-border/70 min-w-0 space-y-4 rounded-xl border px-4 py-4.5',
         className
       )}
       {...props}
@@ -167,13 +168,15 @@ export function SettingsForm({ className, ...props }: ComponentProps<'form'>) {
   return (
     <form
       className={cn(
-        'grid min-w-0 gap-x-5 gap-y-6 lg:grid-cols-2',
+        'grid min-w-0 gap-x-5 gap-y-7 lg:grid-cols-2',
         'lg:[&>*:not([data-slot=form-item])]:col-span-2',
         'lg:[&>[data-settings-form-span=full]]:col-span-2',
         'lg:[&>[data-slot=alert]]:col-span-2',
         '[&>[data-slot=form-item]]:min-w-0',
         'lg:[&>[data-slot=form-item]:has(textarea)]:col-span-2',
         'lg:[&>[data-slot=form-item]:has([data-slot=switch])]:col-span-2',
+        '[&_[data-slot=form-item]]:space-y-2.5',
+        '[&_[data-slot=form-item]>label]:text-sm [&_[data-slot=form-item]>label]:font-medium',
         className
       )}
       {...props}

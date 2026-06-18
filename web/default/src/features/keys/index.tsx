@@ -30,9 +30,7 @@ export function ApiKeys() {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Description>
-          {t(
-            'Audit key status, quota remaining, and access controls in a scan-friendly ledger.'
-          )}
+          {t('Audit key status, remaining quota, and access control in one ledger.')}
         </SectionPageLayout.Description>
         <SectionPageLayout.Actions>
           <ApiKeysPrimaryButtons />

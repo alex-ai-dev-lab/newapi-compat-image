@@ -34,7 +34,7 @@ function UsersContent() {
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
         <SectionPageLayout.Description>
           {t(
-            'Review account status, quota posture, and access roles with a denser operational view.'
+            'Review account status, quota posture, and access roles from one operational view.'
           )}
         </SectionPageLayout.Description>
         <SectionPageLayout.Actions>

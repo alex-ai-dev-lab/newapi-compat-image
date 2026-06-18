@@ -378,7 +378,7 @@ export function ChannelsTable() {
       <ChannelsStats channels={channels} />
 
       <SectionCard
-        title={t('Channel Registry')}
+        title={t('Channel Ledger')}
         description={t(
           'Search by endpoint identity, narrow by status and routing group, then batch operate on the filtered result set.'
         )}

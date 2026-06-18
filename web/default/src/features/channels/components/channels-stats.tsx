@@ -46,24 +46,24 @@ export function ChannelsStats({ channels }: { channels: Channel[] }) {
       <StatCard
         label={t('Total Channels')}
         value={leafChannels.length}
-        description={t('All configured upstream connectors')}
+        description={t('当前结果中的全部上游渠道')}
       />
       <StatCard
         label={t('Enabled')}
         value={enabledChannels.length}
-        description={t('Ready to serve traffic')}
+        description={t('当前可承接流量的渠道')}
         tone='success'
       />
       <StatCard
         label={t('Abnormal')}
         value={abnormalChannels.length}
-        description={t('Disabled, risky, or degraded channels')}
+        description={t('已禁用、异常或降级的渠道')}
         tone={abnormalChannels.length > 0 ? 'destructive' : 'default'}
       />
       <StatCard
         label={t('Avg. Latency')}
         value={formatLatency(averageLatency)}
-        description={t('Mean response time of active channels')}
+        description={t('启用渠道的平均响应时间')}
         tone='accent'
       />
     </div>

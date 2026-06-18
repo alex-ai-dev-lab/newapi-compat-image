@@ -37,24 +37,24 @@ export function ModelsStats({
       <StatCard
         label={t('Total Models')}
         value={models.length}
-        description={t('Metadata entries in the current result set')}
+        description={t('当前结果中的模型元数据条目')}
       />
       <StatCard
         label={t('Enabled')}
         value={enabledModels.length}
-        description={t('Visible for routing and matching')}
+        description={t('可用于路由与匹配的模型')}
         tone='success'
       />
       <StatCard
         label={t('Official Sync')}
         value={syncedModels.length}
-        description={t('Receiving upstream sync updates')}
+        description={t('正在接收上游同步更新')}
         tone='accent'
       />
       <StatCard
         label={t('Active Vendors')}
         value={activeVendorIds.size || vendors.length}
-        description={t('Suppliers represented in this view')}
+        description={t('当前视图中覆盖的供应商')}
       />
     </div>
   )

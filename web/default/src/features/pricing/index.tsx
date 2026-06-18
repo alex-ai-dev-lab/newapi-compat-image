@@ -161,7 +161,7 @@ export function Pricing() {
         <PageTransition>
           <PageContainer className='pt-16 sm:pt-20'>
           <PageHeader
-            title={t('Model Square')}
+            title={t('Model Plaza')}
             description={t('This site currently has {{count}} models enabled', {
               count: models?.length || 0,
             })}
@@ -181,7 +181,7 @@ export function Pricing() {
               onChange={setSearchInput}
               onClear={clearSearch}
               placeholder={t(
-                'Search model name, provider, endpoint, or tag...'
+                '搜索模型名称、供应商、端点或标签...'
               )}
               className='mt-4 max-w-2xl'
             />

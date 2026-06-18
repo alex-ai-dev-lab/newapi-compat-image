@@ -124,7 +124,7 @@ function ModelsContent() {
         <SectionPageLayout.Description>
           {t(
             activeSection === 'metadata'
-              ? 'Curate model catalog metadata, suppliers, and sync state in a single operator view.'
+              ? 'Curate model catalog metadata, vendors, and sync state in one workspace.'
               : 'Monitor deployment inventory and runtime availability without leaving the admin workspace.'
           )}
         </SectionPageLayout.Description>

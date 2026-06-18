@@ -43,24 +43,24 @@ export function RedemptionsStats({
       <StatCard
         label={t('Total Codes')}
         value={redemptions.length}
-        description={t('Codes matching the current filter set')}
+        description={t('当前筛选结果中的兑换码总数')}
       />
       <StatCard
         label={t('Unused')}
         value={available.length}
-        description={t('Available for redemption')}
+        description={t('仍可被兑换的兑换码')}
         tone='success'
       />
       <StatCard
         label={t('Used')}
         value={used.length}
-        description={t('Already redeemed by a user')}
+        description={t('已经被用户兑换')}
         tone='accent'
       />
       <StatCard
         label={t('Expired')}
         value={expired.length}
-        description={t('Past expiry or no longer redeemable')}
+        description={t('已过期或不再可兑换')}
         tone={expired.length > 0 ? 'warning' : 'default'}
       />
     </div>

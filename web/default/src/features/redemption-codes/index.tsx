@@ -32,9 +32,7 @@ export function Redemptions() {
           {t('Redemption Codes')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Description>
-          {t(
-            'Track inventory, expiry, and redemption state with a cleaner operations-oriented voucher ledger.'
-          )}
+          {t('Track inventory, expiry, and redemption status in one ledger.')}
         </SectionPageLayout.Description>
         <SectionPageLayout.Actions>
           <RedemptionsPrimaryButtons />

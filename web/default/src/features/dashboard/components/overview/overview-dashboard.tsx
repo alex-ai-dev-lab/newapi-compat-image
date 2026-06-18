@@ -337,12 +337,12 @@ function RequestPreview(props: {
           </span>
           <div className='min-w-0'>
             <div className='truncate text-sm font-medium'>
-              {t('First API request')}
+              {t('Dashboard first API request')}
             </div>
             <div className='text-muted-foreground truncate text-xs'>
               {props.example.ready
                 ? props.example.keyName
-                : t('Create an API key to unlock the real request')}
+                : t('Dashboard create an API key to unlock the real request')}
             </div>
           </div>
         </div>
@@ -561,17 +561,17 @@ export function OverviewDashboard() {
   const heroSignals = useMemo<HeroSignal[]>(
     () => [
       {
-        label: t('Route active'),
+        label: t('Dashboard route active'),
         value: apiInfoItems.length > 0 ? t('Online') : t('Current domain'),
         icon: RadioTower,
       },
       {
-        label: t('Auth configured'),
+        label: t('Dashboard auth configured'),
         value: preferredKey ? t('Secured') : t('Needs API key'),
         icon: ShieldCheck,
       },
       {
-        label: t('Model selected'),
+        label: t('Dashboard model selected'),
         value: modelsQuery.data?.[0] ?? t('Loading'),
         icon: Timer,
       },
@@ -700,11 +700,11 @@ export function OverviewDashboard() {
                     <div className='flex items-center gap-2'>
                       <h3 className='truncate text-sm font-semibold'>
                         {setupComplete
-                          ? t('Setup guide complete')
+                          ? t('Dashboard setup guide complete')
                           : t('Setup guide')}
                       </h3>
                       <span className='text-muted-foreground bg-background/60 rounded-md border px-2 py-0.5 text-xs'>
-                        {t('Setup progress: {{completed}}/{{total}}', {
+                        {t('Dashboard setup progress: {{completed}}/{{total}}', {
                           completed: completedStepCount,
                           total: startSteps.length,
                         })}

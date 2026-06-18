@@ -37,24 +37,24 @@ export function ApiKeysStats({ apiKeys }: { apiKeys: ApiKey[] }) {
       <StatCard
         label={t('Total Keys')}
         value={apiKeys.length}
-        description={t('Keys returned by the current query')}
+        description={t('当前查询返回的密钥总数')}
       />
       <StatCard
         label={t('Enabled')}
         value={enabled.length}
-        description={t('Ready for request traffic')}
+        description={t('当前可用于请求流量')}
         tone='success'
       />
       <StatCard
         label={t('Quota-limited')}
         value={limited.length}
-        description={t('Track usage against a finite quota')}
+        description={t('需要按有限额度跟踪用量')}
         tone='accent'
       />
       <StatCard
         label={t('Exhausted')}
         value={exhausted.length}
-        description={t('Disabled due to quota depletion or expiry')}
+        description={t('因额度耗尽或过期而不可用')}
         tone={exhausted.length > 0 ? 'warning' : 'default'}
       />
     </div>

@@ -179,19 +179,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
 
   return (
     <SectionCard
-      title={isCommon ? t('Request Timeline') : t('Async Job Timeline')}
-      description={
-        isCommon
-          ? t(
-              'Wide-screen audit table for cost, model choice, latency, and operator signals.'
-            )
-          : t(
-              'Submission, progress, and failure details stay visible without collapsing the table density.'
-            )
-      }
       contentClassName='p-0'
     >
-      <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
+      <div className='p-4 sm:p-5'>
         <DataTablePage
           table={table}
           columns={columns as ColumnDef<Record<string, unknown>>[]}

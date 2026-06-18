@@ -136,6 +136,9 @@ function RankingsLoading() {
 function RankingsError(props: { message: string }) {
   const { t } = useTranslation()
   return (
-    <EmptyState title={t('Unable to load rankings')} description={props.message} />
+    <EmptyState
+      title={t('Unable to load rankings')}
+      description={props.message}
+    />
   )
 }
