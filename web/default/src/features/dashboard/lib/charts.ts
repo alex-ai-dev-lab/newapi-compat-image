@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/theme/color-scheme/builtin/default'
+import { getCanvasChartColors } from '@/lib/canvas-chart-colors'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
 import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
@@ -38,43 +38,12 @@ type TooltipLineItem = {
   shapeSize?: number
 }
 
-const THEME_CHART_COLOR_VARIABLES = [
-  '--chart-1',
-  '--chart-2',
-  '--chart-3',
-  '--chart-4',
-  '--chart-5',
-] as const
-
-function getThemeChartColors(themeKey?: string): string[] {
-  if (typeof document === 'undefined') return []
-  void themeKey
-
-  const bodyStyle = window.getComputedStyle(document.body)
-  const rootStyle = window.getComputedStyle(document.documentElement)
-
-  return THEME_CHART_COLOR_VARIABLES.map((name) => {
-    return (
-      bodyStyle.getPropertyValue(name) || rootStyle.getPropertyValue(name)
-    ).trim()
-  }).filter(Boolean)
-}
-
 function getVChartDefaultColors(domainLength: number, themeKey?: string) {
-  const themeColors = getThemeChartColors(themeKey)
-  if (themeColors.length > 0) {
-    return Array.from(
-      { length: Math.max(domainLength, themeColors.length) },
-      (_, index) => themeColors[index % themeColors.length]
-    )
-  }
-
-  const scheme =
-    vchartDefaultDataScheme.find(
-      (item) => !item.maxDomainLength || domainLength <= item.maxDomainLength
-    ) ?? vchartDefaultDataScheme[vchartDefaultDataScheme.length - 1]
-
-  return scheme.scheme
+  const themeColors = getCanvasChartColors(themeKey).series
+  return Array.from(
+    { length: Math.max(domainLength, themeColors.length) },
+    (_, index) => themeColors[index % themeColors.length]
+  )
 }
 
 function renderQuotaCompat(rawQuota: number, digits = 4): string {
@@ -294,9 +263,10 @@ export function processChartData(
     modelColorDomain.length,
     themeKey
   )
+  const chartColors = getCanvasChartColors(themeKey)
   const otherColor = modelColorRange[modelColorDomain.indexOf(otherLabel)]
   const otherTooltipColor =
-    typeof otherColor === 'string' ? otherColor : 'var(--chart-1)'
+    typeof otherColor === 'string' ? otherColor : chartColors.chart1
   const modelColor = {
     type: 'ordinal',
     domain: modelColorDomain,
@@ -494,8 +464,16 @@ export function processChartData(
         style:
           chartCornerRadius == null ? {} : { cornerRadius: chartCornerRadius },
         state: {
-          hover: { outerRadius: 0.85, stroke: 'var(--foreground)', lineWidth: 1 },
-          selected: { outerRadius: 0.85, stroke: 'var(--foreground)', lineWidth: 1 },
+          hover: {
+            outerRadius: 0.85,
+            stroke: chartColors.foreground,
+            lineWidth: 1,
+          },
+          selected: {
+            outerRadius: 0.85,
+            stroke: chartColors.foreground,
+            lineWidth: 1,
+          },
         },
       },
       title: {
@@ -530,7 +508,7 @@ export function processChartData(
       color: modelColor,
       bar: {
         state: {
-          hover: { stroke: 'var(--foreground)', lineWidth: 1 },
+          hover: { stroke: chartColors.foreground, lineWidth: 1 },
         },
       },
       tooltip: {
@@ -697,7 +675,7 @@ export function processChartData(
       },
       bar: {
         state: {
-          hover: { stroke: 'var(--foreground)', lineWidth: 1 },
+          hover: { stroke: chartColors.foreground, lineWidth: 1 },
         },
       },
       tooltip: {
@@ -719,19 +697,6 @@ export function processChartData(
   }
 }
 
-const USER_COLOR_FALLBACKS = [
-  'var(--primary)',
-  'var(--chart-1)',
-  'var(--success)',
-  'var(--warning)',
-  'var(--destructive)',
-  'var(--muted-foreground)',
-  'color-mix(in oklch, var(--primary) 72%, var(--background))',
-  'color-mix(in oklch, var(--chart-1) 72%, var(--background))',
-  'color-mix(in oklch, var(--foreground) 48%, var(--background))',
-  'var(--border)',
-]
-
 export function processUserChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
@@ -742,14 +707,12 @@ export function processUserChartData(
   const tt: TFunction = t ?? ((x) => x)
   const { config } = getCurrencyDisplay()
   const quotaPerUnit = config.quotaPerUnit
-  const themeUserColors = getThemeChartColors(themeKey)
-  const userColorRange =
-    themeUserColors.length > 0
-      ? Array.from(
-          { length: Math.max(limit, themeUserColors.length) },
-          (_, index) => themeUserColors[index % themeUserColors.length]
-        )
-      : USER_COLOR_FALLBACKS
+  const chartColors = getCanvasChartColors(themeKey)
+  const themeUserColors = chartColors.series
+  const userColorRange = Array.from(
+    { length: Math.max(limit, themeUserColors.length) },
+    (_, index) => themeUserColors[index % themeUserColors.length]
+  )
 
   const formatVal = (raw: number) => renderQuotaCompat(raw, 2)
 
@@ -867,7 +830,7 @@ export function processUserChartData(
       },
       legends: { visible: false },
       bar: {
-        state: { hover: { stroke: 'var(--foreground)', lineWidth: 1 } },
+        state: { hover: { stroke: chartColors.foreground, lineWidth: 1 } },
       },
       label: {
         visible: true,

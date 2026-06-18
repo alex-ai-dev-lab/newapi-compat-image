@@ -20,6 +20,7 @@ import { useMemo } from 'react'
 import { VChart } from '@visactor/react-vchart'
 import { PieChart } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { getCanvasChartColors } from '@/lib/canvas-chart-colors'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { formatShare, formatTokens } from '../lib/format'
@@ -51,18 +52,18 @@ type MarketShareSectionProps = {
 export function MarketShareSection(props: MarketShareSectionProps) {
   const { t } = useTranslation()
   const { resolvedTheme, themeReady } = useChartTheme()
-  const chartTextColor =
-    resolvedTheme === 'dark'
-      ? 'color-mix(in oklch, var(--foreground) 68%, transparent)'
-      : 'color-mix(in oklch, var(--foreground) 58%, transparent)'
-  const chartGridColor =
-    resolvedTheme === 'dark'
-      ? 'color-mix(in oklch, var(--foreground) 12%, transparent)'
-      : 'color-mix(in oklch, var(--foreground) 12%, transparent)'
+  const chartColors = useMemo(
+    () => getCanvasChartColors(resolvedTheme),
+    [resolvedTheme]
+  )
 
   const colourMap = useMemo(
-    () => buildVendorColourMap(props.history.vendors.map((v) => v.name)),
-    [props.history]
+    () =>
+      buildVendorColourMap(
+        props.history.vendors.map((v) => v.name),
+        chartColors
+      ),
+    [chartColors, props.history]
   )
 
   const orderedPoints = useMemo(() => {
@@ -92,7 +93,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
         {
           orient: 'bottom',
           label: {
-            style: { fill: chartTextColor, fontSize: 10 },
+            style: { fill: chartColors.text, fontSize: 10 },
             autoHide: true,
             autoLimit: true,
           },
@@ -105,11 +106,11 @@ export function MarketShareSection(props: MarketShareSectionProps) {
           label: {
             formatMethod: (val: number | string) =>
               `${Math.round(Number(val) * 100)}%`,
-            style: { fill: chartTextColor, fontSize: 10 },
+            style: { fill: chartColors.text, fontSize: 10 },
           },
           grid: {
             visible: true,
-            style: { lineDash: [3, 3], stroke: chartGridColor },
+            style: { lineDash: [3, 3], stroke: chartColors.grid },
           },
         },
       ],
@@ -152,7 +153,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
       },
       animationAppear: { duration: 500 },
     }
-  }, [chartGridColor, chartTextColor, colourMap, orderedPoints])
+  }, [chartColors, colourMap, orderedPoints])
 
   const visible = props.rows.slice(0, MAX_VENDORS_IN_LIST)
   const half = Math.ceil(visible.length / 2)
@@ -208,9 +209,17 @@ export function MarketShareSection(props: MarketShareSectionProps) {
           </div>
         ) : (
           <div className='grid grid-cols-1 gap-x-8 px-5 pt-1 pb-4 md:grid-cols-2'>
-            <VendorList rows={left} colourMap={colourMap} />
+            <VendorList
+              rows={left}
+              colourMap={colourMap}
+              fallbackColor={chartColors.border}
+            />
             {right.length > 0 && (
-              <VendorList rows={right} colourMap={colourMap} />
+              <VendorList
+                rows={right}
+                colourMap={colourMap}
+                fallbackColor={chartColors.border}
+              />
             )}
           </div>
         )}
@@ -222,6 +231,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
 function VendorList(props: {
   rows: VendorRanking[]
   colourMap: Record<string, string>
+  fallbackColor: string
 }) {
   return (
     <ul>
@@ -234,7 +244,8 @@ function VendorList(props: {
             aria-hidden
             className='size-2.5 shrink-0 rounded-full'
             style={{
-              backgroundColor: props.colourMap[vendor.vendor] ?? 'var(--border)',
+              backgroundColor:
+                props.colourMap[vendor.vendor] ?? props.fallbackColor,
             }}
           />
           <VendorLink

@@ -139,7 +139,7 @@ export function UserCharts() {
         timeGranularity,
         t,
         topUserLimit,
-        customization.preset
+        resolvedTheme
       ),
     [
       userData,
@@ -147,7 +147,7 @@ export function UserCharts() {
       timeGranularity,
       t,
       topUserLimit,
-      customization.preset,
+      resolvedTheme,
       customization.radius,
     ]
   )

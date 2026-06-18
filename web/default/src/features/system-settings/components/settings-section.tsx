@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { cn } from '@/lib/utils'
+import { SectionCard } from '@/components/page-primitives'
 import { useSuppressSettingsSectionHeader } from './settings-page-context'
 
 type SettingsSectionProps = {
@@ -35,18 +36,18 @@ export function SettingsSection({
   const suppressHeader = useSuppressSettingsSectionHeader()
 
   return (
-    <section className={cn('flex flex-col gap-4', className)}>
-      {!suppressHeader && (
-        <div className='flex flex-col gap-1'>
-          <h3
-            {...titleProps}
-            className={cn('text-base font-semibold', titleProps?.className)}
-          >
+    <SectionCard
+      className={className}
+      title={
+        suppressHeader ? undefined : (
+          <span {...titleProps} className={cn(titleProps?.className)}>
             {title}
-          </h3>
-        </div>
-      )}
+          </span>
+        )
+      }
+      contentClassName='space-y-5 sm:space-y-6'
+    >
       {children}
-    </section>
+    </SectionCard>
   )
 }

@@ -44,7 +44,7 @@ type SettingsSwitchFieldProps = SettingsSwitchRowProps & {
 }
 
 const settingsSwitchRowClassName =
-  'flex min-w-0 flex-row items-center justify-between gap-4 border-b py-2.5 last:border-b-0'
+  'flex min-w-0 flex-row items-start justify-between gap-4 border-b border-border/70 py-4 last:border-b-0'
 
 export function SettingsFormGrid(props: SettingsFormGridProps) {
   return (
@@ -143,7 +143,7 @@ export function SettingsControlGroup({
     <div
       data-settings-form-span='full'
       className={cn(
-        'bg-muted/20 min-w-0 space-y-3 rounded-xl border px-3 py-2.5',
+        'bg-muted/20 border-border/70 min-w-0 space-y-4 rounded-xl border px-4 py-4',
         className
       )}
       {...props}
@@ -157,7 +157,7 @@ export function SettingsControlChildren({
 }: SettingsControlChildrenProps) {
   return (
     <div
-      className={cn('border-border/70 ml-2 min-w-0 border-l pl-3', className)}
+      className={cn('border-border/70 ml-3 min-w-0 border-l pl-4', className)}
       {...props}
     />
   )

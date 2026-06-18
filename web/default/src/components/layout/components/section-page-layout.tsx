@@ -78,11 +78,11 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
   return (
     <PageFooterProvider container={footerContainer}>
       <Main>
-        <PageContainer className='min-h-0 flex-1 gap-0 py-0'>
+        <PageContainer width='fluid' className='min-h-0 flex-1 gap-0 py-0'>
           <PageHeader
             title={title}
             actions={actions}
-            className='border-b-0 pb-4 pt-4 sm:pt-5'
+            className='border-b-0 pt-4 pb-4 sm:pt-5'
           >
             {breadcrumb != null && <div className='text-xs'>{breadcrumb}</div>}
           </PageHeader>

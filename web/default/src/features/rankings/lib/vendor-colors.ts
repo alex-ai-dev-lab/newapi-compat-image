@@ -16,56 +16,62 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { CanvasChartColors } from '@/lib/canvas-chart-colors'
 
-export const VENDOR_COLOURS: Record<string, string> = {
-  OpenAI: 'var(--primary)',
-  Google: 'color-mix(in oklch, var(--primary) 82%, var(--background))',
-  ByteDance: 'color-mix(in oklch, var(--primary) 72%, var(--foreground))',
-  Alibaba: 'color-mix(in oklch, var(--primary) 55%, var(--background))',
-  Cohere: 'color-mix(in oklch, var(--primary) 38%, var(--background))',
-  Zhipu: 'color-mix(in oklch, var(--primary) 26%, var(--background))',
-  DeepSeek: 'var(--chart-1)',
-  Mistral: 'color-mix(in oklch, var(--chart-1) 82%, var(--foreground))',
-  Moonshot: 'color-mix(in oklch, var(--chart-1) 58%, var(--background))',
-  Meta: 'var(--muted-foreground)',
-  MiniMax: 'color-mix(in oklch, var(--muted-foreground) 62%, var(--background))',
-  Anthropic: 'var(--chart-1)',
-  xAI: 'var(--foreground)',
-  Tencent: 'var(--success)',
-  Baidu: 'var(--destructive)',
-  Others: 'var(--border)',
+export function getRankingFallbackPalette(colors: CanvasChartColors) {
+  return [
+    ...colors.series,
+    colors.primary,
+    colors.chart1,
+    colors.success,
+    colors.warning,
+    colors.destructive,
+    colors.mutedForeground,
+    colors.border,
+  ]
 }
 
-export const FALLBACK_PALETTE = [
-  'var(--primary)',
-  'color-mix(in oklch, var(--primary) 82%, var(--background))',
-  'color-mix(in oklch, var(--primary) 66%, var(--background))',
-  'color-mix(in oklch, var(--primary) 48%, var(--background))',
-  'var(--chart-1)',
-  'color-mix(in oklch, var(--chart-1) 76%, var(--foreground))',
-  'color-mix(in oklch, var(--chart-1) 58%, var(--background))',
-  'var(--success)',
-  'var(--warning)',
-  'var(--destructive)',
-  'var(--muted-foreground)',
-  'color-mix(in oklch, var(--muted-foreground) 70%, var(--background))',
-  'color-mix(in oklch, var(--foreground) 42%, var(--background))',
-  'var(--border)',
-]
+export function getVendorColours(
+  colors: CanvasChartColors
+): Record<string, string> {
+  return {
+    OpenAI: colors.primary,
+    Google: colors.series[1],
+    ByteDance: colors.series[2],
+    Alibaba: colors.series[3],
+    Cohere: colors.series[10],
+    Zhipu: colors.series[11],
+    DeepSeek: colors.chart1,
+    Mistral: colors.series[5],
+    Moonshot: colors.series[6],
+    Meta: colors.mutedForeground,
+    MiniMax: colors.series[10],
+    Anthropic: colors.chart1,
+    xAI: colors.foreground,
+    Tencent: colors.success,
+    Baidu: colors.destructive,
+    Others: colors.border,
+  }
+}
 
 /**
  * Build a color map for a list of vendor names.
  * Uses VENDOR_COLOURS for known vendors, FALLBACK_PALETTE for unknown.
  */
-export function buildVendorColourMap(names: string[]): Record<string, string> {
+export function buildVendorColourMap(
+  names: string[],
+  colors: CanvasChartColors
+): Record<string, string> {
   const result: Record<string, string> = {}
   let fallbackIdx = 0
+  const vendorColours = getVendorColours(colors)
+  const fallbackPalette = getRankingFallbackPalette(colors)
 
   for (const name of names) {
-    if (VENDOR_COLOURS[name]) {
-      result[name] = VENDOR_COLOURS[name]
+    if (vendorColours[name]) {
+      result[name] = vendorColours[name]
     } else {
-      result[name] = FALLBACK_PALETTE[fallbackIdx % FALLBACK_PALETTE.length]
+      result[name] = fallbackPalette[fallbackIdx % fallbackPalette.length]
       fallbackIdx++
     }
   }

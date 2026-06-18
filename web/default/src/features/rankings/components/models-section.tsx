@@ -20,10 +20,11 @@ import { useMemo } from 'react'
 import { VChart } from '@visactor/react-vchart'
 import { BarChart3, Trophy } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { getCanvasChartColors } from '@/lib/canvas-chart-colors'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { formatTokens } from '../lib/format'
-import { FALLBACK_PALETTE } from '../lib/vendor-colors'
+import { getRankingFallbackPalette } from '../lib/vendor-colors'
 import type { ModelHistorySeries, ModelRanking, RankingPeriod } from '../types'
 import { ModelLeaderboard } from './model-leaderboard'
 
@@ -51,14 +52,14 @@ type ModelsSectionProps = {
 export function ModelsSection(props: ModelsSectionProps) {
   const { t } = useTranslation()
   const { resolvedTheme, themeReady } = useChartTheme()
-  const chartTextColor =
-    resolvedTheme === 'dark'
-      ? 'color-mix(in oklch, var(--foreground) 68%, transparent)'
-      : 'color-mix(in oklch, var(--foreground) 58%, transparent)'
-  const chartGridColor =
-    resolvedTheme === 'dark'
-      ? 'color-mix(in oklch, var(--foreground) 12%, transparent)'
-      : 'color-mix(in oklch, var(--foreground) 12%, transparent)'
+  const chartColors = useMemo(
+    () => getCanvasChartColors(resolvedTheme),
+    [resolvedTheme]
+  )
+  const fallbackPalette = useMemo(
+    () => getRankingFallbackPalette(chartColors),
+    [chartColors]
+  )
 
   // Order points so the largest model appears at the bottom of every stack.
   const orderedPoints = useMemo(() => {
@@ -86,13 +87,13 @@ export function ModelsSection(props: ModelsSectionProps) {
       yField: 'tokens',
       seriesField: 'model',
       stack: true,
-      color: FALLBACK_PALETTE,
+      color: fallbackPalette,
       legends: { visible: false },
       axes: [
         {
           orient: 'bottom',
           label: {
-            style: { fill: chartTextColor, fontSize: 10 },
+            style: { fill: chartColors.text, fontSize: 10 },
             autoHide: true,
             autoLimit: true,
           },
@@ -102,11 +103,11 @@ export function ModelsSection(props: ModelsSectionProps) {
           orient: 'left',
           label: {
             formatMethod: (val: number | string) => formatTokens(Number(val)),
-            style: { fill: chartTextColor, fontSize: 10 },
+            style: { fill: chartColors.text, fontSize: 10 },
           },
           grid: {
             visible: true,
-            style: { lineDash: [3, 3], stroke: chartGridColor },
+            style: { lineDash: [3, 3], stroke: chartColors.grid },
           },
         },
       ],
@@ -162,7 +163,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       },
       animationAppear: { duration: 500 },
     }
-  }, [chartGridColor, chartTextColor, orderedPoints, t])
+  }, [chartColors, fallbackPalette, orderedPoints, t])
 
   return (
     <section className='bg-card overflow-hidden rounded-lg border'>
@@ -211,7 +212,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       <div className='border-t'>
         <header className='px-5 pt-4 pb-2'>
           <h3 className='text-foreground inline-flex items-center gap-2 text-sm font-semibold'>
-            <Trophy className='size-3.5 text-chart-1' />
+            <Trophy className='text-chart-1 size-3.5' />
             {t('LLM Leaderboard')}
           </h3>
           <p className='text-muted-foreground/80 mt-0.5 text-xs'>

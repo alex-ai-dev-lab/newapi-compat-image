@@ -48,15 +48,21 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+type PageContainerProps = ComponentProps<'div'> & {
+  width?: 'reading' | 'fluid'
+}
+
 export function PageContainer({
   className,
+  width = 'reading',
   ...props
-}: ComponentProps<'div'>) {
+}: PageContainerProps) {
   return (
     <div
       data-slot='page-container'
       className={cn(
-        'mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-7 lg:px-8',
+        'flex w-full flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-7 lg:px-8',
+        width === 'reading' ? 'mx-auto max-w-[1180px]' : 'max-w-none xl:px-8',
         className
       )}
       {...props}
@@ -82,7 +88,7 @@ export function PageHeader({
     <header
       data-slot='page-header'
       className={cn(
-        'flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between',
+        'border-border flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between',
         className
       )}
       {...props}
@@ -94,7 +100,7 @@ export function PageHeader({
           </h1>
         )}
         {description != null && (
-          <p className='max-w-2xl text-sm leading-6 text-muted-foreground'>
+          <p className='text-muted-foreground max-w-2xl text-sm leading-6'>
             {description}
           </p>
         )}
@@ -130,11 +136,14 @@ export function SectionCard({
   return (
     <Card
       data-slot='section-card'
-      className={cn('gap-0 rounded-xl border-border py-0 shadow-none', className)}
+      className={cn(
+        'border-border gap-0 rounded-xl py-0 shadow-none',
+        className
+      )}
       {...props}
     >
       {hasHeader && (
-        <CardHeader className='border-b border-border p-5 sm:p-6'>
+        <CardHeader className='border-border border-b p-5 sm:p-6'>
           <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
             <div className='min-w-0 space-y-1'>
               {title != null && (
@@ -170,14 +179,16 @@ type PrimitiveStatCardProps = ComponentProps<'div'> & {
   tone?: 'default' | 'accent' | 'success' | 'warning' | 'destructive'
 }
 
-const statDotClass: Record<NonNullable<PrimitiveStatCardProps['tone']>, string> =
-  {
-    default: 'bg-muted-foreground',
-    accent: 'bg-chart-1',
-    success: 'bg-success',
-    warning: 'bg-warning',
-    destructive: 'bg-destructive',
-  }
+const statDotClass: Record<
+  NonNullable<PrimitiveStatCardProps['tone']>,
+  string
+> = {
+  default: 'bg-muted-foreground',
+  accent: 'bg-chart-1',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  destructive: 'bg-destructive',
+}
 
 export function StatCard({
   label,
@@ -208,7 +219,7 @@ export function StatCard({
               className={cn('size-2 rounded-full', statDotClass[tone])}
               aria-hidden='true'
             />
-            <div className='truncate text-sm font-medium text-muted-foreground'>
+            <div className='text-muted-foreground truncate text-sm font-medium'>
               {label}
             </div>
           </div>
@@ -230,7 +241,7 @@ export function StatCard({
             {value}
           </div>
           {description != null && (
-            <p className='mt-1 text-sm text-muted-foreground'>{description}</p>
+            <p className='text-muted-foreground mt-1 text-sm'>{description}</p>
           )}
         </div>
       </div>
@@ -245,9 +256,12 @@ export function DataTable({
   return (
     <div
       data-slot='primitive-data-table'
-      className='overflow-hidden rounded-xl border border-border bg-card'
+      className='border-border bg-card overflow-x-auto rounded-xl border'
     >
-      <Table className={cn('[&_th]:text-muted-foreground', className)} {...props} />
+      <Table
+        className={cn('[&_th]:text-muted-foreground', className)}
+        {...props}
+      />
     </div>
   )
 }
@@ -316,7 +330,7 @@ export function SegmentedTabs({
 }: SegmentedTabsProps) {
   return (
     <Tabs className={cn('w-full sm:w-auto', className)} {...props}>
-      <TabsList className='h-auto max-w-full flex-wrap justify-start rounded-xl border border-border bg-card p-1'>
+      <TabsList className='border-border bg-card h-auto max-w-full flex-wrap justify-start rounded-xl border p-1'>
         {options.map((option) => (
           <TabsTrigger
             key={option.value}
@@ -352,7 +366,7 @@ export function EmptyState({
   return (
     <Empty
       className={cn(
-        'min-h-64 rounded-xl border border-dashed border-border bg-card p-8',
+        'border-border bg-card min-h-64 rounded-xl border border-dashed p-8',
         className
       )}
       {...props}
@@ -391,7 +405,7 @@ export function Toolbar({
     <div
       data-slot='toolbar'
       className={cn(
-        'flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between',
+        'border-border bg-card flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between',
         className
       )}
       {...props}
@@ -399,7 +413,7 @@ export function Toolbar({
       <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
         {onSearchChange != null && (
           <div className='relative w-full sm:max-w-xs'>
-            <Search className='pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
+            <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2' />
             <Input
               value={searchValue ?? ''}
               onChange={(event) => onSearchChange(event.target.value)}

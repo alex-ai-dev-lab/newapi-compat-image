@@ -96,7 +96,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       {/* Header: icon + name + price + actions */}
       <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
         <div className='flex min-w-0 items-start gap-2.5 sm:gap-3'>
-          <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg border border-border sm:size-10 sm:rounded-xl'>
+          <div className='bg-muted/40 border-border flex size-9 shrink-0 items-center justify-center rounded-lg border sm:size-10 sm:rounded-xl'>
             {vendorIcon || (
               <span className='text-muted-foreground text-sm font-bold'>
                 {initial}
@@ -205,7 +205,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           <button
             type='button'
             onClick={props.onClick}
-            className='text-muted-foreground hover:text-foreground hover:bg-muted inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs transition-colors sm:px-2.5 sm:py-1.5'
+            className='text-muted-foreground hover:text-foreground hover:bg-muted border-border inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors sm:px-2.5 sm:py-1.5'
           >
             {t('Details')}
             <ChevronRight className='size-3.5' />
@@ -213,7 +213,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           <button
             type='button'
             onClick={handleCopy}
-            className='text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg border border-border p-1.5 transition-colors'
+            className='text-muted-foreground hover:text-foreground hover:bg-muted border-border rounded-lg border p-1.5 transition-colors'
             title={t('Copy')}
           >
             <Copy className='size-3.5' />
@@ -226,15 +226,15 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {props.model.description || t('No description available.')}
       </p>
 
-      {/* Footer: left metadata and right performance summary share row alignment */}
-      <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
+      {/* Footer: metadata and performance summary wrap without squeezing labels */}
+      <div className='mt-2 flex flex-wrap items-start justify-between gap-x-3 gap-y-2 sm:mt-4'>
+        <div className='flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
-            <span className='text-muted-foreground text-xs font-medium'>
+            <span className='text-muted-foreground text-xs font-medium whitespace-nowrap'>
               {primaryGroup} {t('Groups')}
             </span>
           )}
-          <span className='text-muted-foreground text-xs font-medium'>
+          <span className='text-muted-foreground text-xs font-medium whitespace-nowrap'>
             {isTokenBased ? t('Token-based') : t('Per Request')}
           </span>
           {isDynamicPricing && (
@@ -246,19 +246,22 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             />
           )}
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
+        <ModelPerfBadge perf={props.perf} className='shrink-0 self-start' />
 
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
+        <div className='flex min-w-full flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
           {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
+            <span
+              key={item}
+              className='text-muted-foreground/70 text-xs whitespace-nowrap'
+            >
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
+          <span className='text-muted-foreground/50 text-xs whitespace-nowrap'>
             {tokenUnitLabel}
           </span>
           {hiddenCount > 0 && (
-            <span className='text-muted-foreground/40 text-xs'>
+            <span className='text-muted-foreground/40 text-xs whitespace-nowrap'>
               +{hiddenCount}
             </span>
           )}
