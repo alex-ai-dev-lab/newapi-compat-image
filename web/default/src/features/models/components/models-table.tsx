@@ -52,9 +52,15 @@ export function ModelsTable() {
   // Table state
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    id: false,
+    name_rule: false,
     description: false,
+    tags: false,
+    endpoints: false,
     bound_channels: false,
     quota_types: false,
+    created_time: false,
+    updated_time: false,
   })
   const [rowSelection, setRowSelection] = useState({})
 
@@ -252,7 +258,6 @@ export function ModelsTable() {
               'No models available. Create your first model to get started.'
             )}
             skeletonKeyPrefix='model-skeleton'
-            applyHeaderSize
             toolbarProps={{
               searchPlaceholder: t('Filter by model name...'),
               additionalSearch: (

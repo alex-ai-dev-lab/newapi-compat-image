@@ -74,6 +74,11 @@ type PageHeaderProps = Omit<ComponentProps<'header'>, 'title'> & {
   title?: ReactNode
   description?: ReactNode
   actions?: ReactNode
+  /**
+   * Visual density. `compact` uses a smaller title — used by list pages
+   * (SectionPageLayout) to keep the header tight and surface more rows.
+   */
+  size?: 'default' | 'compact'
 }
 
 export function PageHeader({
@@ -82,6 +87,7 @@ export function PageHeader({
   actions,
   children,
   className,
+  size = 'default',
   ...props
 }: PageHeaderProps) {
   return (
@@ -95,7 +101,14 @@ export function PageHeader({
     >
       <div className='min-w-0 flex-1 space-y-1.5'>
         {title != null && (
-          <h1 className='text-2xl leading-tight font-semibold tracking-tight sm:text-3xl'>
+          <h1
+            className={cn(
+              'leading-tight font-semibold tracking-tight',
+              size === 'compact'
+                ? 'text-xl sm:text-2xl'
+                : 'text-2xl sm:text-3xl'
+            )}
+          >
             {title}
           </h1>
         )}
@@ -211,8 +224,8 @@ export function StatCard({
   const TrendIcon = isDown ? ArrowDownRight : ArrowUpRight
 
   return (
-    <SectionCard className={cn('min-h-32', className)} {...props}>
-      <div className='flex h-full flex-col justify-between gap-4'>
+    <SectionCard className={cn('min-h-24', className)} {...props}>
+      <div className='flex h-full flex-col justify-between gap-3'>
         <div className='flex items-center justify-between gap-3'>
           <div className='flex min-w-0 items-center gap-2'>
             <span
@@ -237,7 +250,7 @@ export function StatCard({
           )}
         </div>
         <div>
-          <div className='font-mono text-3xl font-semibold tracking-tight tabular-nums'>
+          <div className='font-mono text-2xl font-semibold tracking-tight tabular-nums'>
             {value}
           </div>
           {description != null && (

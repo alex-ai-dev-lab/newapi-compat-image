@@ -779,7 +779,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <>
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+              className='group flex w-full max-w-[360px] items-center gap-1 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
             >

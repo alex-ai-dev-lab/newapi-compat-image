@@ -146,7 +146,7 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
             variant='neutral'
             copyText={name}
             size='sm'
-            className='font-mono'
+            className='max-w-[240px] font-mono'
           />
         )
       },

@@ -19,38 +19,39 @@ For commercial licensing, please contact support@quantumnous.com
 import type { CanvasChartColors } from '@/lib/canvas-chart-colors'
 
 export function getRankingFallbackPalette(colors: CanvasChartColors) {
+  // Build from the high-contrast categorical series only, plus a few
+  // semantic accents — never black/near-black or the muted border grey,
+  // so stacked series stay visually distinct.
   return [
     ...colors.series,
-    colors.primary,
     colors.chart1,
     colors.success,
     colors.warning,
     colors.destructive,
-    colors.mutedForeground,
-    colors.border,
   ]
 }
 
 export function getVendorColours(
   colors: CanvasChartColors
 ): Record<string, string> {
+  const s = colors.series
   return {
-    OpenAI: colors.primary,
-    Google: colors.series[1],
-    ByteDance: colors.series[2],
-    Alibaba: colors.series[3],
-    Cohere: colors.series[10],
-    Zhipu: colors.series[11],
-    DeepSeek: colors.chart1,
-    Mistral: colors.series[5],
-    Moonshot: colors.series[6],
-    Meta: colors.mutedForeground,
-    MiniMax: colors.series[10],
+    OpenAI: s[0], // blue
+    Google: s[1], // purple
+    ByteDance: s[2], // amber
+    Alibaba: s[3], // red
+    Cohere: s[4], // teal
+    Zhipu: s[5], // pink
+    DeepSeek: s[6], // light teal
+    Mistral: s[7], // orange
+    Moonshot: s[8], // violet
+    Meta: s[9], // green
+    MiniMax: colors.warning,
     Anthropic: colors.chart1,
-    xAI: colors.foreground,
+    xAI: colors.mutedForeground,
     Tencent: colors.success,
     Baidu: colors.destructive,
-    Others: colors.border,
+    Others: colors.mutedForeground,
   }
 }
 
