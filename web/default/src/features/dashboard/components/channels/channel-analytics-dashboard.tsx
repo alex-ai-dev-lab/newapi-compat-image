@@ -103,6 +103,14 @@ function formatUsd(value: number): string {
   }).format(value)}`
 }
 
+function formatChannelName(name: string | undefined, t: (key: string) => string) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') {
+    return t('未知渠道')
+  }
+  return trimmed
+}
+
 function successBadgeVariant(
   rate: number,
   thresholds: DashboardHealthThresholds
@@ -139,9 +147,9 @@ function weightedAverage(
   return weight > 0 ? total / weight : 0
 }
 
-function buildTrafficChart(rows: ChannelStat[]) {
+function buildTrafficChart(rows: ChannelStat[], t: (key: string) => string) {
   return rows.slice(0, 10).map((row) => ({
-    name: row.channel_name || `#${row.channel_id}`,
+    name: formatChannelName(row.channel_name, t),
     id: row.channel_id,
     requests: row.total_requests,
     failures: row.failed_requests,
@@ -454,7 +462,7 @@ export function ChannelAnalyticsDashboard() {
     }
   }, [rows])
 
-  const trafficChart = useMemo(() => buildTrafficChart(rows), [rows])
+  const trafficChart = useMemo(() => buildTrafficChart(rows, t), [rows, t])
   const filteredRows = useMemo(() => {
     const query = channelQuery.trim().toLowerCase()
     return rows.filter((channel) => {
@@ -770,7 +778,9 @@ export function ChannelAnalyticsDashboard() {
         ) : (
           <TrendChart
             data={channelTrend ?? []}
-            title={t('{{name}} 趋势', { name: selectedChannel.channel_name })}
+            title={t('{{name}} 趋势', {
+              name: formatChannelName(selectedChannel.channel_name, t),
+            })}
             description={t(
               '查看渠道 #{{id}} 的请求量、可靠性、首字延迟、成本与 Token 变化。',
               { id: selectedChannel.channel_id }
@@ -827,7 +837,7 @@ export function ChannelAnalyticsDashboard() {
                     key={channel.channel_id}
                     value={String(channel.channel_id)}
                   >
-                    {channel.channel_name} #{channel.channel_id}
+                    {formatChannelName(channel.channel_name, t)} #{channel.channel_id}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1037,7 +1047,7 @@ export function ChannelAnalyticsDashboard() {
                       tabIndex={0}
                       role='button'
                       aria-label={t('查看 {{name}} 的趋势', {
-                        name: channel.channel_name,
+                        name: formatChannelName(channel.channel_name, t),
                       })}
                       className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
                       onClick={() => selectChannel(channel.channel_id)}
@@ -1050,7 +1060,7 @@ export function ChannelAnalyticsDashboard() {
                     >
                       <TableCell>
                         <div className='font-medium'>
-                          {channel.channel_name}
+                          {formatChannelName(channel.channel_name, t)}
                         </div>
                         <div className='text-muted-foreground text-xs'>
                           #{channel.channel_id}
@@ -1646,7 +1656,7 @@ function CompactRank(props: {
             >
               <div className='min-w-0'>
                 <div className='truncate text-sm font-medium'>
-                  {channel.channel_name}
+                  {formatChannelName(channel.channel_name, t)}
                 </div>
                 <div className='text-muted-foreground text-xs'>
                   #{channel.channel_id} · {t('{{count}} 次请求', {

@@ -54,24 +54,13 @@ export function isTokenBasedModel(model: PricingModel): boolean {
 }
 
 function looksLikeGeneratedVendorDescription(
-  description: string | undefined,
-  modelName: string | undefined
+  description: string | undefined
 ): boolean {
   if (!description) return false
   const normalized = description.trim()
   if (!normalized) return false
 
-  const escapedModel = String(modelName || '')
-    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .trim()
-  if (!escapedModel) return false
-
-  const pattern = new RegExp(
-    `^${escapedModel}\\s+is\\s+an\\s+ai\\s+model\\s+provided\\s+by\\s+.+\\.?$`,
-    'i'
-  )
-
-  return pattern.test(normalized)
+  return /\bis\s+an\s+ai\s+model\s+provided\s+by\b/i.test(normalized)
 }
 
 export function getModelDescription(
@@ -81,7 +70,7 @@ export function getModelDescription(
   const primary = model.description?.trim()
   if (
     primary &&
-    !looksLikeGeneratedVendorDescription(primary, model.model_name)
+    !looksLikeGeneratedVendorDescription(primary)
   ) {
     return primary
   }
@@ -89,7 +78,7 @@ export function getModelDescription(
   const vendorDescription = model.vendor_description?.trim()
   if (
     vendorDescription &&
-    !looksLikeGeneratedVendorDescription(vendorDescription, model.model_name)
+    !looksLikeGeneratedVendorDescription(vendorDescription)
   ) {
     return vendorDescription
   }

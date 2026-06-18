@@ -76,6 +76,14 @@ function formatUsd(value: number): string {
   }).format(value)}`
 }
 
+function formatChannelName(name: string | undefined, t: (key: string) => string) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') {
+    return t('未知渠道')
+  }
+  return trimmed
+}
+
 function riskTone(rate: number): 'default' | 'secondary' | 'destructive' {
   if (rate >= 5) return 'destructive'
   if (rate > 0) return 'secondary'
@@ -259,7 +267,7 @@ export function OperationsInsightsPanel() {
             value={stats ? `${stats.error_rate.toFixed(2)}%` : ''}
             subvalue={
               riskiestChannel
-                ? `${riskiestChannel.channel_name} #${riskiestChannel.channel_id}`
+                ? `${formatChannelName(riskiestChannel.channel_name, t)} #${riskiestChannel.channel_id}`
                 : t('当前无失败渠道')
             }
             loading={isLoading}
@@ -380,7 +388,11 @@ export function OperationsInsightsPanel() {
           <SummaryStrip
             icon={RadioTower}
             label={t('头部渠道')}
-            value={stats?.top_channels?.[0]?.channel_name ?? '-'}
+            value={
+              stats?.top_channels?.[0]
+                ? formatChannelName(stats.top_channels[0].channel_name, t)
+                : '-'
+            }
             detail={
               stats?.top_channels?.[0]
                 ? t('{{count}} 次请求', {
@@ -434,7 +446,7 @@ export function OperationsInsightsPanel() {
               costliestUser
                 ? t('{{cost}}，来自 {{channel}}', {
                     cost: formatUsd(costliestUser.total_cost),
-                    channel: costliestUser.top_channel_name,
+                    channel: formatChannelName(costliestUser.top_channel_name, t),
                   })
                 : t('暂无数据')
             }
@@ -518,10 +530,14 @@ function RankList(props: {
               params={{ section: 'channels' }}
               search={{ channel_id: row.channel_id, time_range: props.timeRange }}
               className='focus-visible:ring-ring flex items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors outline-none hover:bg-muted/50 focus-visible:ring-2'
-              aria-label={t('打开 {{name}} 的渠道分析', { name: row.channel_name })}
+              aria-label={t('打开 {{name}} 的渠道分析', {
+                name: formatChannelName(row.channel_name, t),
+              })}
             >
               <div className='min-w-0'>
-                <div className='truncate text-sm font-medium'>{row.channel_name}</div>
+                <div className='truncate text-sm font-medium'>
+                  {formatChannelName(row.channel_name, t)}
+                </div>
                 <div className='text-xs text-muted-foreground'>
                   #{row.channel_id} · {t('{{count}} 次请求', {
                     count: formatCount(row.total_requests),
