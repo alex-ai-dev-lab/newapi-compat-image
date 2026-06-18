@@ -283,14 +283,14 @@ export function MobileCardList<TData>(props: MobileCardListProps<TData>) {
   const RowComponent = hasCompactMeta ? CompactRow : FallbackRow
 
   return (
-    <div className='divide-y overflow-hidden rounded-lg border'>
+    <div className='divide-y overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_0_0_theme(colors.border)]'>
       {rows.map((row) => {
         const key = getRowKey ? getRowKey(row) : row.id
         return (
           <div
             key={key}
             className={cn(
-              'bg-card px-3 py-3 transition-colors hover:bg-muted/40',
+              'bg-card px-3.5 py-3.5 transition-colors hover:bg-muted/40',
               getRowClassName?.(row)
             )}
           >

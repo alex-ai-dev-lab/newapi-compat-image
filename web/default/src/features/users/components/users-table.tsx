@@ -34,6 +34,7 @@ import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { FilterPills, SectionCard } from '@/components/page-primitives'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -48,6 +49,7 @@ import {
 } from '../constants'
 import type { User } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
+import { UsersStats } from './users-stats'
 import { useUsersColumns } from './users-columns'
 import { useUsers } from './users-provider'
 
@@ -192,42 +194,74 @@ export function UsersTable() {
     ensurePageInRange(pageCount)
   }, [pageCount, ensurePageInRange])
 
+  const activeRole = roleFilter[0] ?? 'all'
+  const rolePillOptions = [
+    { value: 'all', label: t('All Roles') },
+    ...getUserRoleOptions(t).map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ]
+
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Users Found')}
-      emptyDescription={t(
-        'No users available. Try adjusting your search or filters.'
-      )}
-      skeletonKeyPrefix='users-skeleton'
-      toolbarProps={{
-        searchPlaceholder: t('Filter by username, name or email...'),
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: getUserStatusOptions(t),
-            singleSelect: true,
-          },
-          {
-            columnId: 'role',
-            title: t('Role'),
-            options: getUserRoleOptions(t),
-            singleSelect: true,
-          },
-        ],
-      }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <div className='space-y-4 sm:space-y-5'>
+      <UsersStats users={users} />
+
+      <SectionCard
+        title={t('User Directory')}
+        description={t(
+          'Review roles, quota health, and access posture without losing bulk actions or search workflows.'
+        )}
+        contentClassName='p-0'
+      >
+        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
+          <DataTablePage
+            table={table}
+            columns={columns}
+            isLoading={isLoading}
+            isFetching={isFetching}
+            emptyTitle={t('No Users Found')}
+            emptyDescription={t(
+              'No users available. Try adjusting your search or filters.'
+            )}
+            skeletonKeyPrefix='users-skeleton'
+            toolbarProps={{
+              searchPlaceholder: t('Filter by username, name or email...'),
+              filters: [
+                {
+                  columnId: 'status',
+                  title: t('Status'),
+                  options: getUserStatusOptions(t),
+                  singleSelect: true,
+                },
+              ],
+              additionalSearch: (
+                <FilterPills
+                  value={activeRole}
+                  options={rolePillOptions}
+                  onValueChange={(value) => {
+                    onColumnFiltersChange((prev) => {
+                      const filtered = prev.filter((filter) => filter.id !== 'role')
+                      return value === 'all'
+                        ? filtered
+                        : [...filtered, { id: 'role', value: [value] }]
+                    })
+                  }}
+                  className='min-w-0'
+                />
+              ),
+            }}
+            getRowClassName={(row, { isMobile }) =>
+              isDisabledUserRow(row.original)
+                ? isMobile
+                  ? DISABLED_ROW_MOBILE
+                  : DISABLED_ROW_DESKTOP
+                : undefined
+            }
+            bulkActions={<DataTableBulkActions table={table} />}
+          />
+        </div>
+      </SectionCard>
+    </div>
   )
 }

@@ -34,6 +34,7 @@ import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { Input } from '@/components/ui/input'
+import { SectionCard } from '@/components/page-primitives'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -55,6 +56,7 @@ import {
 import type { Channel, ChannelSortBy } from '../types'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
+import { ChannelsStats } from './channels-stats'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 
 const route = getRouteApi('/_authenticated/channels/')
@@ -372,56 +374,70 @@ export function ChannelsTable() {
   ]
 
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Channels Found')}
-      emptyDescription={t(
-        'No channels available. Create your first channel to get started.'
-      )}
-      skeletonKeyPrefix='channel-skeleton'
-      applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by name, ID, or key...'),
-        additionalSearch: (
-          <Input
-            placeholder={t('Filter by model...')}
-            value={modelFilterInput}
-            onChange={(e) => setModelFilterInput(e.target.value)}
-            className='w-full sm:w-[150px] lg:w-[180px]'
+    <div className='space-y-4 sm:space-y-5'>
+      <ChannelsStats channels={channels} />
+
+      <SectionCard
+        title={t('Channel Registry')}
+        description={t(
+          'Search by endpoint identity, narrow by status and routing group, then batch operate on the filtered result set.'
+        )}
+        contentClassName='p-0'
+      >
+        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
+          <DataTablePage
+            table={table}
+            columns={columns}
+            isLoading={isLoading}
+            isFetching={isFetching}
+            emptyTitle={t('No Channels Found')}
+            emptyDescription={t(
+              'No channels available. Create your first channel to get started.'
+            )}
+            skeletonKeyPrefix='channel-skeleton'
+            applyHeaderSize
+            toolbarProps={{
+              searchPlaceholder: t('Filter by name, ID, or key...'),
+              additionalSearch: (
+                <Input
+                  placeholder={t('Filter by model...')}
+                  value={modelFilterInput}
+                  onChange={(e) => setModelFilterInput(e.target.value)}
+                  className='w-full sm:w-[150px] lg:w-[180px]'
+                />
+              ),
+              filters: [
+                {
+                  columnId: 'status',
+                  title: t('Status'),
+                  options: [...CHANNEL_STATUS_OPTIONS],
+                  singleSelect: true,
+                },
+                {
+                  columnId: 'type',
+                  title: t('Type'),
+                  options: typeFilterOptions,
+                  singleSelect: true,
+                },
+                {
+                  columnId: 'group',
+                  title: t('Group'),
+                  options: groupFilterOptions,
+                  singleSelect: true,
+                },
+              ],
+            }}
+            getRowClassName={(row, { isMobile }) =>
+              isDisabledChannelRow(row.original)
+                ? isMobile
+                  ? DISABLED_ROW_MOBILE
+                  : DISABLED_ROW_DESKTOP
+                : undefined
+            }
+            bulkActions={<DataTableBulkActions table={table} />}
           />
-        ),
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: [...CHANNEL_STATUS_OPTIONS],
-            singleSelect: true,
-          },
-          {
-            columnId: 'type',
-            title: t('Type'),
-            options: typeFilterOptions,
-            singleSelect: true,
-          },
-          {
-            columnId: 'group',
-            title: t('Group'),
-            options: groupFilterOptions,
-            singleSelect: true,
-          },
-        ],
-      }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledChannelRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+        </div>
+      </SectionCard>
+    </div>
   )
 }

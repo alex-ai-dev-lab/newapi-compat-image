@@ -32,6 +32,11 @@ function UsersContent() {
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
+        <SectionPageLayout.Description>
+          {t(
+            'Review account status, quota posture, and access roles with a denser operational view.'
+          )}
+        </SectionPageLayout.Description>
         <SectionPageLayout.Actions>
           <UsersPrimaryButtons />
         </SectionPageLayout.Actions>

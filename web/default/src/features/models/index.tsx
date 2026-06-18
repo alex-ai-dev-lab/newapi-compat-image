@@ -121,6 +121,13 @@ function ModelsContent() {
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
+        <SectionPageLayout.Description>
+          {t(
+            activeSection === 'metadata'
+              ? 'Curate model catalog metadata, suppliers, and sync state in a single operator view.'
+              : 'Monitor deployment inventory and runtime availability without leaving the admin workspace.'
+          )}
+        </SectionPageLayout.Description>
         <SectionPageLayout.Actions>
           {activeSection === 'metadata' ? (
             <ModelsPrimaryButtons />

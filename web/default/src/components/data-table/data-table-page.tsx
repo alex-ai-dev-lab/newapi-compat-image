@@ -303,7 +303,7 @@ function renderDesktop<TData>(
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border border-border bg-card transition-opacity duration-150',
+        'overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_0_0_theme(colors.border)] transition-opacity duration-150',
         isFetchingOnly && 'pointer-events-none opacity-60',
         props.tableClassName
       )}
@@ -311,7 +311,7 @@ function renderDesktop<TData>(
       <Table>
         <TableHeader
           className={cn(
-            'bg-muted/30 [&_th]:text-muted-foreground',
+            'bg-muted/35 [&_th]:text-muted-foreground',
             props.tableHeaderClassName
           )}
         >

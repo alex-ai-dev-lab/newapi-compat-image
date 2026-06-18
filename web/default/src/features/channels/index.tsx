@@ -29,6 +29,11 @@ export function Channels() {
     <ChannelsProvider>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Channels')}</SectionPageLayout.Title>
+        <SectionPageLayout.Description>
+          {t(
+            'Operate upstream providers, health, failover posture, and routing readiness from one wide control surface.'
+          )}
+        </SectionPageLayout.Description>
         <SectionPageLayout.Actions>
           <ChannelsPrimaryButtons />
         </SectionPageLayout.Actions>

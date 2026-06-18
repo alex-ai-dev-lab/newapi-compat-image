@@ -67,12 +67,38 @@ export const textColorMap = {
   yellow: 'text-warning',
 } as const
 
+const surfaceColorMap = {
+  success: 'border-success/18 bg-success/10 dark:border-success/24 dark:bg-success/14',
+  warning: 'border-warning/22 bg-warning/12 dark:border-warning/28 dark:bg-warning/14',
+  danger:
+    'border-destructive/18 bg-destructive/10 dark:border-destructive/24 dark:bg-destructive/14',
+  accent: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  info: 'border-info/18 bg-info/10 dark:border-info/24 dark:bg-info/14',
+  neutral:
+    'border-border/70 bg-muted/55 text-muted-foreground dark:border-border/60 dark:bg-muted/28',
+  amber: 'border-warning/22 bg-warning/12 dark:border-warning/28 dark:bg-warning/14',
+  blue: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  cyan: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  green: 'border-success/18 bg-success/10 dark:border-success/24 dark:bg-success/14',
+  grey:
+    'border-border/70 bg-muted/55 text-muted-foreground dark:border-border/60 dark:bg-muted/28',
+  'light-blue': 'border-info/18 bg-info/10 dark:border-info/24 dark:bg-info/14',
+  'light-green':
+    'border-success/18 bg-success/10 dark:border-success/24 dark:bg-success/14',
+  lime: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  orange: 'border-warning/22 bg-warning/12 dark:border-warning/28 dark:bg-warning/14',
+  pink: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  red: 'border-destructive/18 bg-destructive/10 dark:border-destructive/24 dark:bg-destructive/14',
+  teal: 'border-chart-1/22 bg-chart-1/12 dark:border-chart-1/26 dark:bg-chart-1/16',
+  yellow: 'border-warning/22 bg-warning/12 dark:border-warning/28 dark:bg-warning/14',
+} as const
+
 export type StatusVariant = keyof typeof dotColorMap
 
 const sizeMap = {
-  sm: 'h-5 gap-1 px-1.5 text-xs leading-none',
-  md: 'h-5 gap-1 px-1.5 text-xs leading-none',
-  lg: 'h-6 gap-1.5 px-2 text-xs leading-none',
+  sm: 'h-6 gap-1.5 px-2 text-[11px] leading-none',
+  md: 'h-6 gap-1.5 px-2 text-[11px] leading-none',
+  lg: 'h-7 gap-1.5 px-2.5 text-xs leading-none',
 } as const
 
 export interface StatusBadgeProps extends Omit<
@@ -127,8 +153,9 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex w-fit max-w-full shrink-0 items-center rounded-4xl font-medium tracking-normal whitespace-nowrap transition-colors',
+        'inline-flex w-fit max-w-full shrink-0 items-center rounded-full border font-medium tracking-normal whitespace-nowrap transition-colors',
         sizeMap[size ?? 'sm'],
+        surfaceColorMap[computedVariant],
         textColorMap[computedVariant],
         pulse && 'animate-pulse',
         copyable &&

@@ -31,12 +31,12 @@ type GroupBadgeProps = Omit<
 
 function getGroupRatioClassName(ratio: number): string {
   if (ratio > 1) {
-    return 'bg-warning/10 text-warning'
+    return 'border-warning/20 bg-warning/12 text-warning'
   }
   if (ratio < 1) {
-    return 'bg-info/10 text-info'
+    return 'border-info/20 bg-info/12 text-info'
   }
-  return 'bg-muted text-muted-foreground'
+  return 'border-border/70 bg-muted/55 text-muted-foreground'
 }
 
 function getGroupLabel(params: {
@@ -94,7 +94,7 @@ export function GroupBadge(props: GroupBadgeProps) {
       {badge}
       <span
         className={cn(
-          'inline-flex h-5 items-center rounded-full px-1.5 font-mono text-xs leading-none font-medium tabular-nums',
+          'inline-flex h-6 items-center rounded-full border px-2 font-mono text-[11px] leading-none font-medium tabular-nums',
           getGroupRatioClassName(ratio)
         )}
       >

@@ -114,6 +114,13 @@ function UsageLogsContent() {
         <SectionPageLayout.Title>
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
+        <SectionPageLayout.Description>
+          {t(
+            activeCategory === 'common'
+              ? 'Inspect cost, latency, and request behavior with a denser audit-first timeline.'
+              : 'Track asynchronous jobs with clearer submission, progress, and failure visibility.'
+          )}
+        </SectionPageLayout.Description>
         <SectionPageLayout.Content>
           <div className='space-y-4'>
             {showTaskSwitcher && (

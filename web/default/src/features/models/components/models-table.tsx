@@ -28,6 +28,7 @@ import {
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { FilterPills, SectionCard } from '@/components/page-primitives'
 import { DataTablePage } from '@/components/data-table'
 import { getModels, searchModels, getVendors } from '../api'
 import {
@@ -38,6 +39,7 @@ import {
 import { modelsQueryKeys, vendorsQueryKeys } from '../lib'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useModelsColumns } from './models-columns'
+import { ModelsStats } from './models-stats'
 import { useModels } from './models-provider'
 
 const route = getRouteApi('/_authenticated/models/$section')
@@ -219,42 +221,76 @@ export function ModelsTable() {
     })),
   ]
 
+  const activeSync = syncFilter[0] ?? 'all'
+  const syncPillOptions = [
+    { value: 'all', label: t('All Sync States') },
+    ...getSyncStatusOptions(t).map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ]
+
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Models Found')}
-      emptyDescription={t(
-        'No models available. Create your first model to get started.'
-      )}
-      skeletonKeyPrefix='model-skeleton'
-      applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by model name...'),
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: [...getModelStatusOptions(t)],
-            singleSelect: true,
-          },
-          {
-            columnId: 'vendor_id',
-            title: t('Vendor'),
-            options: vendorFilterOptions,
-            singleSelect: true,
-          },
-          {
-            columnId: 'sync_official',
-            title: t('Official Sync'),
-            options: [...getSyncStatusOptions(t)],
-            singleSelect: true,
-          },
-        ],
-      }}
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <div className='space-y-4 sm:space-y-5'>
+      <ModelsStats models={models} vendors={vendors} />
+
+      <SectionCard
+        title={t('Model Catalog')}
+        description={t(
+          'Shape supplier coverage, metadata quality, and sync behavior while keeping a broad wide-screen scan pattern.'
+        )}
+        contentClassName='p-0'
+      >
+        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
+          <DataTablePage
+            table={table}
+            columns={columns}
+            isLoading={isLoading}
+            isFetching={isFetching}
+            emptyTitle={t('No Models Found')}
+            emptyDescription={t(
+              'No models available. Create your first model to get started.'
+            )}
+            skeletonKeyPrefix='model-skeleton'
+            applyHeaderSize
+            toolbarProps={{
+              searchPlaceholder: t('Filter by model name...'),
+              additionalSearch: (
+                <FilterPills
+                  value={activeSync}
+                  options={syncPillOptions}
+                  onValueChange={(value) => {
+                    onColumnFiltersChange((prev) => {
+                      const filtered = prev.filter(
+                        (filter) => filter.id !== 'sync_official'
+                      )
+                      return value === 'all'
+                        ? filtered
+                        : [...filtered, { id: 'sync_official', value: [value] }]
+                    })
+                  }}
+                  className='min-w-0'
+                />
+              ),
+              filters: [
+                {
+                  columnId: 'status',
+                  title: t('Status'),
+                  options: [...getModelStatusOptions(t)],
+                  singleSelect: true,
+                },
+                {
+                  columnId: 'vendor_id',
+                  title: t('Vendor'),
+                  options: vendorFilterOptions,
+                  singleSelect: true,
+                },
+              ],
+            }}
+            bulkActions={<DataTableBulkActions table={table} />}
+          />
+        </div>
+      </SectionCard>
+    </div>
   )
 }
