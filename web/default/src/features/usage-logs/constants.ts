@@ -103,7 +103,7 @@ export const LOG_TYPES = [
  * must not expose the display-only "Unknown" label for that value.
  */
 export const LOG_TYPE_FILTERS = [
-  { label: 'All Types', value: LOG_TYPE_ALL_VALUE },
+  { label: '全部类型', value: LOG_TYPE_ALL_VALUE },
   ...LOG_TYPES.filter((type) => type.value !== LOG_TYPE_ENUM.UNKNOWN).map(
     (type) => ({
       label: type.label,

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { formatCurrencyFromUSD, formatQuotaWithCurrency } from '@/lib/currency'
-import dayjs from '@/lib/dayjs'
+import i18next from 'i18next'
 import { formatTimestampToDate } from '@/lib/format'
 import {
   CHANNEL_STATUS_CONFIG,
@@ -364,12 +364,57 @@ export function getResponseTimeConfig(timeMs: number) {
  * e.g., "2 hours ago", "3 days ago"
  */
 export function formatRelativeTime(timestamp: number): string {
-  if (!timestamp || timestamp === 0) return 'Never'
+  if (!timestamp || timestamp === 0) return i18next.t('Never')
 
   try {
-    return dayjs(timestamp * 1000).fromNow()
+    const now = Date.now()
+    const diff = now - timestamp * 1000
+
+    if (diff < 60 * 1000) {
+      return i18next.t('Just now')
+    }
+
+    const minutes = Math.floor(diff / (60 * 1000))
+    if (minutes < 60) {
+      return minutes === 1
+        ? i18next.t('1 minute ago')
+        : i18next.t('{{count}} minutes ago', { count: minutes })
+    }
+
+    const hours = Math.floor(diff / (60 * 60 * 1000))
+    if (hours < 24) {
+      return hours === 1
+        ? i18next.t('1 hour ago')
+        : i18next.t('{{count}} hours ago', { count: hours })
+    }
+
+    const days = Math.floor(diff / (24 * 60 * 60 * 1000))
+    if (days < 7) {
+      return days === 1
+        ? i18next.t('1 day ago')
+        : i18next.t('{{count}} days ago', { count: days })
+    }
+
+    const weeks = Math.floor(days / 7)
+    if (weeks < 5) {
+      return weeks === 1
+        ? i18next.t('1 week ago')
+        : i18next.t('{{count}} weeks ago', { count: weeks })
+    }
+
+    const months = Math.floor(days / 30)
+    if (months < 12) {
+      return months === 1
+        ? i18next.t('1 month ago')
+        : i18next.t('{{count}} months ago', { count: months })
+    }
+
+    const years = Math.floor(days / 365)
+    return years <= 1
+      ? i18next.t('1 year ago')
+      : i18next.t('{{count}} years ago', { count: years })
   } catch {
-    return 'Unknown'
+    return i18next.t('Unknown')
   }
 }
 
@@ -377,12 +422,12 @@ export function formatRelativeTime(timestamp: number): string {
  * Format Unix timestamp to date string
  */
 export function formatTimestamp(timestamp: number): string {
-  if (!timestamp || timestamp === 0) return 'N/A'
+  if (!timestamp || timestamp === 0) return '-'
 
   try {
     return formatTimestampToDate(timestamp)
   } catch {
-    return 'Invalid date'
+    return i18next.t('无效日期')
   }
 }
 

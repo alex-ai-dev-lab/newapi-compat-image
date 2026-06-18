@@ -39,6 +39,7 @@ import {
   Gift,
   type LucideIcon,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { useCommandPalette } from '@/stores/command-palette-store'
 import {
@@ -63,6 +64,7 @@ interface CommandAction {
 }
 
 export function CommandPalette() {
+  const { t } = useTranslation()
   const { isOpen, close } = useCommandPalette()
   const navigate = useNavigate()
   const { auth } = useAuthStore()
@@ -74,11 +76,11 @@ export function CommandPalette() {
       // Navigation - Dashboard
       {
         id: 'nav-dashboard',
-        label: 'Dashboard',
-        description: 'Go to overview dashboard',
+        label: '控制台',
+        description: '打开数据总览控制台',
         icon: LayoutDashboard,
         keywords: ['home', 'overview', 'stats'],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({ to: '/dashboard' })
           close()
@@ -156,11 +158,11 @@ export function CommandPalette() {
       // Navigation - Channels
       {
         id: 'nav-channels',
-        label: 'Channels',
-        description: 'Manage API channels',
+        label: '渠道',
+        description: '管理 API 渠道与上游配置',
         icon: Radio,
         keywords: ['channel', 'api', 'upstream'],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({ to: '/channels' })
           close()
@@ -170,11 +172,11 @@ export function CommandPalette() {
       // Navigation - Keys/Tokens
       {
         id: 'nav-keys',
-        label: 'API Keys',
-        description: 'Manage API keys and tokens',
+        label: 'API 密钥',
+        description: '管理 API 密钥与访问令牌',
         icon: Key,
         keywords: ['key', 'token', 'api', 'access'],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({ to: '/keys' })
           close()
@@ -183,11 +185,11 @@ export function CommandPalette() {
       // Navigation - Users
       {
         id: 'nav-users',
-        label: 'Users',
-        description: 'Manage users and permissions',
+        label: '用户',
+        description: '管理用户与权限',
         icon: Users,
         keywords: ['user', 'account', 'permission'],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({ to: '/users' })
           close()
@@ -197,11 +199,11 @@ export function CommandPalette() {
       // Navigation - Logs
       {
         id: 'nav-logs',
-        label: 'Logs',
-        description: 'View request logs and analytics',
+        label: '日志',
+        description: '查看请求日志与分析',
         icon: FileText,
         keywords: ['log', 'request', 'history', 'analytics'],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({ to: '/console/log' })
           close()
@@ -209,9 +211,8 @@ export function CommandPalette() {
       },
       {
         id: 'nav-usage-logs',
-        label: 'Usage Logs',
-        description:
-          'Open raw API call logs with model, channel, and user filters',
+        label: '使用日志',
+        description: '打开带模型、渠道和用户筛选的原始 API 调用日志',
         icon: FileText,
         keywords: [
           'usage',
@@ -223,7 +224,7 @@ export function CommandPalette() {
           'user',
           'trace',
         ],
-        section: 'Navigation',
+        section: '导航',
         action: () => {
           navigate({
             to: '/usage-logs/$section',
@@ -236,11 +237,11 @@ export function CommandPalette() {
       // Settings - System
       {
         id: 'settings-system',
-        label: 'System Settings',
-        description: 'Configure system-wide settings',
+        label: '系统设置',
+        description: '配置全局系统设置',
         icon: Settings,
         keywords: ['settings', 'config', 'system'],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({ to: '/system-settings' })
           close()
@@ -284,11 +285,11 @@ export function CommandPalette() {
       // Settings - Models
       {
         id: 'settings-models',
-        label: 'Model Settings',
-        description: 'Open the model control center',
+        label: '模型设置',
+        description: '打开模型控制中心',
         icon: Zap,
         keywords: ['model', 'operations', 'pricing', 'ratio', 'claude', 'gpt'],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -367,8 +368,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-model-pricing',
-        label: 'Model Pricing',
-        description: 'Sync, edit, import, and export official model prices',
+        label: '模型定价',
+        description: '同步、编辑、导入和导出官方模型价格',
         icon: Zap,
         keywords: [
           'pricing',
@@ -380,7 +381,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -392,8 +393,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-global-model-configuration',
-        label: 'Global Model Configuration',
-        description: 'Import/export passthrough, thinking, and ping defaults',
+        label: '全局模型配置',
+        description: '导入/导出透传、thinking 和 ping 默认配置',
         icon: Settings,
         keywords: [
           'global model',
@@ -405,7 +406,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -417,9 +418,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-claude',
-        label: 'Claude Settings',
-        description:
-          'Import/export Claude headers, max tokens, and thinking adapter',
+        label: 'Claude 设置',
+        description: '导入/导出 Claude 头部、最大 token 和 thinking 适配',
         icon: Zap,
         keywords: [
           'claude',
@@ -430,7 +430,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -442,9 +442,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-gemini',
-        label: 'Gemini Settings',
-        description:
-          'Import/export Gemini safety, version, and thinking adapter settings',
+        label: 'Gemini 设置',
+        description: '导入/导出 Gemini 安全、版本和 thinking 适配设置',
         icon: Zap,
         keywords: [
           'gemini',
@@ -455,7 +454,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -467,8 +466,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-grok',
-        label: 'Grok Settings',
-        description: 'Import/export Grok violation deduction settings',
+        label: 'Grok 设置',
+        description: '导入/导出 Grok 违规扣减设置',
         icon: Zap,
         keywords: [
           'grok',
@@ -479,7 +478,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -491,8 +490,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-channel-affinity',
-        label: 'Channel Affinity',
-        description: 'Import/export sticky routing rules and affinity limits',
+        label: '渠道亲和',
+        description: '导入/导出粘性路由规则与亲和限制',
         icon: Settings,
         keywords: [
           'channel affinity',
@@ -504,7 +503,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -516,8 +515,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-official-price-sync',
-        label: 'Official Price Sync',
-        description: 'Open the official-only upstream model price sync panel',
+        label: '官方价格同步',
+        description: '打开仅同步官方上游模型价格的面板',
         icon: RefreshCw,
         keywords: [
           'official',
@@ -527,7 +526,7 @@ export function CommandPalette() {
           'ratio',
           'billing',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -539,9 +538,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-model-deployment',
-        label: 'Model Deployment',
-        description:
-          'Configure and import/export io.net deployment settings with a redacted API key',
+        label: '模型部署',
+        description: '配置并导入/导出带脱敏 API key 的 io.net 部署设置',
         icon: Settings,
         keywords: [
           'model deployment',
@@ -554,7 +552,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/models/$section',
@@ -566,8 +564,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-quota',
-        label: 'Quota Settings',
-        description: 'Configure and import/export quota and top-up basics',
+        label: '额度设置',
+        description: '配置并导入/导出额度与充值基础设置',
         icon: BadgeDollarSign,
         keywords: [
           'quota',
@@ -579,7 +577,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/billing/$section',
@@ -591,8 +589,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-currency-display',
-        label: 'Currency Display',
-        description: 'Configure and import/export currency display defaults',
+        label: '货币显示',
+        description: '配置并导入/导出货币显示默认值',
         icon: BadgeDollarSign,
         keywords: [
           'currency',
@@ -604,7 +602,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/billing/$section',
@@ -616,9 +614,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-payment-gateway',
-        label: 'Payment Gateway',
-        description:
-          'Configure and import/export Epay, Stripe, Creem, Waffo, and Waffo Pancake gateways',
+        label: '支付网关',
+        description: '配置并导入/导出 Epay、Stripe、Creem、Waffo 与 Waffo Pancake 网关',
         icon: BadgeDollarSign,
         keywords: [
           'payment',
@@ -633,7 +630,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/billing/$section',
@@ -645,8 +642,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-checkin-rewards',
-        label: 'Check-in Rewards',
-        description: 'Configure and import/export daily check-in rewards',
+        label: '签到奖励',
+        description: '配置并导入/导出每日签到奖励',
         icon: Gift,
         keywords: [
           'checkin',
@@ -659,7 +656,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/billing/$section',
@@ -671,9 +668,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-channel-tests',
-        label: 'Channel Test Scheduler',
-        description:
-          'Open channels to configure scheduled tests and recovery windows',
+        label: '渠道测试调度',
+        description: '打开渠道页配置定时测试和恢复窗口',
         icon: Timer,
         keywords: [
           'channel',
@@ -683,7 +679,7 @@ export function CommandPalette() {
           'retry',
           'window',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({ to: '/channels' })
           close()
@@ -692,9 +688,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-monitoring-alerts',
-        label: 'Monitoring & Alerts',
-        description:
-          'Configure and import/export channel tests, retry rules, and reminders',
+        label: '监控与告警',
+        description: '配置并导入/导出渠道测试、重试规则和提醒',
         icon: BarChart3,
         keywords: [
           'monitoring',
@@ -708,7 +703,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
@@ -720,9 +715,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-log-maintenance',
-        label: 'Log Maintenance',
-        description:
-          'Configure and import/export quota usage logging; destructive cleanup stays manual',
+        label: '日志维护',
+        description: '配置并导入/导出额度用量日志，破坏性清理仍需手动执行',
         icon: FileText,
         keywords: [
           'log',
@@ -735,7 +729,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
@@ -747,9 +741,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-smtp-email',
-        label: 'SMTP Email',
-        description:
-          'Configure and import/export SMTP host, sender, auth flags, and redacted credentials',
+        label: 'SMTP 邮件',
+        description: '配置并导入/导出 SMTP 主机、发件人、认证开关和脱敏凭据',
         icon: Settings,
         keywords: [
           'smtp',
@@ -761,7 +754,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
@@ -773,9 +766,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-basic-auth',
-        label: 'Basic Authentication',
-        description:
-          'Configure and import/export password login, registration, email verification, and domain rules',
+        label: '基础认证',
+        description: '配置并导入/导出密码登录、注册、邮箱验证和域名规则',
         icon: Shield,
         keywords: [
           'basic auth',
@@ -788,7 +780,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/auth/$section',
@@ -800,9 +792,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-oauth-integrations',
-        label: 'OAuth Integrations',
-        description:
-          'Configure and import/export OAuth providers with redacted client secrets and tokens',
+        label: 'OAuth 集成',
+        description: '配置并导入/导出带脱敏客户端密钥和令牌的 OAuth 提供商',
         icon: Shield,
         keywords: [
           'oauth',
@@ -817,7 +808,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/auth/$section',
@@ -829,9 +820,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-passkey-authentication',
-        label: 'Passkey Authentication',
-        description:
-          'Configure and import/export WebAuthn relying party, origins, and verification settings',
+        label: 'Passkey 认证',
+        description: '配置并导入/导出 WebAuthn RP、来源和验证设置',
         icon: Key,
         keywords: [
           'passkey',
@@ -843,7 +833,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/auth/$section',
@@ -855,9 +845,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-bot-protection',
-        label: 'Bot Protection',
-        description:
-          'Configure and import/export Turnstile site key with redacted secret key',
+        label: '机器人防护',
+        description: '配置并导入/导出带脱敏密钥的 Turnstile 站点密钥',
         icon: Shield,
         keywords: [
           'bot',
@@ -869,7 +858,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/auth/$section',
@@ -881,9 +870,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-custom-oauth',
-        label: 'Custom OAuth',
-        description:
-          'Configure and import/export custom OAuth providers with redacted client secrets',
+        label: '自定义 OAuth',
+        description: '配置并导入/导出带脱敏客户端密钥的自定义 OAuth 提供商',
         icon: Shield,
         keywords: [
           'custom oauth',
@@ -895,7 +883,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/auth/$section',
@@ -907,9 +895,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-worker-proxy',
-        label: 'Worker Proxy',
-        description:
-          'Configure and import/export Worker URL, HTTP image policy, and redacted access key',
+        label: 'Worker 代理',
+        description: '配置并导入/导出 Worker URL、HTTP 图片策略和脱敏访问密钥',
         icon: Settings,
         keywords: [
           'worker',
@@ -921,7 +908,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
@@ -1135,8 +1122,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-announcements',
-        label: 'Announcements',
-        description: 'Configure and import/export console announcements',
+        label: '公告',
+        description: '配置并导入/导出控制台公告',
         icon: FileText,
         keywords: [
           'announcement',
@@ -1148,7 +1135,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1160,8 +1147,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-api-addresses',
-        label: 'API Addresses',
-        description: 'Configure and import/export console API address cards',
+        label: 'API 地址',
+        description: '配置并导入/导出控制台 API 地址卡片',
         icon: Globe,
         keywords: [
           'api',
@@ -1175,7 +1162,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1188,7 +1175,7 @@ export function CommandPalette() {
       {
         id: 'settings-faq',
         label: 'FAQ',
-        description: 'Configure and import/export frequently asked questions',
+        description: '配置并导入/导出常见问题',
         icon: FileText,
         keywords: [
           'faq',
@@ -1199,7 +1186,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1212,7 +1199,7 @@ export function CommandPalette() {
       {
         id: 'settings-uptime-kuma',
         label: 'Uptime Kuma',
-        description: 'Configure and import/export status page groups',
+        description: '配置并导入/导出状态页分组',
         icon: LineChart,
         keywords: [
           'uptime',
@@ -1224,7 +1211,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1236,8 +1223,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-chat-presets',
-        label: 'Chat Presets',
-        description: 'Configure and import/export chat client presets',
+        label: '聊天预设',
+        description: '配置并导入/导出聊天客户端预设',
         icon: FileText,
         keywords: [
           'chat',
@@ -1249,7 +1236,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1261,8 +1248,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-drawing',
-        label: 'Drawing',
-        description: 'Configure and import/export drawing feature switches',
+        label: '绘图',
+        description: '配置并导入/导出绘图功能开关',
         icon: Palette,
         keywords: [
           'drawing',
@@ -1274,7 +1261,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/content/$section',
@@ -1286,9 +1273,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-system-information',
-        label: 'System Information',
-        description:
-          'Configure and import/export site identity, homepage copy, agreement, and privacy policy',
+        label: '系统信息',
+        description: '配置并导入/导出站点标识、首页文案、协议与隐私政策',
         icon: FileText,
         keywords: [
           'system',
@@ -1306,7 +1292,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/site/$section',
@@ -1318,8 +1304,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-system-notice',
-        label: 'System Notice',
-        description: 'Configure and import/export the site-wide notice',
+        label: '系统通知',
+        description: '配置并导入/导出全站通知',
         icon: FileText,
         keywords: [
           'system',
@@ -1331,7 +1317,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/site/$section',
@@ -1343,9 +1329,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-performance',
-        label: 'Performance Settings',
-        description:
-          'Configure and import/export cache, resource monitors, and performance knobs',
+        label: '性能设置',
+        description: '配置并导入/导出缓存、资源监控和性能开关',
         icon: Settings,
         keywords: [
           'performance',
@@ -1359,7 +1344,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/operations/$section',
@@ -1371,9 +1356,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-header-navigation',
-        label: 'Header Navigation',
-        description:
-          'Configure and import/export top navigation and documentation link',
+        label: '顶部导航',
+        description: '配置并导入/导出顶部导航和文档链接',
         icon: BookOpen,
         keywords: [
           'header',
@@ -1385,7 +1369,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/site/$section',
@@ -1397,9 +1381,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-sidebar-modules',
-        label: 'Sidebar Modules',
-        description:
-          'Configure and import/export sidebar modules, visibility, and order',
+        label: '侧边栏模块',
+        description: '配置并导入/导出侧边栏模块、可见性和排序',
         icon: LayoutDashboard,
         keywords: [
           'sidebar',
@@ -1412,7 +1395,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/site/$section',
@@ -1424,9 +1407,8 @@ export function CommandPalette() {
       },
       {
         id: 'settings-system-settings-navigation',
-        label: 'System Settings Navigation',
-        description:
-          'Configure and import/export System Settings areas, sections, visibility, and order',
+        label: '系统设置导航',
+        description: '配置并导入/导出系统设置区域、分区、可见性和排序',
         icon: Settings,
         keywords: [
           'system settings',
@@ -1440,7 +1422,7 @@ export function CommandPalette() {
           'import',
           'export',
         ],
-        section: 'Settings',
+        section: '设置',
         action: () => {
           navigate({
             to: '/system-settings/site/$section',
@@ -1453,11 +1435,11 @@ export function CommandPalette() {
       // Quick Actions - Analytics
       {
         id: 'action-analytics',
-        label: 'View Analytics',
-        description: 'Open detailed analytics dashboard',
+        label: '查看分析',
+        description: '打开详细分析控制台',
         icon: BarChart3,
         keywords: ['analytics', 'stats', 'metrics', 'chart'],
-        section: 'Quick Actions',
+        section: '快捷操作',
         action: () => {
           navigate({ to: '/dashboard' })
           close()
@@ -1519,15 +1501,19 @@ export function CommandPalette() {
     }
   }, [isOpen])
 
+  if (!isOpen) {
+    return null
+  }
+
   return (
     <CommandDialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <CommandInput
-        placeholder='Type a command or search...'
+        placeholder={t('Type a command or search...')}
         value={search}
         onValueChange={setSearch}
       />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>{t('No results found.')}</CommandEmpty>
 
         {Object.entries(groupedCommands).map(([section, items], idx) => (
           <div key={section}>

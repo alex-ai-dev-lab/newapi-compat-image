@@ -223,7 +223,7 @@ export function ModelsTable() {
 
   const activeSync = syncFilter[0] ?? 'all'
   const syncPillOptions = [
-    { value: 'all', label: t('All Sync States') },
+    { value: 'all', label: t('全部同步状态') },
     ...getSyncStatusOptions(t).map((option) => ({
       value: option.value,
       label: option.label,
@@ -235,9 +235,9 @@ export function ModelsTable() {
       <ModelsStats models={models} vendors={vendors} />
 
       <SectionCard
-        title={t('Model Catalog')}
+        title={t('模型目录')}
         description={t(
-          'Shape supplier coverage, metadata quality, and sync behavior while keeping a broad wide-screen scan pattern.'
+          '在宽屏视图下统一审视供应商覆盖、元信息质量与同步状态。'
         )}
         contentClassName='p-0'
       >

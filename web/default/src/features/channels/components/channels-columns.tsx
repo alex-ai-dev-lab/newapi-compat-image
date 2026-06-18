@@ -222,8 +222,12 @@ function PriorityCell({ channel }: { channel: Channel }) {
           open={confirmOpen}
           onOpenChange={setConfirmOpen}
           title={t('Confirm Batch Update')}
-          desc={`This will update the priority to ${pendingValue} for all ${channelCount} channel(s) with tag "${tag}". Continue?`}
-          confirmText='Update'
+          desc={t('将把标签 "{{tag}}" 下 {{count}} 个渠道的优先级更新为 {{value}}，是否继续？', {
+            tag,
+            count: channelCount,
+            value: pendingValue,
+          })}
+          confirmText={t('更新')}
           handleConfirm={() => {
             if (pendingValue !== null) {
               handleUpdateTagField(tag, 'priority', pendingValue, queryClient)
@@ -277,8 +281,12 @@ function WeightCell({ channel }: { channel: Channel }) {
           open={confirmOpen}
           onOpenChange={setConfirmOpen}
           title={t('Confirm Batch Update')}
-          desc={`This will update the weight to ${pendingValue} for all ${channelCount} channel(s) with tag "${tag}". Continue?`}
-          confirmText='Update'
+          desc={t('将把标签 "{{tag}}" 下 {{count}} 个渠道的权重更新为 {{value}}，是否继续？', {
+            tag,
+            count: channelCount,
+            value: pendingValue,
+          })}
+          confirmText={t('更新')}
           handleConfirm={() => {
             if (pendingValue !== null) {
               handleUpdateTagField(tag, 'weight', pendingValue, queryClient)
@@ -539,9 +547,9 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
                 )}
               </Button>
               <div className='flex items-center gap-1.5'>
-                <span className='font-semibold'>Tag：{tag}</span>
+                <span className='font-semibold'>{t('标签')}：{tag}</span>
                 <StatusBadge
-                  label={`${childrenCount} channels`}
+                  label={t('{{count}} 个渠道', { count: childrenCount })}
                   variant='blue'
                   size='sm'
                   copyable={false}
@@ -665,7 +673,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
         if (isTagRow) {
           return (
             <StatusBadge
-              label={t('Tag Aggregate')}
+              label={t('标签聚合')}
               variant='blue'
               size='sm'
               copyable={false}
@@ -792,7 +800,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           if (hasEnabled) {
             return (
               <StatusBadge
-                label={`Active (${childrenCount})`}
+                label={t('启用（{{count}}）', { count: childrenCount })}
                 variant='success'
                 size='sm'
                 copyable={false}
@@ -801,7 +809,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           } else {
             return (
               <StatusBadge
-                label={`Inactive (${childrenCount})`}
+                label={t('停用（{{count}}）', { count: childrenCount })}
                 variant='neutral'
                 size='sm'
                 copyable={false}

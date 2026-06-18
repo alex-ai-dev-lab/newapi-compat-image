@@ -20,8 +20,10 @@ import { Button } from '@/components/ui/button'
 import { useThemeStore } from '@/stores/theme-store'
 import { Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslation } from 'react-i18next'
 
 export function ThemeToggle({ className }: { className?: string }) {
+  const { t } = useTranslation()
   const { mode, setMode } = useThemeStore()
 
   const isDark =
@@ -38,10 +40,10 @@ export function ThemeToggle({ className }: { className?: string }) {
       size="icon"
       onClick={toggle}
       className={cn('h-9 w-9', className)}
-      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? t('Switch to light mode') : t('Switch to dark mode')}
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      <span className="sr-only">Toggle theme</span>
+      <span className="sr-only">{t('Toggle theme')}</span>
     </Button>
   )
 }

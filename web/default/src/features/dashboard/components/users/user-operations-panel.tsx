@@ -42,6 +42,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -90,7 +91,7 @@ function formatCount(value: number): string {
 }
 
 function formatMs(value: number): string {
-  if (!value || value <= 0) return 'N/A'
+  if (!value || value <= 0) return '-'
   return `${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)}ms`
 }
 
@@ -252,6 +253,7 @@ function compareUserStats(
 }
 
 export function UserOperationsPanel() {
+  const { t } = useTranslation()
   const search = route.useSearch()
   const navigate = useNavigate()
   const {
@@ -473,7 +475,7 @@ export function UserOperationsPanel() {
     return (
       <Alert variant='destructive'>
         <AlertDescription>
-          Failed to load user operations analytics. Please try again later.
+          {t('用户运维分析加载失败，请稍后重试。')}
         </AlertDescription>
       </Alert>
     )
@@ -483,10 +485,9 @@ export function UserOperationsPanel() {
     <section className='space-y-4'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
-          <h3 className='text-base font-semibold'>User operations</h3>
+          <h3 className='text-base font-semibold'>{t('用户运维')}</h3>
           <p className='text-muted-foreground text-sm'>
-            User spend, reliability, first-token latency, and dominant channel
-            for the selected window.
+            {t('聚焦所选时间窗口内的用户消费、可靠性、首字延迟与主要渠道。')}
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-3'>
@@ -511,19 +512,19 @@ export function UserOperationsPanel() {
       <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-5'>
         <MetricCard
           icon={Users}
-          label='Active users'
+          label={t('活跃用户')}
           value={formatCount(summary.activeUsers)}
           loading={isLoading}
         />
         <MetricCard
           icon={Activity}
-          label='Requests'
+          label={t('请求数')}
           value={formatCount(summary.totalRequests)}
           loading={isLoading}
         />
         <MetricCard
           icon={AlertTriangle}
-          label='Failures'
+          label={t('失败数')}
           value={formatCount(summary.failedRequests)}
           loading={isLoading}
           valueClassName={
@@ -532,13 +533,13 @@ export function UserOperationsPanel() {
         />
         <MetricCard
           icon={Timer}
-          label='Avg first token'
+          label={t('平均首字延迟')}
           value={formatMs(summary.avgFirstToken)}
           loading={isLoading}
         />
         <MetricCard
           icon={CircleDollarSign}
-          label='Cost'
+          label={t('成本')}
           value={formatUsd(summary.totalCost)}
           loading={isLoading}
         />
@@ -547,14 +548,14 @@ export function UserOperationsPanel() {
       <div className='grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(22rem,0.7fr)]'>
         <Card className='rounded-lg shadow-none'>
           <CardHeader className='border-b pb-3'>
-            <CardTitle className='text-sm'>Top user spend</CardTitle>
+            <CardTitle className='text-sm'>{t('头部用户消费')}</CardTitle>
           </CardHeader>
           <CardContent className='pt-4'>
             {isLoading ? (
               <Skeleton className='h-80 w-full rounded-lg' />
             ) : spendChart.length === 0 ? (
               <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
-                No user spend in this period
+                {t('当前时间段暂无用户消费')}
               </div>
             ) : (
               <ResponsiveContainer width='100%' height={320}>
@@ -592,7 +593,7 @@ export function UserOperationsPanel() {
                     dataKey='cost'
                     fill='var(--primary)'
                     radius={[4, 4, 0, 0]}
-                    name='Cost'
+                    name={t('成本')}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -602,13 +603,13 @@ export function UserOperationsPanel() {
 
         <div className='grid gap-4'>
           <CompactRank
-            title='Slowest users'
+            title={t('首字最慢用户')}
             rows={slowestUsers}
             loading={isLoading}
             metric='latency'
           />
           <CompactRank
-            title='Risk users'
+            title={t('风险用户')}
             rows={riskUsers}
             loading={isLoading}
             metric='risk'
@@ -619,10 +620,9 @@ export function UserOperationsPanel() {
       <section className='space-y-3'>
         <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
-            <h3 className='text-sm font-semibold'>Selected user trend</h3>
+            <h3 className='text-sm font-semibold'>{t('所选用户趋势')}</h3>
             <p className='text-muted-foreground mt-1 text-xs'>
-              Inspect request volume, reliability, first-token latency, cost,
-              and tokens for one user.
+              {t('查看单个用户的请求量、可靠性、首字延迟、成本与 Token 趋势。')}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -644,7 +644,7 @@ export function UserOperationsPanel() {
               }
             >
               <FileText data-icon='inline-start' />
-              View logs
+              {t('查看日志')}
             </Button>
             <Select
               value={selectedUserId ? String(selectedUserId) : undefined}
@@ -654,7 +654,7 @@ export function UserOperationsPanel() {
               disabled={rows.length === 0 || isLoading}
             >
               <SelectTrigger className='w-full sm:w-[22rem]'>
-                <SelectValue placeholder='Select user' />
+                <SelectValue placeholder={t('选择用户')} />
               </SelectTrigger>
               <SelectContent>
                 {rows.map((user) => (
@@ -669,7 +669,7 @@ export function UserOperationsPanel() {
         {userTrendError ? (
           <Alert variant='destructive'>
             <AlertDescription>
-              Failed to load selected user trend. Please try again later.
+              {t('所选用户趋势加载失败，请稍后重试。')}
             </AlertDescription>
           </Alert>
         ) : userTrendLoading ? (
@@ -683,13 +683,16 @@ export function UserOperationsPanel() {
         ) : selectedUser ? (
           <TrendChart
             data={userTrend ?? []}
-            title={`${selectedUser.username} trend`}
-            description={`Requests, reliability, first-token latency, cost, and token volume for user #${selectedUser.user_id}.`}
+            title={t('{{name}} 趋势', { name: selectedUser.username })}
+            description={t(
+              '查看用户 #{{id}} 的请求量、可靠性、首字延迟、成本与 Token 变化。',
+              { id: selectedUser.user_id }
+            )}
             storageKey='dashboard:user-operations:trend'
           />
         ) : (
           <div className='text-muted-foreground rounded-lg border py-10 text-center text-sm'>
-            Select a user to inspect their operational trend
+            {t('选择一个用户以查看其运维趋势')}
           </div>
         )}
       </section>
@@ -697,10 +700,12 @@ export function UserOperationsPanel() {
       <Card className='rounded-lg shadow-none'>
         <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
           <div>
-            <CardTitle className='text-sm'>User detail</CardTitle>
+            <CardTitle className='text-sm'>{t('用户明细')}</CardTitle>
             <p className='text-muted-foreground mt-1 text-xs'>
-              Showing {formatCount(filteredRows.length)} of{' '}
-              {formatCount(rows.length)} users.
+              {t('显示 {{filtered}} / {{total}}', {
+                filtered: formatCount(filteredRows.length),
+                total: formatCount(rows.length),
+              })}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -709,7 +714,7 @@ export function UserOperationsPanel() {
               <Input
                 value={userQuery}
                 onChange={(event) => setUserQuery(event.target.value)}
-                placeholder='Search user, ID, or channel'
+                placeholder={t('搜索用户、ID 或渠道')}
                 className='pl-8'
               />
             </div>
@@ -723,10 +728,10 @@ export function UserOperationsPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='all'>All users</SelectItem>
-                <SelectItem value='active'>Active only</SelectItem>
-                <SelectItem value='risk'>Has failures</SelectItem>
-                <SelectItem value='slow'>Slow first token</SelectItem>
+                <SelectItem value='all'>{t('全部用户')}</SelectItem>
+                <SelectItem value='active'>{t('仅活跃')}</SelectItem>
+                <SelectItem value='risk'>{t('存在失败')}</SelectItem>
+                <SelectItem value='slow'>{t('首字较慢')}</SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -737,7 +742,7 @@ export function UserOperationsPanel() {
               disabled={!userViewDirty}
             >
               <RotateCcw className='size-4' />
-              Reset view
+              {t('重置视图')}
             </Button>
           </div>
         </CardHeader>
@@ -748,7 +753,7 @@ export function UserOperationsPanel() {
                 <TableRow>
                   <TableHead>
                     <SortableHeader
-                      label='User'
+                      label={t('用户')}
                       active={userSort.key === 'user'}
                       direction={userSort.direction}
                       onClick={() =>
@@ -758,7 +763,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Requests'
+                      label={t('请求数')}
                       align='right'
                       active={userSort.key === 'requests'}
                       direction={userSort.direction}
@@ -769,7 +774,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Success'
+                      label={t('成功率')}
                       align='right'
                       active={userSort.key === 'success'}
                       direction={userSort.direction}
@@ -780,7 +785,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Failures'
+                      label={t('失败数')}
                       align='right'
                       active={userSort.key === 'failures'}
                       direction={userSort.direction}
@@ -791,7 +796,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Error rate'
+                      label={t('错误率')}
                       align='right'
                       active={userSort.key === 'error_rate'}
                       direction={userSort.direction}
@@ -802,7 +807,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='First token'
+                      label={t('首字延迟')}
                       align='right'
                       active={userSort.key === 'first_token'}
                       direction={userSort.direction}
@@ -813,7 +818,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead>
                     <SortableHeader
-                      label='Top channel'
+                      label={t('头部渠道')}
                       active={userSort.key === 'top_channel'}
                       direction={userSort.direction}
                       onClick={() =>
@@ -823,7 +828,7 @@ export function UserOperationsPanel() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Cost'
+                      label={t('成本')}
                       align='right'
                       active={userSort.key === 'cost'}
                       direction={userSort.direction}
@@ -849,7 +854,7 @@ export function UserOperationsPanel() {
                       colSpan={8}
                       className='text-muted-foreground py-10 text-center'
                     >
-                      No user data available
+                      {t('暂无用户数据')}
                     </TableCell>
                   </TableRow>
                 ) : filteredRows.length === 0 ? (
@@ -858,7 +863,7 @@ export function UserOperationsPanel() {
                       colSpan={8}
                       className='text-muted-foreground py-10 text-center'
                     >
-                      No users match the current filters
+                      {t('当前筛选条件下暂无用户')}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -870,7 +875,7 @@ export function UserOperationsPanel() {
                       }
                       tabIndex={0}
                       role='button'
-                      aria-label={`Inspect trend for ${user.username}`}
+                      aria-label={t('查看 {{name}} 的趋势', { name: user.username })}
                       className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
                       onClick={() => selectUser(user.user_id)}
                       onKeyDown={(event) => {
@@ -923,7 +928,7 @@ export function UserOperationsPanel() {
                             </span>
                           </span>
                         ) : (
-                          <span className='text-muted-foreground'>N/A</span>
+                            <span className='text-muted-foreground'>{t('暂无')}</span>
                         )}
                       </TableCell>
                       <TableCell className='text-right font-mono'>
@@ -938,8 +943,11 @@ export function UserOperationsPanel() {
           {!isLoading && filteredRows.length > 0 ? (
             <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
               <div className='text-muted-foreground text-xs'>
-                Showing {formatCount(userPageStart)}-{formatCount(userPageEnd)}{' '}
-                of {formatCount(sortedRows.length)} users
+                {t('显示 {{start}}-{{end}} / {{total}} 位用户', {
+                  start: formatCount(userPageStart),
+                  end: formatCount(userPageEnd),
+                  total: formatCount(sortedRows.length),
+                })}
               </div>
               <div className='flex flex-wrap items-center gap-2'>
                 <Select
@@ -1057,6 +1065,7 @@ function CompactRank(props: {
   loading: boolean
   metric: 'latency' | 'risk'
 }) {
+  const { t } = useTranslation()
   const healthThresholds = useDashboardHealthThresholds()
 
   return (
@@ -1071,7 +1080,7 @@ function CompactRank(props: {
           ))
         ) : props.rows.length === 0 ? (
           <div className='text-muted-foreground py-6 text-center text-xs'>
-            No data
+            {t('暂无数据')}
           </div>
         ) : (
           props.rows.map((user) => (
@@ -1084,7 +1093,9 @@ function CompactRank(props: {
                   {user.username}
                 </div>
                 <div className='text-muted-foreground text-xs'>
-                  #{user.user_id} · {formatCount(user.total_requests)} req
+                  #{user.user_id} · {t('{{count}} 次请求', {
+                    count: formatCount(user.total_requests),
+                  })}
                 </div>
               </div>
               {props.metric === 'latency' ? (

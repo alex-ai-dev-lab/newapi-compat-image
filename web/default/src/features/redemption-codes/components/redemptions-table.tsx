@@ -162,9 +162,9 @@ export function RedemptionsTable() {
       <RedemptionsStats redemptions={redemptions} />
 
       <SectionCard
-        title={t('Voucher Ledger')}
+        title={t('兑换码台账')}
         description={t(
-          'Keep expiry, usage, and batch actions visible in one cardified inventory table.'
+          '在同一张卡片化台账中集中查看库存、过期时间、兑换状态与批量操作。'
         )}
         contentClassName='p-0'
       >

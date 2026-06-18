@@ -352,7 +352,7 @@ export function ChannelsTable() {
 
     return [
       {
-        label: 'All Types',
+        label: t('全部类型'),
         value: 'all',
         count: totalTypes,
       },
@@ -378,10 +378,8 @@ export function ChannelsTable() {
       <ChannelsStats channels={channels} />
 
       <SectionCard
-        title={t('Channel Ledger')}
-        description={t(
-          'Search by endpoint identity, narrow by status and routing group, then batch operate on the filtered result set.'
-        )}
+        title={t('渠道台账')}
+        description={t('按端点身份检索渠道，结合状态和分组筛选后批量操作结果集。')}
         contentClassName='p-0'
       >
         <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
@@ -390,17 +388,15 @@ export function ChannelsTable() {
             columns={columns}
             isLoading={isLoading}
             isFetching={isFetching}
-            emptyTitle={t('No Channels Found')}
-            emptyDescription={t(
-              'No channels available. Create your first channel to get started.'
-            )}
+            emptyTitle={t('未找到渠道')}
+            emptyDescription={t('当前没有可用渠道，请先创建第一个渠道。')}
             skeletonKeyPrefix='channel-skeleton'
             applyHeaderSize
             toolbarProps={{
-              searchPlaceholder: t('Filter by name, ID, or key...'),
+              searchPlaceholder: t('按名称、ID 或密钥筛选...'),
               additionalSearch: (
                 <Input
-                  placeholder={t('Filter by model...')}
+                  placeholder={t('按模型筛选...')}
                   value={modelFilterInput}
                   onChange={(e) => setModelFilterInput(e.target.value)}
                   className='w-full sm:w-[150px] lg:w-[180px]'

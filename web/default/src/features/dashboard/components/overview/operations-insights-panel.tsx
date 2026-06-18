@@ -37,6 +37,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -65,7 +66,7 @@ function formatCount(value: number): string {
 }
 
 function formatMs(value: number): string {
-  if (!value || value <= 0) return 'N/A'
+  if (!value || value <= 0) return '-'
   return `${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)}ms`
 }
 
@@ -112,6 +113,7 @@ type UsageLogsSearch = {
 }
 
 export function OperationsInsightsPanel() {
+  const { t } = useTranslation()
   const search = route.useSearch()
   const navigate = useNavigate()
   const {
@@ -169,7 +171,7 @@ export function OperationsInsightsPanel() {
       <section className='rounded-xl border bg-card p-4'>
         <div className='flex items-center gap-2 text-sm font-medium text-destructive'>
           <AlertTriangle className='size-4' aria-hidden='true' />
-          Admin operations analytics failed to load.
+          {t('运维总览加载失败，请稍后重试。')}
         </div>
       </section>
     )
@@ -181,13 +183,13 @@ export function OperationsInsightsPanel() {
         <div className='flex min-w-0 flex-col gap-1'>
           <div className='flex items-center gap-2'>
             <RadioTower className='size-4 text-muted-foreground' aria-hidden='true' />
-            <h3 className='text-sm font-semibold'>Operations center</h3>
+            <h3 className='text-sm font-semibold'>{t('运维中心')}</h3>
             <Badge variant='secondary' className='font-mono text-[11px]'>
-              Admin
+              {t('管理视角')}
             </Badge>
           </div>
           <p className='text-sm text-muted-foreground'>
-            Global channel reliability, first-token latency, model traffic, and user spend.
+            {t('统一观察全局渠道可靠性、首字延迟、模型流量与用户消费。')}
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
@@ -203,7 +205,7 @@ export function OperationsInsightsPanel() {
               />
             }
           >
-            Channel analytics
+            {t('渠道分析')}
             <ArrowRight data-icon='inline-end' />
           </Button>
           <Button
@@ -219,7 +221,7 @@ export function OperationsInsightsPanel() {
             }
           >
             <FileText data-icon='inline-start' />
-            Usage logs
+            {t('使用日志')}
           </Button>
           <AutoRefreshToggle
             value={autoRefresh}
@@ -239,35 +241,56 @@ export function OperationsInsightsPanel() {
         <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
           <InsightMetric
             icon={Activity}
-            label='Requests'
+            label={t('请求数')}
             value={stats ? formatCount(stats.total_requests) : ''}
             subvalue={
               stats
-                ? `${formatCount(stats.success_requests)} ok / ${formatCount(stats.failed_requests)} failed`
+                ? t('{{success}} 成功 / {{failed}} 失败', {
+                    success: formatCount(stats.success_requests),
+                    failed: formatCount(stats.failed_requests),
+                  })
                 : ''
             }
             loading={isLoading}
           />
           <InsightMetric
             icon={AlertTriangle}
-            label='Error rate'
+            label={t('错误率')}
             value={stats ? `${stats.error_rate.toFixed(2)}%` : ''}
-            subvalue={riskiestChannel ? `${riskiestChannel.channel_name} #${riskiestChannel.channel_id}` : 'No failures'}
+            subvalue={
+              riskiestChannel
+                ? `${riskiestChannel.channel_name} #${riskiestChannel.channel_id}`
+                : t('当前无失败渠道')
+            }
             loading={isLoading}
             tone={stats && stats.error_rate > 0 ? 'warning' : 'success'}
           />
           <InsightMetric
             icon={Timer}
-            label='First token'
+            label={t('首字延迟')}
             value={stats ? formatMs(stats.avg_first_token_time) : ''}
-            subvalue={slowestChannel ? `Slowest ${formatMs(slowestChannel.avg_first_token)}` : 'No latency data'}
+            subvalue={
+              slowestChannel
+                ? t('最慢 {{value}}', {
+                    value: formatMs(slowestChannel.avg_first_token),
+                  })
+                : t('暂无延迟数据')
+            }
             loading={isLoading}
           />
           <InsightMetric
             icon={CircleDollarSign}
-            label='Cost'
+            label={t('成本')}
             value={stats ? formatUsd(stats.total_cost) : ''}
-            subvalue={stats ? `${formatCount(stats.total_prompt_tokens + stats.total_output_tokens)} tokens` : ''}
+            subvalue={
+              stats
+                ? t('{{count}} Token', {
+                    count: formatCount(
+                      stats.total_prompt_tokens + stats.total_output_tokens
+                    ),
+                  })
+                : ''
+            }
             loading={isLoading}
           />
         </div>
@@ -275,7 +298,7 @@ export function OperationsInsightsPanel() {
         <div className='grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)]'>
           <Card className='rounded-lg shadow-none'>
             <CardHeader className='border-b pb-3'>
-              <CardTitle className='text-sm'>Traffic health</CardTitle>
+              <CardTitle className='text-sm'>{t('流量健康度')}</CardTitle>
             </CardHeader>
             <CardContent className='pt-4'>
               {isLoading ? (
@@ -319,7 +342,7 @@ export function OperationsInsightsPanel() {
                       stroke='var(--success)'
                       strokeWidth={2}
                       fill='url(#successArea)'
-                      name='Success'
+                      name={t('成功')}
                     />
                     <Area
                       type='monotone'
@@ -327,7 +350,7 @@ export function OperationsInsightsPanel() {
                       stroke='var(--destructive)'
                       strokeWidth={2}
                       fill='url(#failureArea)'
-                      name='Failure'
+                      name={t('失败')}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -337,14 +360,14 @@ export function OperationsInsightsPanel() {
 
           <div className='grid gap-4'>
             <RankList
-              title='Risk channels'
+              title={t('风险渠道')}
               rows={stats?.top_failing_channels ?? []}
               loading={isLoading}
               metric='error'
               timeRange={timeRange}
             />
             <RankList
-              title='Slow first-token'
+              title={t('首字最慢渠道')}
               rows={stats?.slowest_channels ?? []}
               loading={isLoading}
               metric='latency'
@@ -356,9 +379,15 @@ export function OperationsInsightsPanel() {
         <div className='grid gap-4 lg:grid-cols-3'>
           <SummaryStrip
             icon={RadioTower}
-            label='Top channel'
-            value={stats?.top_channels?.[0]?.channel_name ?? 'N/A'}
-            detail={stats?.top_channels?.[0] ? `${formatCount(stats.top_channels[0].total_requests)} requests` : 'No data'}
+            label={t('头部渠道')}
+            value={stats?.top_channels?.[0]?.channel_name ?? '-'}
+            detail={
+              stats?.top_channels?.[0]
+                ? t('{{count}} 次请求', {
+                    count: formatCount(stats.top_channels[0].total_requests),
+                  })
+                : t('暂无数据')
+            }
             toSection='channels'
             search={
               stats?.top_channels?.[0]
@@ -377,9 +406,15 @@ export function OperationsInsightsPanel() {
           />
           <SummaryStrip
             icon={Activity}
-            label='Top model'
-            value={busiestModel?.model_name ?? 'N/A'}
-            detail={busiestModel ? `${formatCount(busiestModel.total_requests)} requests` : 'No data'}
+            label={t('头部模型')}
+            value={busiestModel?.model_name ?? '-'}
+            detail={
+              busiestModel
+                ? t('{{count}} 次请求', {
+                    count: formatCount(busiestModel.total_requests),
+                  })
+                : t('暂无数据')
+            }
             toSection='models'
             search={
               busiestModel
@@ -393,9 +428,16 @@ export function OperationsInsightsPanel() {
           />
           <SummaryStrip
             icon={Users}
-            label='Top spend user'
-            value={costliestUser?.username ?? 'N/A'}
-            detail={costliestUser ? `${formatUsd(costliestUser.total_cost)} via ${costliestUser.top_channel_name}` : 'No data'}
+            label={t('头部消费用户')}
+            value={costliestUser?.username ?? '-'}
+            detail={
+              costliestUser
+                ? t('{{cost}}，来自 {{channel}}', {
+                    cost: formatUsd(costliestUser.total_cost),
+                    channel: costliestUser.top_channel_name,
+                  })
+                : t('暂无数据')
+            }
             toSection='users'
             search={
               costliestUser
@@ -455,6 +497,7 @@ function RankList(props: {
   metric: 'error' | 'latency'
   timeRange: TimeRange
 }) {
+  const { t } = useTranslation()
   return (
     <Card className='rounded-lg shadow-none'>
       <CardHeader className='border-b pb-3'>
@@ -466,7 +509,7 @@ function RankList(props: {
             <Skeleton key={index} className='h-9 w-full rounded-md' />
           ))
         ) : props.rows.length === 0 ? (
-          <div className='py-4 text-center text-xs text-muted-foreground'>No data</div>
+          <div className='py-4 text-center text-xs text-muted-foreground'>{t('暂无数据')}</div>
         ) : (
           props.rows.slice(0, 5).map((row) => (
             <Link
@@ -475,12 +518,14 @@ function RankList(props: {
               params={{ section: 'channels' }}
               search={{ channel_id: row.channel_id, time_range: props.timeRange }}
               className='focus-visible:ring-ring flex items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors outline-none hover:bg-muted/50 focus-visible:ring-2'
-              aria-label={`Open channel analytics for ${row.channel_name}`}
+              aria-label={t('打开 {{name}} 的渠道分析', { name: row.channel_name })}
             >
               <div className='min-w-0'>
                 <div className='truncate text-sm font-medium'>{row.channel_name}</div>
                 <div className='text-xs text-muted-foreground'>
-                  #{row.channel_id} · {formatCount(row.total_requests)} req
+                  #{row.channel_id} · {t('{{count}} 次请求', {
+                    count: formatCount(row.total_requests),
+                  })}
                 </div>
               </div>
               {props.metric === 'error' ? (
@@ -508,6 +553,7 @@ function SummaryStrip(props: {
   logsSearch?: UsageLogsSearch
   logsTimeSearch?: { startTime: number; endTime: number }
 }) {
+  const { t } = useTranslation()
   const Icon = props.icon
   return (
     <div className='flex min-w-0 flex-col gap-3 rounded-lg border bg-background/60 p-3'>
@@ -539,7 +585,7 @@ function SummaryStrip(props: {
               />
             }
           >
-            Analytics
+            {t('分析')}
             <ArrowRight data-icon='inline-end' />
           </Button>
         ) : null}
@@ -561,7 +607,7 @@ function SummaryStrip(props: {
             }
           >
             <FileText data-icon='inline-start' />
-            Logs
+            {t('日志')}
           </Button>
         ) : null}
       </div>

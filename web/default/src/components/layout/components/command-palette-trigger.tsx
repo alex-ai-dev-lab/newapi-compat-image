@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Search, Command } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useCommandPalette } from '@/stores/command-palette-store'
 import { cn } from '@/lib/utils'
 
 export function CommandPaletteTrigger() {
+  const { t } = useTranslation()
   const { open } = useCommandPalette()
 
   return (
@@ -34,8 +36,8 @@ export function CommandPaletteTrigger() {
       onClick={open}
     >
       <Search className="mr-2 h-4 w-4" />
-      <span className="hidden lg:inline-flex">Search...</span>
-      <span className="inline-flex lg:hidden">Search</span>
+      <span className="hidden lg:inline-flex">{t('Search...')}</span>
+      <span className="inline-flex lg:hidden">{t('Search')}</span>
       <kbd className="pointer-events-none absolute right-1.5 top-1.5 hidden h-6 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
         <Command className="h-3 w-3" />
         K

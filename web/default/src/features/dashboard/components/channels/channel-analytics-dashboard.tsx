@@ -42,6 +42,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -92,7 +93,7 @@ function formatCount(value: number): string {
 }
 
 function formatMs(value: number): string {
-  if (!value || value <= 0) return 'N/A'
+  if (!value || value <= 0) return '-'
   return `${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)}ms`
 }
 
@@ -341,6 +342,7 @@ function compareChannelUserStats(
 }
 
 export function ChannelAnalyticsDashboard() {
+  const { t } = useTranslation()
   const search = route.useSearch()
   const navigate = useNavigate()
   const {
@@ -597,7 +599,7 @@ export function ChannelAnalyticsDashboard() {
     return (
       <Alert variant='destructive'>
         <AlertDescription>
-          Failed to load channel analytics. Please try again later.
+          {t('渠道分析加载失败，请稍后重试。')}
         </AlertDescription>
       </Alert>
     )
@@ -608,8 +610,7 @@ export function ChannelAnalyticsDashboard() {
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='min-w-0'>
           <p className='text-muted-foreground text-sm'>
-            Channel reliability, traffic, first-token latency, and spend for the
-            selected window.
+            {t('聚焦所选时间窗口内的渠道可靠性、流量、首字延迟与成本。')}
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-3'>
@@ -637,19 +638,19 @@ export function ChannelAnalyticsDashboard() {
       <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-5'>
         <MetricCard
           icon={RadioTower}
-          label='Active channels'
+          label={t('活跃渠道')}
           value={formatCount(summary.activeChannels)}
           loading={isLoading}
         />
         <MetricCard
           icon={TrendingUp}
-          label='Success rate'
+          label={t('成功率')}
           value={`${summary.successRate.toFixed(2)}%`}
           loading={isLoading}
         />
         <MetricCard
           icon={AlertTriangle}
-          label='Failures'
+          label={t('失败数')}
           value={formatCount(summary.failedRequests)}
           loading={isLoading}
           valueClassName={
@@ -658,13 +659,13 @@ export function ChannelAnalyticsDashboard() {
         />
         <MetricCard
           icon={Timer}
-          label='Avg first token'
+          label={t('平均首字延迟')}
           value={formatMs(summary.avgFirstToken)}
           loading={isLoading}
         />
         <MetricCard
           icon={CircleDollarSign}
-          label='Cost'
+          label={t('成本')}
           value={formatUsd(summary.totalCost)}
           loading={isLoading}
         />
@@ -673,14 +674,14 @@ export function ChannelAnalyticsDashboard() {
       <div className='grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(22rem,0.7fr)]'>
         <Card className='rounded-lg shadow-none'>
           <CardHeader className='border-b pb-3'>
-            <CardTitle className='text-sm'>Top channel traffic</CardTitle>
+            <CardTitle className='text-sm'>{t('头部渠道流量')}</CardTitle>
           </CardHeader>
           <CardContent className='pt-4'>
             {isLoading ? (
               <Skeleton className='h-80 w-full rounded-lg' />
             ) : trafficChart.length === 0 ? (
               <div className='text-muted-foreground flex h-80 items-center justify-center text-sm'>
-                No channel traffic in this period
+                {t('当前时间段暂无渠道流量')}
               </div>
             ) : (
               <ResponsiveContainer width='100%' height={320}>
@@ -718,13 +719,13 @@ export function ChannelAnalyticsDashboard() {
                     dataKey='requests'
                     fill='var(--primary)'
                     radius={[4, 4, 0, 0]}
-                    name='Requests'
+                    name={t('请求数')}
                   />
                   <Bar
                     dataKey='failures'
                     fill='var(--destructive)'
                     radius={[4, 4, 0, 0]}
-                    name='Failures'
+                    name={t('失败数')}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -734,13 +735,13 @@ export function ChannelAnalyticsDashboard() {
 
         <div className='grid gap-4'>
           <CompactRank
-            title='Slowest channels'
+            title={t('首字最慢渠道')}
             rows={slowest}
             loading={isLoading}
             metric='latency'
           />
           <CompactRank
-            title='Risk channels'
+            title={t('风险渠道')}
             rows={riskiest}
             loading={isLoading}
             metric='risk'
@@ -752,13 +753,13 @@ export function ChannelAnalyticsDashboard() {
         channelTrendError ? (
           <Alert variant='destructive'>
             <AlertDescription>
-              Failed to load selected channel trend. Please try again later.
+              {t('所选渠道趋势加载失败，请稍后重试。')}
             </AlertDescription>
           </Alert>
         ) : channelTrendLoading ? (
           <Card className='rounded-lg shadow-none'>
             <CardHeader className='border-b pb-3'>
-              <CardTitle className='text-sm'>Selected channel trend</CardTitle>
+              <CardTitle className='text-sm'>{t('所选渠道趋势')}</CardTitle>
             </CardHeader>
             <CardContent className='grid gap-4 pt-4 lg:grid-cols-2'>
               {Array.from({ length: 4 }).map((_, index) => (
@@ -769,8 +770,11 @@ export function ChannelAnalyticsDashboard() {
         ) : (
           <TrendChart
             data={channelTrend ?? []}
-            title={`${selectedChannel.channel_name} trend`}
-            description={`Requests, reliability, first-token latency, cost, and token volume for channel #${selectedChannel.channel_id}.`}
+            title={t('{{name}} 趋势', { name: selectedChannel.channel_name })}
+            description={t(
+              '查看渠道 #{{id}} 的请求量、可靠性、首字延迟、成本与 Token 变化。',
+              { id: selectedChannel.channel_id }
+            )}
             storageKey='dashboard:channel-analytics:trend'
           />
         )
@@ -779,10 +783,9 @@ export function ChannelAnalyticsDashboard() {
       <Card className='rounded-lg shadow-none'>
         <CardHeader className='flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
-            <CardTitle className='text-sm'>Channel user spend</CardTitle>
+            <CardTitle className='text-sm'>{t('渠道用户消费')}</CardTitle>
             <p className='text-muted-foreground mt-1 text-xs'>
-              User consumption, reliability, and first-token latency for one
-              selected channel.
+              {t('查看单个渠道下的用户消费、可靠性与首字延迟。')}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -806,7 +809,7 @@ export function ChannelAnalyticsDashboard() {
               }
             >
               <FileText data-icon='inline-start' />
-              View logs
+              {t('查看日志')}
             </Button>
             <Select
               value={selectedChannelId ? String(selectedChannelId) : undefined}
@@ -816,7 +819,7 @@ export function ChannelAnalyticsDashboard() {
               disabled={rows.length === 0 || isLoading}
             >
               <SelectTrigger className='w-full sm:w-[18rem]'>
-                <SelectValue placeholder='Select channel' />
+                <SelectValue placeholder={t('选择渠道')} />
               </SelectTrigger>
               <SelectContent>
                 {rows.map((channel) => (
@@ -836,7 +839,7 @@ export function ChannelAnalyticsDashboard() {
             <div className='p-4'>
               <Alert variant='destructive'>
                 <AlertDescription>
-                  Failed to load channel user spend. Please try again later.
+                  {t('渠道用户消费加载失败，请稍后重试。')}
                 </AlertDescription>
               </Alert>
             </div>
@@ -853,10 +856,12 @@ export function ChannelAnalyticsDashboard() {
       <Card className='rounded-lg shadow-none'>
         <CardHeader className='flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between'>
           <div>
-            <CardTitle className='text-sm'>Channel detail</CardTitle>
+            <CardTitle className='text-sm'>{t('渠道明细')}</CardTitle>
             <p className='text-muted-foreground mt-1 text-xs'>
-              Showing {formatCount(filteredRows.length)} of{' '}
-              {formatCount(rows.length)} channels.
+              {t('显示 {{filtered}} / {{total}}', {
+                filtered: formatCount(filteredRows.length),
+                total: formatCount(rows.length),
+              })}
             </p>
           </div>
           <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -865,7 +870,7 @@ export function ChannelAnalyticsDashboard() {
               <Input
                 value={channelQuery}
                 onChange={(event) => setChannelQuery(event.target.value)}
-                placeholder='Search channel or ID'
+                placeholder={t('搜索渠道或 ID')}
                 className='pl-8'
               />
             </div>
@@ -879,10 +884,10 @@ export function ChannelAnalyticsDashboard() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='all'>All channels</SelectItem>
-                <SelectItem value='active'>Active only</SelectItem>
-                <SelectItem value='risk'>Has failures</SelectItem>
-                <SelectItem value='slow'>Slow first token</SelectItem>
+                <SelectItem value='all'>{t('全部渠道')}</SelectItem>
+                <SelectItem value='active'>{t('仅活跃')}</SelectItem>
+                <SelectItem value='risk'>{t('存在失败')}</SelectItem>
+                <SelectItem value='slow'>{t('首字较慢')}</SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -893,7 +898,7 @@ export function ChannelAnalyticsDashboard() {
               disabled={!channelViewDirty}
             >
               <RotateCcw className='size-4' />
-              Reset view
+              {t('重置视图')}
             </Button>
           </div>
         </CardHeader>
@@ -904,7 +909,7 @@ export function ChannelAnalyticsDashboard() {
                 <TableRow>
                   <TableHead>
                     <SortableHeader
-                      label='Channel'
+                      label={t('渠道')}
                       active={channelSort.key === 'channel'}
                       direction={channelSort.direction}
                       onClick={() =>
@@ -914,7 +919,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Requests'
+                      label={t('请求数')}
                       align='right'
                       active={channelSort.key === 'requests'}
                       direction={channelSort.direction}
@@ -925,7 +930,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Success'
+                      label={t('成功率')}
                       align='right'
                       active={channelSort.key === 'success'}
                       direction={channelSort.direction}
@@ -936,7 +941,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Failures'
+                      label={t('失败数')}
                       align='right'
                       active={channelSort.key === 'failures'}
                       direction={channelSort.direction}
@@ -947,7 +952,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Error rate'
+                      label={t('错误率')}
                       align='right'
                       active={channelSort.key === 'error_rate'}
                       direction={channelSort.direction}
@@ -958,7 +963,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='First token'
+                      label={t('首字延迟')}
                       align='right'
                       active={channelSort.key === 'first_token'}
                       direction={channelSort.direction}
@@ -971,7 +976,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Use time'
+                      label={t('总耗时')}
                       align='right'
                       active={channelSort.key === 'use_time'}
                       direction={channelSort.direction}
@@ -982,7 +987,7 @@ export function ChannelAnalyticsDashboard() {
                   </TableHead>
                   <TableHead className='text-right'>
                     <SortableHeader
-                      label='Cost'
+                      label={t('成本')}
                       align='right'
                       active={channelSort.key === 'cost'}
                       direction={channelSort.direction}
@@ -1008,7 +1013,7 @@ export function ChannelAnalyticsDashboard() {
                       colSpan={8}
                       className='text-muted-foreground py-10 text-center'
                     >
-                      No channel data available
+                      {t('暂无渠道数据')}
                     </TableCell>
                   </TableRow>
                 ) : filteredRows.length === 0 ? (
@@ -1017,7 +1022,7 @@ export function ChannelAnalyticsDashboard() {
                       colSpan={8}
                       className='text-muted-foreground py-10 text-center'
                     >
-                      No channels match the current filters
+                      {t('当前筛选条件下暂无渠道')}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1031,7 +1036,9 @@ export function ChannelAnalyticsDashboard() {
                       }
                       tabIndex={0}
                       role='button'
-                      aria-label={`Inspect trend for ${channel.channel_name}`}
+                      aria-label={t('查看 {{name}} 的趋势', {
+                        name: channel.channel_name,
+                      })}
                       className='focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2'
                       onClick={() => selectChannel(channel.channel_id)}
                       onKeyDown={(event) => {
@@ -1092,9 +1099,11 @@ export function ChannelAnalyticsDashboard() {
           {!isLoading && filteredRows.length > 0 ? (
             <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
               <div className='text-muted-foreground text-xs'>
-                Showing {formatCount(channelPageStart)}-
-                {formatCount(channelPageEnd)} of{' '}
-                {formatCount(sortedRows.length)} channels
+                {t('显示 {{start}}-{{end}} / {{total}} 个渠道', {
+                  start: formatCount(channelPageStart),
+                  end: formatCount(channelPageEnd),
+                  total: formatCount(sortedRows.length),
+                })}
               </div>
               <div className='flex flex-wrap items-center gap-2'>
                 <Select
@@ -1215,6 +1224,7 @@ function ChannelUserSpendTable(props: {
   loading: boolean
   selectedChannel: ChannelStat | null
 }) {
+  const { t } = useTranslation()
   const defaultHealthFilter = useDashboardDefaultHealthFilter()
   const defaultPageSize = useDashboardDefaultPageSize()
   const healthThresholds = useDashboardHealthThresholds()
@@ -1314,8 +1324,10 @@ function ChannelUserSpendTable(props: {
     <div>
       <div className='flex flex-col gap-3 border-b p-3 lg:flex-row lg:items-center lg:justify-between'>
         <div className='text-muted-foreground text-xs'>
-          Showing {formatCount(filteredRows.length)} of{' '}
-          {formatCount(props.rows.length)} users.
+          {t('显示 {{filtered}} / {{total}} 位用户', {
+            filtered: formatCount(filteredRows.length),
+            total: formatCount(props.rows.length),
+          })}
         </div>
         <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
           <div className='relative w-full sm:w-72'>
@@ -1323,7 +1335,7 @@ function ChannelUserSpendTable(props: {
             <Input
               value={userQuery}
               onChange={(event) => setUserQuery(event.target.value)}
-              placeholder='Search user or ID'
+              placeholder={t('搜索用户或 ID')}
               className='pl-8'
               disabled={props.loading || props.rows.length === 0}
             />
@@ -1339,10 +1351,10 @@ function ChannelUserSpendTable(props: {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value='all'>All users</SelectItem>
-              <SelectItem value='active'>Active only</SelectItem>
-              <SelectItem value='risk'>Has failures</SelectItem>
-              <SelectItem value='slow'>Slow first token</SelectItem>
+              <SelectItem value='all'>{t('全部用户')}</SelectItem>
+              <SelectItem value='active'>{t('仅活跃')}</SelectItem>
+              <SelectItem value='risk'>{t('存在失败')}</SelectItem>
+              <SelectItem value='slow'>{t('首字较慢')}</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -1353,7 +1365,7 @@ function ChannelUserSpendTable(props: {
             disabled={!userViewDirty}
           >
             <RotateCcw className='size-4' />
-            Reset view
+            {t('重置视图')}
           </Button>
         </div>
       </div>
@@ -1363,7 +1375,7 @@ function ChannelUserSpendTable(props: {
             <TableRow>
               <TableHead>
                 <SortableHeader
-                  label='User'
+                  label={t('用户')}
                   active={userSort.key === 'user'}
                   direction={userSort.direction}
                   onClick={() =>
@@ -1373,7 +1385,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Requests'
+                  label={t('请求数')}
                   align='right'
                   active={userSort.key === 'requests'}
                   direction={userSort.direction}
@@ -1384,7 +1396,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Success'
+                  label={t('成功率')}
                   align='right'
                   active={userSort.key === 'success'}
                   direction={userSort.direction}
@@ -1395,7 +1407,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Failures'
+                  label={t('失败数')}
                   align='right'
                   active={userSort.key === 'failures'}
                   direction={userSort.direction}
@@ -1406,7 +1418,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Error rate'
+                  label={t('错误率')}
                   align='right'
                   active={userSort.key === 'error_rate'}
                   direction={userSort.direction}
@@ -1419,7 +1431,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='First token'
+                  label={t('首字延迟')}
                   align='right'
                   active={userSort.key === 'first_token'}
                   direction={userSort.direction}
@@ -1432,7 +1444,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Use time'
+                  label={t('总耗时')}
                   align='right'
                   active={userSort.key === 'use_time'}
                   direction={userSort.direction}
@@ -1443,7 +1455,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Tokens'
+                  label={t('Token')}
                   align='right'
                   active={userSort.key === 'tokens'}
                   direction={userSort.direction}
@@ -1454,7 +1466,7 @@ function ChannelUserSpendTable(props: {
               </TableHead>
               <TableHead className='text-right'>
                 <SortableHeader
-                  label='Cost'
+                  label={t('成本')}
                   align='right'
                   active={userSort.key === 'cost'}
                   direction={userSort.direction}
@@ -1481,8 +1493,8 @@ function ChannelUserSpendTable(props: {
                   className='text-muted-foreground py-10 text-center text-sm'
                 >
                   {props.selectedChannel
-                    ? 'No user spend for this channel in the selected period'
-                    : 'Select a channel to inspect user spend'}
+                    ? t('当前渠道在所选时间段内暂无用户消费')
+                    : t('选择一个渠道以查看用户消费')}
                 </TableCell>
               </TableRow>
             ) : filteredRows.length === 0 ? (
@@ -1491,7 +1503,7 @@ function ChannelUserSpendTable(props: {
                   colSpan={9}
                   className='text-muted-foreground py-10 text-center text-sm'
                 >
-                  No users match the current filters
+                  {t('当前筛选条件下暂无用户')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -1551,8 +1563,11 @@ function ChannelUserSpendTable(props: {
       {!props.loading && filteredRows.length > 0 ? (
         <div className='flex flex-col gap-3 border-t p-3 sm:flex-row sm:items-center sm:justify-between'>
           <div className='text-muted-foreground text-xs'>
-            Showing {formatCount(pageStart)}-{formatCount(pageEnd)} of{' '}
-            {formatCount(sortedRows.length)} users
+            {t('显示 {{start}}-{{end}} / {{total}} 位用户', {
+              start: formatCount(pageStart),
+              end: formatCount(pageEnd),
+              total: formatCount(sortedRows.length),
+            })}
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <Select
@@ -1606,6 +1621,7 @@ function CompactRank(props: {
   loading: boolean
   metric: 'latency' | 'risk'
 }) {
+  const { t } = useTranslation()
   const healthThresholds = useDashboardHealthThresholds()
 
   return (
@@ -1620,7 +1636,7 @@ function CompactRank(props: {
           ))
         ) : props.rows.length === 0 ? (
           <div className='text-muted-foreground py-6 text-center text-xs'>
-            No data
+            {t('暂无数据')}
           </div>
         ) : (
           props.rows.map((channel) => (
@@ -1633,8 +1649,9 @@ function CompactRank(props: {
                   {channel.channel_name}
                 </div>
                 <div className='text-muted-foreground text-xs'>
-                  #{channel.channel_id} · {formatCount(channel.total_requests)}{' '}
-                  req
+                  #{channel.channel_id} · {t('{{count}} 次请求', {
+                    count: formatCount(channel.total_requests),
+                  })}
                 </div>
               </div>
               {props.metric === 'latency' ? (

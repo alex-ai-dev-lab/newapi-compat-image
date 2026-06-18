@@ -208,9 +208,9 @@ export function UsersTable() {
       <UsersStats users={users} />
 
       <SectionCard
-        title={t('User Directory')}
+        title={t('用户台账')}
         description={t(
-          'Review roles, quota health, and access posture without losing bulk actions or search workflows.'
+          '集中查看角色、额度健康度和访问状态，同时保留搜索与批量操作效率。'
         )}
         contentClassName='p-0'
       >

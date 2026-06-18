@@ -325,9 +325,9 @@ export function ApiKeysTable() {
       <ApiKeysStats apiKeys={apiKeys} />
 
       <SectionCard
-        title={t('Key Inventory')}
+        title={t('密钥台账')}
         description={t(
-          'Surface token access, remaining quota, and copy actions in a cleaner security-focused ledger.'
+          '以更清晰的安全视图展示令牌访问、剩余额度与复制操作。'
         )}
         contentClassName='p-0'
       >
