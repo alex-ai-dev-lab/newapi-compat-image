@@ -156,16 +156,16 @@ export function SectionCard({
       {...props}
     >
       {hasHeader && (
-        <CardHeader className='border-border border-b p-5 sm:p-6'>
-          <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-            <div className='min-w-0 space-y-1'>
+        <CardHeader className='border-border border-b p-4 sm:p-5'>
+          <div className='flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between'>
+            <div className='min-w-0 space-y-0.5'>
               {title != null && (
-                <CardTitle className='text-base font-semibold tracking-tight'>
+                <CardTitle className='text-sm font-semibold tracking-tight'>
                   {title}
                 </CardTitle>
               )}
               {description != null && (
-                <CardDescription className='text-sm leading-6'>
+                <CardDescription className='text-xs leading-5'>
                   {description}
                 </CardDescription>
               )}
@@ -224,15 +224,15 @@ export function StatCard({
   const TrendIcon = isDown ? ArrowDownRight : ArrowUpRight
 
   return (
-    <SectionCard className={cn('min-h-24', className)} {...props}>
-      <div className='flex h-full flex-col justify-between gap-3'>
-        <div className='flex items-center justify-between gap-3'>
+    <SectionCard className={cn('p-3.5', className)} {...props}>
+      <div className='flex h-full flex-col justify-between gap-2.5'>
+        <div className='flex items-center justify-between gap-2'>
           <div className='flex min-w-0 items-center gap-2'>
             <span
               className={cn('size-2 rounded-full', statDotClass[tone])}
               aria-hidden='true'
             />
-            <div className='text-muted-foreground truncate text-sm font-medium'>
+            <div className='text-muted-foreground truncate text-xs font-medium'>
               {label}
             </div>
           </div>
@@ -240,7 +240,7 @@ export function StatCard({
             <Badge
               variant={isDown ? 'destructive' : 'outline'}
               className={cn(
-                'rounded-lg',
+                'rounded-lg text-xs',
                 !isDown && 'border-success/25 text-success'
               )}
             >
@@ -250,11 +250,11 @@ export function StatCard({
           )}
         </div>
         <div>
-          <div className='font-mono text-2xl font-semibold tracking-tight tabular-nums'>
+          <div className='font-mono text-xl font-semibold tracking-tight tabular-nums'>
             {value}
           </div>
           {description != null && (
-            <p className='text-muted-foreground mt-1 text-sm'>{description}</p>
+            <p className='text-muted-foreground mt-0.5 truncate text-xs'>{description}</p>
           )}
         </div>
       </div>

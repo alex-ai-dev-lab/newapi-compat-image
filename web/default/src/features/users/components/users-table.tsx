@@ -66,7 +66,11 @@ export function UsersTable() {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [rowSelection, setRowSelection] = useState({})
   const [sorting, setSorting] = useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    created_at: false,
+    last_login_at: false,
+    invite_info: false,
+  })
 
   const {
     globalFilter,

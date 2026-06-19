@@ -92,12 +92,12 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
             description={description}
             actions={actions}
             size='compact'
-            className='border-b-0 pt-4 pb-3 sm:pt-5 sm:pb-3'
+            className='border-b-0 pt-3 pb-2 sm:pt-4 sm:pb-2.5'
           >
             {breadcrumb != null && <div className='text-xs'>{breadcrumb}</div>}
           </PageHeader>
 
-          <div className='min-h-0 flex-1 pt-2 pb-4 sm:pt-2 sm:pb-5'>
+          <div className='min-h-0 flex-1 pt-1.5 pb-4 sm:pt-2 sm:pb-5'>
             {content}
           </div>
 

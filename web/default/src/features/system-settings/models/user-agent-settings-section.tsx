@@ -117,6 +117,7 @@ export function UserAgentSettingsSection() {
   const { data: userAgents = [], isLoading } = useQuery({
     queryKey: ['user-agents'],
     queryFn: listUserAgents,
+    retry: 1,
   })
 
   const grouped = useMemo(

@@ -42,28 +42,24 @@ export function ChannelsStats({ channels }: { channels: Channel[] }) {
       : 0
 
   return (
-    <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
       <StatCard
         label={t('Total Channels')}
         value={leafChannels.length}
-        description={t('当前结果中的全部上游渠道')}
       />
       <StatCard
         label={t('Enabled')}
         value={enabledChannels.length}
-        description={t('当前可承接流量的渠道')}
         tone='success'
       />
       <StatCard
         label={t('Abnormal')}
         value={abnormalChannels.length}
-        description={t('已禁用、异常或降级的渠道')}
         tone={abnormalChannels.length > 0 ? 'destructive' : 'default'}
       />
       <StatCard
         label={t('Avg. Latency')}
         value={formatLatency(averageLatency)}
-        description={t('启用渠道的平均响应时间')}
         tone='accent'
       />
     </div>

@@ -39,28 +39,24 @@ export function RedemptionsStats({
   )
 
   return (
-    <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
       <StatCard
         label={t('Total Codes')}
         value={redemptions.length}
-        description={t('当前筛选结果中的兑换码总数')}
       />
       <StatCard
         label={t('Unused')}
         value={available.length}
-        description={t('仍可被兑换的兑换码')}
         tone='success'
       />
       <StatCard
         label={t('Used')}
         value={used.length}
-        description={t('已经被用户兑换')}
         tone='accent'
       />
       <StatCard
         label={t('Expired')}
         value={expired.length}
-        description={t('已过期或不再可兑换')}
         tone={expired.length > 0 ? 'warning' : 'default'}
       />
     </div>

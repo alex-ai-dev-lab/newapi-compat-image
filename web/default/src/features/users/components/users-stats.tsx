@@ -35,22 +35,19 @@ export function UsersStats({ users }: { users: User[] }) {
   })
 
   return (
-    <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+    <div className='grid grid-cols-3 gap-3'>
       <StatCard
         label={t('Total Users')}
         value={users.length}
-        description={t('当前筛选结果中的账户总数')}
       />
       <StatCard
         label={t('New Today')}
         value={newToday.length}
-        description={t('近 24 小时新建的账户')}
         tone='accent'
       />
       <StatCard
         label={t('Disabled')}
         value={disabledUsers.length}
-        description={t('已停用或已删除的账户')}
         tone={disabledUsers.length > 0 ? 'warning' : 'default'}
       />
     </div>

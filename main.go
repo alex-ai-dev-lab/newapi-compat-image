@@ -370,5 +370,8 @@ func InitResources() error {
 		// Don't return error, custom OAuth is not critical
 	}
 
+	// Initialize user-agent cache
+	model.InitUserAgentCache()
+
 	return nil
 }
