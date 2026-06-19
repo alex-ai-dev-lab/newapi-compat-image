@@ -94,12 +94,12 @@ export function PageHeader({
     <header
       data-slot='page-header'
       className={cn(
-        'border-border flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between',
+        'border-border flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-end sm:justify-between',
         className
       )}
       {...props}
     >
-      <div className='min-w-0 flex-1 space-y-1.5'>
+      <div className='min-w-0 flex-1 space-y-1'>
         {title != null && (
           <h1
             className={cn(
@@ -113,7 +113,7 @@ export function PageHeader({
           </h1>
         )}
         {description != null && (
-          <p className='text-muted-foreground max-w-2xl text-sm leading-6'>
+          <p className='text-muted-foreground max-w-2xl text-sm leading-5'>
             {description}
           </p>
         )}
@@ -165,7 +165,7 @@ export function SectionCard({
                 </CardTitle>
               )}
               {description != null && (
-                <CardDescription className='text-xs leading-5'>
+                <CardDescription className='text-xs leading-4 truncate'>
                   {description}
                 </CardDescription>
               )}

@@ -208,14 +208,11 @@ export function UsersTable() {
   ]
 
   return (
-    <div className='space-y-4 sm:space-y-5'>
+    <div className='space-y-3 sm:space-y-4'>
       <UsersStats users={users} />
 
       <SectionCard
         title={t('用户台账')}
-        description={t(
-          '集中查看角色、额度健康度和访问状态，同时保留搜索与批量操作效率。'
-        )}
         contentClassName='p-0'
       >
         <div className='p-5 pb-0 sm:p-6 sm:pb-0'>

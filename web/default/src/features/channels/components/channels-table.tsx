@@ -378,12 +378,11 @@ export function ChannelsTable() {
   ]
 
   return (
-    <div className='space-y-4 sm:space-y-5'>
+    <div className='space-y-3 sm:space-y-4'>
       <ChannelsStats channels={channels} />
 
       <SectionCard
         title={t('渠道台账')}
-        description={t('按端点身份检索渠道，结合状态和分组筛选后批量操作结果集。')}
         contentClassName='p-0'
       >
         <div className='p-5 pb-0 sm:p-6 sm:pb-0'>

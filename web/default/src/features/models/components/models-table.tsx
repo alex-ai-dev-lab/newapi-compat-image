@@ -237,14 +237,11 @@ export function ModelsTable() {
   ]
 
   return (
-    <div className='space-y-4 sm:space-y-5'>
+    <div className='space-y-3 sm:space-y-4'>
       <ModelsStats models={models} vendors={vendors} />
 
       <SectionCard
         title={t('模型目录')}
-        description={t(
-          '在宽屏视图下统一审视供应商覆盖、元信息质量与同步状态。'
-        )}
         contentClassName='p-0'
       >
         <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
