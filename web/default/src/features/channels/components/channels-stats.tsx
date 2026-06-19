@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { StatCard } from '@/components/page-primitives'
+import { InlineStatsBar } from '@/components/inline-stats-bar'
 import type { Channel } from '../types'
 
 function formatLatency(value: number): string {
@@ -42,26 +42,17 @@ export function ChannelsStats({ channels }: { channels: Channel[] }) {
       : 0
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-      <StatCard
-        label={t('Total Channels')}
-        value={leafChannels.length}
-      />
-      <StatCard
-        label={t('Enabled')}
-        value={enabledChannels.length}
-        tone='success'
-      />
-      <StatCard
-        label={t('Abnormal')}
-        value={abnormalChannels.length}
-        tone={abnormalChannels.length > 0 ? 'destructive' : 'default'}
-      />
-      <StatCard
-        label={t('Avg. Latency')}
-        value={formatLatency(averageLatency)}
-        tone='accent'
-      />
-    </div>
+    <InlineStatsBar
+      items={[
+        { label: t('Total Channels'), value: leafChannels.length },
+        { label: t('Enabled'), value: enabledChannels.length, tone: 'success' },
+        {
+          label: t('Abnormal'),
+          value: abnormalChannels.length,
+          tone: abnormalChannels.length > 0 ? 'destructive' : 'default',
+        },
+        { label: t('Avg. Latency'), value: formatLatency(averageLatency), tone: 'accent' },
+      ]}
+    />
   )
 }

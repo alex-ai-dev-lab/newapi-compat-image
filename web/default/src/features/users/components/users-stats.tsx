@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { StatCard } from '@/components/page-primitives'
+import { InlineStatsBar } from '@/components/inline-stats-bar'
 import { USER_STATUS, isUserDeleted } from '../constants'
 import type { User } from '../types'
 
@@ -35,21 +35,16 @@ export function UsersStats({ users }: { users: User[] }) {
   })
 
   return (
-    <div className='grid grid-cols-3 gap-3'>
-      <StatCard
-        label={t('Total Users')}
-        value={users.length}
-      />
-      <StatCard
-        label={t('New Today')}
-        value={newToday.length}
-        tone='accent'
-      />
-      <StatCard
-        label={t('Disabled')}
-        value={disabledUsers.length}
-        tone={disabledUsers.length > 0 ? 'warning' : 'default'}
-      />
-    </div>
+    <InlineStatsBar
+      items={[
+        { label: t('Total Users'), value: users.length },
+        { label: t('New Today'), value: newToday.length, tone: 'accent' },
+        {
+          label: t('Disabled'),
+          value: disabledUsers.length,
+          tone: disabledUsers.length > 0 ? 'destructive' : 'default',
+        },
+      ]}
+    />
   )
 }

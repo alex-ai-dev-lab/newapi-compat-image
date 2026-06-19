@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { StatCard } from '@/components/page-primitives'
+import { InlineStatsBar } from '@/components/inline-stats-bar'
 import { API_KEY_STATUS } from '../constants'
 import type { ApiKey } from '../types'
 
@@ -33,26 +33,17 @@ export function ApiKeysStats({ apiKeys }: { apiKeys: ApiKey[] }) {
   )
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-      <StatCard
-        label={t('Total Keys')}
-        value={apiKeys.length}
-      />
-      <StatCard
-        label={t('Enabled')}
-        value={enabled.length}
-        tone='success'
-      />
-      <StatCard
-        label={t('Quota-limited')}
-        value={limited.length}
-        tone='accent'
-      />
-      <StatCard
-        label={t('Exhausted')}
-        value={exhausted.length}
-        tone={exhausted.length > 0 ? 'warning' : 'default'}
-      />
-    </div>
+    <InlineStatsBar
+      items={[
+        { label: t('Total Keys'), value: apiKeys.length },
+        { label: t('Enabled'), value: enabled.length, tone: 'success' },
+        { label: t('Quota-limited'), value: limited.length, tone: 'accent' },
+        {
+          label: t('Exhausted'),
+          value: exhausted.length,
+          tone: exhausted.length > 0 ? 'destructive' : 'default',
+        },
+      ]}
+    />
   )
 }

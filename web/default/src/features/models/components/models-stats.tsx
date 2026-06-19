@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { StatCard } from '@/components/page-primitives'
+import { InlineStatsBar } from '@/components/inline-stats-bar'
 import type { Model, Vendor } from '../types'
 
 export function ModelsStats({
@@ -33,25 +33,13 @@ export function ModelsStats({
   const activeVendorIds = new Set(models.map((model) => model.vendor_id).filter(Boolean))
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-      <StatCard
-        label={t('Total Models')}
-        value={models.length}
-      />
-      <StatCard
-        label={t('Enabled')}
-        value={enabledModels.length}
-        tone='success'
-      />
-      <StatCard
-        label={t('Official Sync')}
-        value={syncedModels.length}
-        tone='accent'
-      />
-      <StatCard
-        label={t('Active Vendors')}
-        value={activeVendorIds.size || vendors.length}
-      />
-    </div>
+    <InlineStatsBar
+      items={[
+        { label: t('Total Models'), value: models.length },
+        { label: t('Enabled'), value: enabledModels.length, tone: 'success' },
+        { label: t('Official Sync'), value: syncedModels.length, tone: 'accent' },
+        { label: t('Active Vendors'), value: activeVendorIds.size || vendors.length },
+      ]}
+    />
   )
 }

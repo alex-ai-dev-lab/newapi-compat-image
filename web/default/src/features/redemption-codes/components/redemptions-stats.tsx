@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { StatCard } from '@/components/page-primitives'
+import { InlineStatsBar } from '@/components/inline-stats-bar'
 import { REDEMPTION_STATUS } from '../constants'
 import { isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
@@ -39,26 +39,17 @@ export function RedemptionsStats({
   )
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-      <StatCard
-        label={t('Total Codes')}
-        value={redemptions.length}
-      />
-      <StatCard
-        label={t('Unused')}
-        value={available.length}
-        tone='success'
-      />
-      <StatCard
-        label={t('Used')}
-        value={used.length}
-        tone='accent'
-      />
-      <StatCard
-        label={t('Expired')}
-        value={expired.length}
-        tone={expired.length > 0 ? 'warning' : 'default'}
-      />
-    </div>
+    <InlineStatsBar
+      items={[
+        { label: t('Total Codes'), value: redemptions.length },
+        { label: t('Unused'), value: available.length, tone: 'success' },
+        { label: t('Used'), value: used.length, tone: 'accent' },
+        {
+          label: t('Expired'),
+          value: expired.length,
+          tone: expired.length > 0 ? 'destructive' : 'default',
+        },
+      ]}
+    />
   )
 }
