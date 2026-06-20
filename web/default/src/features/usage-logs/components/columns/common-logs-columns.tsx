@@ -491,7 +491,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       if (groupRatioText) metaParts.push(groupRatioText)
 
       return (
-        <div className='flex max-w-[200px] flex-col gap-0.5'>
+        <div className='flex max-w-[180px] flex-col gap-0.5'>
           <TooltipProvider delay={300}>
             <Tooltip>
               <TooltipTrigger render={<div className='max-w-full' />}>
@@ -501,7 +501,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   copyText={sensitiveVisible ? tokenName : undefined}
                   size='sm'
                   showDot={false}
-                  className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 [font-family:var(--font-body)]'
+                  className='border-border/60 bg-muted/30 text-foreground h-7 max-w-[150px] gap-1.5 overflow-hidden rounded-md border px-2.5 py-0 [font-family:var(--font-body)]'
                 />
               </TooltipTrigger>
               {sensitiveVisible && tokenName.length > 16 && (
@@ -536,18 +536,17 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const modelInfo = formatModelName(log)
 
         return (
-          <div className='flex max-w-[170px] min-w-[112px] flex-col gap-0.5 xl:max-w-[210px] 2xl:max-w-[260px]'>
+          <div className='flex w-fit max-w-[180px] flex-col gap-0.5'>
             <ModelBadge
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
-              className='w-full justify-start'
             />
           </div>
         )
       },
       meta: { label: t('Model'), mobileTitle: true },
-      size: 170,
-      maxSize: 260,
+      size: 150,
+      maxSize: 190,
     },
 
     {
