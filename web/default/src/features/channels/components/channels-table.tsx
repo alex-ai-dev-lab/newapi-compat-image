@@ -34,7 +34,6 @@ import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { Input } from '@/components/ui/input'
-import { SectionCard } from '@/components/page-primitives'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -86,7 +85,6 @@ export function ChannelsTable() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     models: false,
     tag: false,
-    id: false,
     priority: false,
     weight: false,
     test_time: false,
@@ -381,61 +379,54 @@ export function ChannelsTable() {
     <div className='space-y-3 sm:space-y-4'>
       <ChannelsStats channels={channels} />
 
-      <SectionCard
-        title={t('渠道台账')}
-        contentClassName='p-0'
-      >
-        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
-          <DataTablePage
-            table={table}
-            columns={columns}
-            isLoading={isLoading}
-            isFetching={isFetching}
-            emptyTitle={t('未找到渠道')}
-            emptyDescription={t('当前没有可用渠道，请先创建第一个渠道。')}
-            skeletonKeyPrefix='channel-skeleton'
-            toolbarProps={{
-              searchPlaceholder: t('按名称、ID 或密钥筛选...'),
-              additionalSearch: (
-                <Input
-                  placeholder={t('按模型筛选...')}
-                  value={modelFilterInput}
-                  onChange={(e) => setModelFilterInput(e.target.value)}
-                  className='w-full sm:w-[150px] lg:w-[180px]'
-                />
-              ),
-              filters: [
-                {
-                  columnId: 'status',
-                  title: t('Status'),
-                  options: [...CHANNEL_STATUS_OPTIONS],
-                  singleSelect: true,
-                },
-                {
-                  columnId: 'type',
-                  title: t('Type'),
-                  options: typeFilterOptions,
-                  singleSelect: true,
-                },
-                {
-                  columnId: 'group',
-                  title: t('Group'),
-                  options: groupFilterOptions,
-                  singleSelect: true,
-                },
-              ],
-            }}
-            getRowClassName={(row, { isMobile }) =>
-              isDisabledChannelRow(row.original)
-                ? isMobile
-                  ? DISABLED_ROW_MOBILE
-                  : DISABLED_ROW_DESKTOP
-                : undefined
-            }
-            bulkActions={<DataTableBulkActions table={table} />}
-          />
-        </div>
-      </SectionCard>
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('未找到渠道')}
+        emptyDescription={t('当前没有可用渠道，请先创建第一个渠道。')}
+        skeletonKeyPrefix='channel-skeleton'
+        toolbarProps={{
+          searchPlaceholder: t('按名称、ID 或密钥筛选...'),
+          additionalSearch: (
+            <Input
+              placeholder={t('按模型筛选...')}
+              value={modelFilterInput}
+              onChange={(e) => setModelFilterInput(e.target.value)}
+              className='w-full sm:w-[150px] lg:w-[180px]'
+            />
+          ),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: [...CHANNEL_STATUS_OPTIONS],
+              singleSelect: true,
+            },
+            {
+              columnId: 'type',
+              title: t('Type'),
+              options: typeFilterOptions,
+              singleSelect: true,
+            },
+            {
+              columnId: 'group',
+              title: t('Group'),
+              options: groupFilterOptions,
+              singleSelect: true,
+            },
+          ],
+        }}
+        getRowClassName={(row, { isMobile }) =>
+          isDisabledChannelRow(row.original)
+            ? isMobile
+              ? DISABLED_ROW_MOBILE
+              : DISABLED_ROW_DESKTOP
+            : undefined
+        }
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
     </div>
   )
 }

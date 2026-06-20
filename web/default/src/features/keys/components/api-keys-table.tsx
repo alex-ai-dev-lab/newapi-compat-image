@@ -37,7 +37,6 @@ import { toast } from 'sonner'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { SectionCard } from '@/components/page-primitives'
 import {
   Empty,
   EmptyDescription,
@@ -63,8 +62,8 @@ import {
 import { type ApiKey } from '../types'
 import { ApiKeyCell } from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
-import { ApiKeysStats } from './api-keys-stats'
 import { useApiKeys } from './api-keys-provider'
+import { ApiKeysStats } from './api-keys-stats'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -324,52 +323,42 @@ export function ApiKeysTable() {
     <div className='space-y-4 sm:space-y-5'>
       <ApiKeysStats apiKeys={apiKeys} />
 
-      <SectionCard
-        title={t('密钥台账')}
-        description={t(
-          '以更清晰的安全视图展示令牌访问、剩余额度与复制操作。'
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No API Keys Found')}
+        emptyDescription={t(
+          'No API keys available. Create your first API key to get started.'
         )}
-        contentClassName='p-0'
-      >
-        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
-          <DataTablePage
-            table={table}
-            columns={columns}
-            isLoading={isLoading}
-            isFetching={isFetching}
-            emptyTitle={t('No API Keys Found')}
-            emptyDescription={t(
-              'No API keys available. Create your first API key to get started.'
-            )}
-            skeletonKeyPrefix='api-keys-skeleton'
-            toolbarProps={{
-              searchPlaceholder: t('Filter by name...'),
-              additionalSearch: (
-                <Input
-                  placeholder={t('Filter by API key...')}
-                  aria-label={t('Filter by API key...')}
-                  value={tokenFilterInput}
-                  onChange={(e) => setTokenFilterInput(e.target.value)}
-                  className='w-full sm:w-50 lg:w-60'
-                />
-              ),
-              filters: [
-                {
-                  columnId: 'status',
-                  title: t('Status'),
-                  options: API_KEY_STATUS_OPTIONS,
-                  singleSelect: true,
-                },
-              ],
-            }}
-            mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
-            getRowClassName={(row) =>
-              isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
-            }
-            bulkActions={<DataTableBulkActions table={table} />}
-          />
-        </div>
-      </SectionCard>
+        skeletonKeyPrefix='api-keys-skeleton'
+        toolbarProps={{
+          searchPlaceholder: t('Filter by name...'),
+          additionalSearch: (
+            <Input
+              placeholder={t('Filter by API key...')}
+              aria-label={t('Filter by API key...')}
+              value={tokenFilterInput}
+              onChange={(e) => setTokenFilterInput(e.target.value)}
+              className='w-full sm:w-50 lg:w-60'
+            />
+          ),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: API_KEY_STATUS_OPTIONS,
+              singleSelect: true,
+            },
+          ],
+        }}
+        mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
+        getRowClassName={(row) =>
+          isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
+        }
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
     </div>
   )
 }

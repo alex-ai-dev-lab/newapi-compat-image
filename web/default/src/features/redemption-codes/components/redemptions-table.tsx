@@ -33,7 +33,6 @@ import {
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { SectionCard } from '@/components/page-primitives'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -161,46 +160,36 @@ export function RedemptionsTable() {
     <div className='space-y-4 sm:space-y-5'>
       <RedemptionsStats redemptions={redemptions} />
 
-      <SectionCard
-        title={t('兑换码台账')}
-        description={t(
-          '在同一张卡片化台账中集中查看库存、过期时间、兑换状态与批量操作。'
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Redemption Codes Found')}
+        emptyDescription={t(
+          'No redemption codes available. Create your first redemption code to get started.'
         )}
-        contentClassName='p-0'
-      >
-        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
-          <DataTablePage
-            table={table}
-            columns={columns}
-            isLoading={isLoading}
-            isFetching={isFetching}
-            emptyTitle={t('No Redemption Codes Found')}
-            emptyDescription={t(
-              'No redemption codes available. Create your first redemption code to get started.'
-            )}
-            skeletonKeyPrefix='redemptions-skeleton'
-            toolbarProps={{
-              searchPlaceholder: t('Filter by name or ID...'),
-              filters: [
-                {
-                  columnId: 'status',
-                  title: t('Status'),
-                  options: redemptionStatusOptions,
-                  singleSelect: true,
-                },
-              ],
-            }}
-            getRowClassName={(row, { isMobile }) =>
-              isDisabledRedemptionRow(row.original)
-                ? isMobile
-                  ? DISABLED_ROW_MOBILE
-                  : DISABLED_ROW_DESKTOP
-                : undefined
-            }
-            bulkActions={<DataTableBulkActions table={table} />}
-          />
-        </div>
-      </SectionCard>
+        skeletonKeyPrefix='redemptions-skeleton'
+        toolbarProps={{
+          searchPlaceholder: t('Filter by name or ID...'),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: redemptionStatusOptions,
+              singleSelect: true,
+            },
+          ],
+        }}
+        getRowClassName={(row, { isMobile }) =>
+          isDisabledRedemptionRow(row.original)
+            ? isMobile
+              ? DISABLED_ROW_MOBILE
+              : DISABLED_ROW_DESKTOP
+            : undefined
+        }
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
     </div>
   )
 }

@@ -105,7 +105,7 @@ export function PageHeader({
             className={cn(
               'leading-tight font-semibold tracking-tight',
               size === 'compact'
-                ? 'text-xl sm:text-2xl'
+                ? 'text-base sm:text-lg'
                 : 'text-2xl sm:text-3xl'
             )}
           >
@@ -165,7 +165,7 @@ export function SectionCard({
                 </CardTitle>
               )}
               {description != null && (
-                <CardDescription className='text-xs leading-4 truncate'>
+                <CardDescription className='truncate text-xs leading-4'>
                   {description}
                 </CardDescription>
               )}
@@ -254,7 +254,9 @@ export function StatCard({
             {value}
           </div>
           {description != null && (
-            <p className='text-muted-foreground mt-0.5 truncate text-xs'>{description}</p>
+            <p className='text-muted-foreground mt-0.5 truncate text-xs'>
+              {description}
+            </p>
           )}
         </div>
       </div>

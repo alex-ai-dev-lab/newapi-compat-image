@@ -28,8 +28,8 @@ import {
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { FilterPills, SectionCard } from '@/components/page-primitives'
 import { DataTablePage } from '@/components/data-table'
+import { FilterPills } from '@/components/page-primitives'
 import { getModels, searchModels, getVendors } from '../api'
 import {
   DEFAULT_PAGE_SIZE,
@@ -39,8 +39,8 @@ import {
 import { modelsQueryKeys, vendorsQueryKeys } from '../lib'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useModelsColumns } from './models-columns'
-import { ModelsStats } from './models-stats'
 import { useModels } from './models-provider'
+import { ModelsStats } from './models-stats'
 
 const route = getRouteApi('/_authenticated/models/$section')
 
@@ -240,59 +240,52 @@ export function ModelsTable() {
     <div className='space-y-3 sm:space-y-4'>
       <ModelsStats models={models} vendors={vendors} />
 
-      <SectionCard
-        title={t('模型目录')}
-        contentClassName='p-0'
-      >
-        <div className='p-5 pb-0 sm:p-6 sm:pb-0'>
-          <DataTablePage
-            table={table}
-            columns={columns}
-            isLoading={isLoading}
-            isFetching={isFetching}
-            emptyTitle={t('No Models Found')}
-            emptyDescription={t(
-              'No models available. Create your first model to get started.'
-            )}
-            skeletonKeyPrefix='model-skeleton'
-            toolbarProps={{
-              searchPlaceholder: t('Filter by model name...'),
-              additionalSearch: (
-                <FilterPills
-                  value={activeSync}
-                  options={syncPillOptions}
-                  onValueChange={(value) => {
-                    onColumnFiltersChange((prev) => {
-                      const filtered = prev.filter(
-                        (filter) => filter.id !== 'sync_official'
-                      )
-                      return value === 'all'
-                        ? filtered
-                        : [...filtered, { id: 'sync_official', value: [value] }]
-                    })
-                  }}
-                  className='min-w-0'
-                />
-              ),
-              filters: [
-                {
-                  columnId: 'status',
-                  title: t('Status'),
-                  options: [...getModelStatusOptions(t)],
-                  singleSelect: true,
-                },
-                {
-                  columnId: 'vendor_id',
-                  title: t('Vendor'),
-                  options: vendorFilterOptions,
-                  singleSelect: true,
-                },
-              ],
-            }}
-            bulkActions={<DataTableBulkActions table={table} />}
-          />
-        </div>
-      </SectionCard>
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Models Found')}
+        emptyDescription={t(
+          'No models available. Create your first model to get started.'
+        )}
+        skeletonKeyPrefix='model-skeleton'
+        toolbarProps={{
+          searchPlaceholder: t('Filter by model name...'),
+          additionalSearch: (
+            <FilterPills
+              value={activeSync}
+              options={syncPillOptions}
+              onValueChange={(value) => {
+                onColumnFiltersChange((prev) => {
+                  const filtered = prev.filter(
+                    (filter) => filter.id !== 'sync_official'
+                  )
+                  return value === 'all'
+                    ? filtered
+                    : [...filtered, { id: 'sync_official', value: [value] }]
+                })
+              }}
+              className='min-w-0'
+            />
+          ),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: [...getModelStatusOptions(t)],
+              singleSelect: true,
+            },
+            {
+              columnId: 'vendor_id',
+              title: t('Vendor'),
+              options: vendorFilterOptions,
+              singleSelect: true,
+            },
+          ],
+        }}
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
     </div>
   )
 }

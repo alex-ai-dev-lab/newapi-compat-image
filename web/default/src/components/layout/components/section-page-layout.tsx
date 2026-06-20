@@ -86,18 +86,21 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
   return (
     <PageFooterProvider container={footerContainer}>
       <Main className='overflow-y-auto'>
-        <PageContainer width='fluid' className='min-h-full flex-1 gap-0 py-0'>
+        <PageContainer
+          width='fluid'
+          className='min-h-full min-w-0 flex-1 gap-0 py-0'
+        >
           <PageHeader
             title={title}
             description={description}
             actions={actions}
             size='compact'
-            className='border-b-0 pt-3 pb-2 sm:pt-4 sm:pb-2.5'
+            className='border-b-0 pt-2 pb-1.5 sm:pt-3 sm:pb-2'
           >
             {breadcrumb != null && <div className='text-xs'>{breadcrumb}</div>}
           </PageHeader>
 
-          <div className='min-h-0 flex-1 pt-1.5 pb-4 sm:pt-2 sm:pb-5'>
+          <div className='min-h-0 min-w-0 flex-1 pt-1.5 pb-4 sm:pt-2 sm:pb-5'>
             {content}
           </div>
 
