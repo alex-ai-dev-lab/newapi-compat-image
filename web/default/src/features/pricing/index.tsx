@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PageContainer, PageHeader } from '@/components/page-primitives'
 import { PublicLayout } from '@/components/layout'
+import { PageContainer, PageHeader } from '@/components/page-primitives'
 import { PageTransition } from '@/components/page-transition'
 import {
   LoadingSkeleton,
@@ -148,7 +148,10 @@ export function Pricing() {
   if (isLoading) {
     return (
       <PublicLayout showMainContainer={false}>
-        <PageContainer className='pt-16 sm:pt-20'>
+        <PageContainer
+          width='fluid'
+          className='mx-auto max-w-[1760px] pt-16 sm:pt-20 2xl:px-10'
+        >
           <LoadingSkeleton viewMode={viewMode} />
         </PageContainer>
       </PublicLayout>
@@ -159,68 +162,40 @@ export function Pricing() {
     <PublicLayout showMainContainer={false}>
       <div className='relative'>
         <PageTransition>
-          <PageContainer className='pt-16 sm:pt-20'>
-          <PageHeader
-            title={t('Model Plaza')}
-            description={t('This site currently has {{count}} models enabled', {
-              count: models?.length || 0,
-            })}
-            actions={
-              filteredModels.length !== models?.length ? (
-                <div className='text-sm text-muted-foreground'>
-                  {t('Showing {{filtered}} of {{total}}', {
-                    filtered: filteredModels.length,
-                    total: models?.length || 0,
-                  })}
-                </div>
-              ) : null
-            }
+          <PageContainer
+            width='fluid'
+            className='mx-auto max-w-[1760px] pt-16 sm:pt-20 2xl:px-10'
           >
-            <SearchBar
-              value={searchInput}
-              onChange={setSearchInput}
-              onClear={clearSearch}
-              placeholder={t(
-                '搜索模型名称、供应商、端点或标签...'
+            <PageHeader
+              title={t('Model Plaza')}
+              description={t(
+                'This site currently has {{count}} models enabled',
+                {
+                  count: models?.length || 0,
+                }
               )}
-              className='mt-4 max-w-2xl'
-            />
-          </PageHeader>
+              actions={
+                filteredModels.length !== models?.length ? (
+                  <div className='text-muted-foreground text-sm'>
+                    {t('Showing {{filtered}} of {{total}}', {
+                      filtered: filteredModels.length,
+                      total: models?.length || 0,
+                    })}
+                  </div>
+                ) : null
+              }
+            >
+              <SearchBar
+                value={searchInput}
+                onChange={setSearchInput}
+                onClear={clearSearch}
+                placeholder={t('搜索模型名称、供应商、端点或标签...')}
+                className='mt-4 max-w-2xl'
+              />
+            </PageHeader>
 
-          <div className='grid gap-4 xl:grid-cols-[248px_minmax(0,1fr)]'>
-            <PricingSidebar
-              quotaTypeFilter={quotaTypeFilter}
-              endpointTypeFilter={endpointTypeFilter}
-              vendorFilter={vendorFilter}
-              groupFilter={groupFilter}
-              tagFilter={tagFilter}
-              onQuotaTypeChange={setQuotaTypeFilter}
-              onEndpointTypeChange={setEndpointTypeFilter}
-              onVendorChange={setVendorFilter}
-              onGroupChange={setGroupFilter}
-              onTagChange={setTagFilter}
-              vendors={vendors || []}
-              groups={availableGroups}
-              groupRatios={groupRatio}
-              tags={availableTags}
-              models={models || []}
-              hasActiveFilters={hasActiveFilters}
-              onClearFilters={clearFilters}
-              className='hover-scrollbar sticky top-4 hidden max-h-[calc(100dvh-2rem)] self-start overflow-y-auto xl:block'
-            />
-
-            <main className='min-w-0 space-y-4'>
-              <PricingToolbar
-                filteredCount={filteredModels.length}
-                totalCount={models?.length}
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                tokenUnit={tokenUnit}
-                onTokenUnitChange={setTokenUnit}
-                showRechargePrice={showRechargePrice}
-                onRechargePriceChange={setShowRechargePrice}
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
+            <div className='grid gap-4 xl:grid-cols-[248px_minmax(0,1fr)]'>
+              <PricingSidebar
                 quotaTypeFilter={quotaTypeFilter}
                 endpointTypeFilter={endpointTypeFilter}
                 vendorFilter={vendorFilter}
@@ -237,36 +212,68 @@ export function Pricing() {
                 tags={availableTags}
                 models={models || []}
                 hasActiveFilters={hasActiveFilters}
-                activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
+                className='hover-scrollbar sticky top-4 hidden max-h-[calc(100dvh-2rem)] self-start overflow-y-auto xl:block'
               />
 
-              {renderPricingContent()}
-            </main>
-          </div>
+              <main className='min-w-0 space-y-4'>
+                <PricingToolbar
+                  filteredCount={filteredModels.length}
+                  totalCount={models?.length}
+                  sortBy={sortBy}
+                  onSortChange={setSortBy}
+                  tokenUnit={tokenUnit}
+                  onTokenUnitChange={setTokenUnit}
+                  showRechargePrice={showRechargePrice}
+                  onRechargePriceChange={setShowRechargePrice}
+                  viewMode={viewMode}
+                  onViewModeChange={setViewMode}
+                  quotaTypeFilter={quotaTypeFilter}
+                  endpointTypeFilter={endpointTypeFilter}
+                  vendorFilter={vendorFilter}
+                  groupFilter={groupFilter}
+                  tagFilter={tagFilter}
+                  onQuotaTypeChange={setQuotaTypeFilter}
+                  onEndpointTypeChange={setEndpointTypeFilter}
+                  onVendorChange={setVendorFilter}
+                  onGroupChange={setGroupFilter}
+                  onTagChange={setTagFilter}
+                  vendors={vendors || []}
+                  groups={availableGroups}
+                  groupRatios={groupRatio}
+                  tags={availableTags}
+                  models={models || []}
+                  hasActiveFilters={hasActiveFilters}
+                  activeFilterCount={activeFilterCount}
+                  onClearFilters={clearFilters}
+                />
 
-          {selectedModel && (
-            <ModelDetailsDrawer
-              open={Boolean(selectedModel)}
-              onOpenChange={(open) => {
-                if (!open) setSelectedModelName(null)
-              }}
-              model={selectedModel}
-              groupRatio={groupRatio || {}}
-              usableGroup={usableGroup || {}}
-              endpointMap={
-                (endpointMap as Record<
-                  string,
-                  { path?: string; method?: string }
-                >) || {}
-              }
-              autoGroups={autoGroups || []}
-              priceRate={priceRate ?? 1}
-              usdExchangeRate={usdExchangeRate ?? 1}
-              tokenUnit={tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
-          )}
+                {renderPricingContent()}
+              </main>
+            </div>
+
+            {selectedModel && (
+              <ModelDetailsDrawer
+                open={Boolean(selectedModel)}
+                onOpenChange={(open) => {
+                  if (!open) setSelectedModelName(null)
+                }}
+                model={selectedModel}
+                groupRatio={groupRatio || {}}
+                usableGroup={usableGroup || {}}
+                endpointMap={
+                  (endpointMap as Record<
+                    string,
+                    { path?: string; method?: string }
+                  >) || {}
+                }
+                autoGroups={autoGroups || []}
+                priceRate={priceRate ?? 1}
+                usdExchangeRate={usdExchangeRate ?? 1}
+                tokenUnit={tokenUnit}
+                showRechargePrice={showRechargePrice}
+              />
+            )}
           </PageContainer>
         </PageTransition>
       </div>

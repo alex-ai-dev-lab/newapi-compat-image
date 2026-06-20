@@ -94,18 +94,18 @@ export function PageHeader({
     <header
       data-slot='page-header'
       className={cn(
-        'border-border flex flex-col gap-2 border-b pb-3 sm:flex-row sm:items-end sm:justify-between',
+        'border-border flex flex-col gap-1.5 border-b pb-2 sm:flex-row sm:items-end sm:justify-between',
         className
       )}
       {...props}
     >
-      <div className='min-w-0 flex-1 space-y-1'>
+      <div className='min-w-0 flex-1 space-y-0.5'>
         {title != null && (
           <h1
             className={cn(
               'leading-tight font-semibold tracking-tight',
               size === 'compact'
-                ? 'text-base sm:text-lg'
+                ? 'text-[15px] sm:text-base'
                 : 'text-2xl sm:text-3xl'
             )}
           >
@@ -115,8 +115,8 @@ export function PageHeader({
         {description != null && (
           <p
             className={cn(
-              'text-muted-foreground max-w-2xl leading-5',
-              size === 'compact' ? 'text-xs sm:text-[13px]' : 'text-sm'
+              'text-muted-foreground max-w-2xl',
+              size === 'compact' ? 'text-xs leading-4' : 'text-sm leading-5'
             )}
           >
             {description}

@@ -536,15 +536,18 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const modelInfo = formatModelName(log)
 
         return (
-          <div className='flex w-fit flex-col gap-0.5'>
+          <div className='flex max-w-[170px] min-w-[112px] flex-col gap-0.5 xl:max-w-[210px] 2xl:max-w-[260px]'>
             <ModelBadge
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
+              className='w-full justify-start'
             />
           </div>
         )
       },
       meta: { label: t('Model'), mobileTitle: true },
+      size: 170,
+      maxSize: 260,
     },
 
     {
