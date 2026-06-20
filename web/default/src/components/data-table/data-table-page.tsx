@@ -318,6 +318,7 @@ function renderDesktop<TData>(
   const rows = props.table.getRowModel().rows
   const isFetchingOnly = props.isFetching && !props.isLoading
   const showInlinePagination = options?.showPagination === true
+  const visibleLeafColumns = props.table.getVisibleLeafColumns()
 
   return (
     <div
@@ -329,6 +330,20 @@ function renderDesktop<TData>(
     >
       <div className='max-w-full overflow-x-auto'>
         <Table>
+          {props.applyHeaderSize && (
+            <colgroup>
+              {visibleLeafColumns.map((column) => (
+                <col
+                  key={column.id}
+                  style={
+                    column.columnDef.size != null
+                      ? { width: column.getSize() }
+                      : undefined
+                  }
+                />
+              ))}
+            </colgroup>
+          )}
           <TableHeader
             className={cn(
               'bg-muted/35 [&_th]:text-muted-foreground',
@@ -342,7 +357,8 @@ function renderDesktop<TData>(
                     key={header.id}
                     colSpan={header.colSpan}
                     style={
-                      props.applyHeaderSize
+                      props.applyHeaderSize &&
+                      header.column.columnDef.size != null
                         ? { width: header.getSize() }
                         : undefined
                     }

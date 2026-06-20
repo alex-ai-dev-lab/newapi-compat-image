@@ -20,6 +20,7 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import {
+  type Cell,
   type ColumnDef,
   flexRender,
   getCoreRowModel,
@@ -63,6 +64,19 @@ function deserializeLogTypeFilter(value: unknown): unknown[] {
 
 interface UsageLogsTableProps {
   logCategory: LogCategory
+}
+
+function getUsageLogCellStyle(cell: Cell<Record<string, unknown>, unknown>) {
+  const { columnDef } = cell.column
+
+  if (columnDef.size == null) {
+    return undefined
+  }
+
+  return {
+    width: cell.column.getSize(),
+    maxWidth: columnDef.maxSize != null ? `${columnDef.maxSize}px` : undefined,
+  }
 }
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
@@ -188,8 +202,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         'No usage logs available. Logs will appear here once API calls are made.'
       )}
       skeletonKeyPrefix='usage-log-skeleton'
+      applyHeaderSize
       tableClassName={cn(
-        'min-w-0 max-w-full [&_[data-slot=table]]:text-[13px] [&_[data-slot=table]_td]:text-[13px] [&_[data-slot=table]_td_*]:text-[13px] [&_[data-slot=table]_th]:text-[12px] [&_[data-slot=table]_th_*]:text-[12px]'
+        'min-w-0 max-w-full [&_[data-slot=table]]:table-fixed [&_[data-slot=table]]:text-[13px] [&_[data-slot=table]_td]:text-[13px] [&_[data-slot=table]_td_*]:text-[13px] [&_[data-slot=table]_th]:text-[12px] [&_[data-slot=table]_th_*]:text-[12px]'
       )}
       tableHeaderClassName='bg-muted/35 sticky top-0 z-10'
       mobile={
@@ -216,7 +231,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         return (
           <TableRow key={row.id} className={cn('transition-colors', tintClass)}>
             {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id} className='py-2'>
+              <TableCell
+                key={cell.id}
+                className='py-2'
+                style={getUsageLogCellStyle(cell)}
+              >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </TableCell>
             ))}
