@@ -51,24 +51,24 @@ export function DataTableColumnHeader<TData, TValue>({
   }
 
   return (
-    <div className={cn('flex items-center space-x-2', className)}>
+    <div className={cn('flex items-center space-x-1.5', className)}>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button
               variant='ghost'
               size='sm'
-              className='data-popup-open:bg-accent -ms-3 h-8'
+              className='data-popup-open:bg-accent -ms-2 h-7 px-2 text-xs'
             />
           }
         >
           <span>{title}</span>
           {column.getIsSorted() === 'desc' ? (
-            <ArrowDownIcon className='ms-2 h-4 w-4' />
+            <ArrowDownIcon className='ms-1.5 h-3.5 w-3.5' />
           ) : column.getIsSorted() === 'asc' ? (
-            <ArrowUpIcon className='ms-2 h-4 w-4' />
+            <ArrowUpIcon className='ms-1.5 h-3.5 w-3.5' />
           ) : (
-            <CaretSortIcon className='ms-2 h-4 w-4' />
+            <CaretSortIcon className='ms-1.5 h-3.5 w-3.5' />
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align='start'>

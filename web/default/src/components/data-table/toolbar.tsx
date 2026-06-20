@@ -248,7 +248,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
     return (
       <div
         className={cn(
-          'flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-[0_1px_0_0_theme(colors.border)]',
+          'border-border bg-card shadow-[0_1px_0_0_theme(colors.border)] flex max-w-full min-w-0 flex-col gap-2 rounded-lg border p-2.5 [&_input]:h-8',
           props.className
         )}
       >
@@ -283,7 +283,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-4 shadow-[0_1px_0_0_theme(colors.border)] sm:gap-3',
+        'border-border bg-card shadow-[0_1px_0_0_theme(colors.border)] flex max-w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border p-2.5 [&_input]:h-8',
         props.className
       )}
     >

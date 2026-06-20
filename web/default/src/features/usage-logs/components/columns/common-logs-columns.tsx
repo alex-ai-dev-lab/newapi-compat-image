@@ -346,7 +346,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     {affinity && (
                       <button
                         type='button'
-                        className='absolute -top-1 -right-1 leading-none text-warning'
+                        className='text-warning absolute -top-1 -right-1 leading-none'
                         onClick={(e) => {
                           e.stopPropagation()
                           setAffinityTarget({
@@ -630,7 +630,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <CircleAlert className='size-3 text-destructive' />
+                          <CircleAlert className='text-destructive size-3' />
                         }
                       ></TooltipTrigger>
                       <TooltipContent>
@@ -638,7 +638,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                           <p>
                             {t('Stream Status')}: {t('Error')}
                           </p>
-                          <p>{other.stream_status.end_reason || t('Unknown')}</p>
+                          <p>
+                            {other.stream_status.end_reason || t('Unknown')}
+                          </p>
                           {(other.stream_status.error_count ?? 0) > 0 && (
                             <p>
                               {t('Soft Errors')}:{' '}
@@ -751,7 +753,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         return (
           <div className='flex flex-col gap-0.5'>
-            <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 text-sm leading-none [font-family:var(--font-body)] font-semibold tabular-nums'>
+            <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'>
               {quotaDisplay.prefix && (
                 <span className='mr-1'>{quotaDisplay.prefix}</span>
               )}
@@ -779,14 +781,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <>
             <button
               type='button'
-              className='group flex w-full max-w-[360px] items-center gap-1 text-left text-xs'
+              className='group flex max-w-[240px] min-w-0 items-center gap-1 overflow-hidden text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
             >
               {primary ? (
                 <span
                   className={cn(
-                    'truncate leading-snug group-hover:underline',
+                    'min-w-0 truncate leading-snug group-hover:underline',
                     primary.muted
                       ? 'text-muted-foreground/60'
                       : primary.danger
@@ -802,7 +804,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   )}
                 </span>
               ) : log.content ? (
-                <span className='text-muted-foreground truncate group-hover:underline'>
+                <span className='text-muted-foreground min-w-0 truncate group-hover:underline'>
                   {log.content}
                 </span>
               ) : (
@@ -819,8 +821,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
       },
       meta: { label: t('Details') },
-      size: 180,
-      maxSize: 200,
+      size: 160,
+      maxSize: 180,
     }
   )
 

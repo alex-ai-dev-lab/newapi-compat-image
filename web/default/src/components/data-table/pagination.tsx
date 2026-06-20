@@ -50,8 +50,8 @@ export function DataTablePagination<TData>({
   return (
     <div
       className={cn(
-        'flex w-full flex-col-reverse items-center justify-between gap-3',
-        'sm:flex-row sm:gap-4'
+        'flex w-full flex-col-reverse items-center justify-between gap-2',
+        'sm:flex-row sm:gap-3'
       )}
     >
       <div className='flex w-full items-center justify-between gap-2 sm:w-auto'>
@@ -74,7 +74,7 @@ export function DataTablePagination<TData>({
               table.setPageSize(Number(value))
             }}
           >
-            <SelectTrigger className='h-8 w-[64px] sm:w-[70px]'>
+            <SelectTrigger className='h-7 w-[60px] sm:w-[66px]'>
               <SelectValue placeholder={table.getState().pagination.pageSize} />
             </SelectTrigger>
             <SelectContent side='top' alignItemWithTrigger={false}>
@@ -87,14 +87,12 @@ export function DataTablePagination<TData>({
               </SelectGroup>
             </SelectContent>
           </Select>
-          <p className='hidden text-sm font-medium sm:block'>
-            {t('每页行数')}
-          </p>
+          <p className='hidden text-xs font-medium sm:block'>{t('每页行数')}</p>
         </div>
       </div>
 
       <div className='flex items-center sm:space-x-6 lg:space-x-8'>
-        <div className='hidden min-w-[130px] items-center text-sm font-medium whitespace-nowrap lg:flex'>
+        <div className='hidden min-w-[120px] items-center text-xs font-medium whitespace-nowrap lg:flex'>
           {t('第 {{current}} 页，共 {{total}} 页', {
             current: currentPage,
             total: totalPages,
@@ -103,21 +101,21 @@ export function DataTablePagination<TData>({
         <div className='flex items-center space-x-1.5 sm:space-x-2'>
           <Button
             variant='outline'
-            className='hidden size-8 p-0 sm:inline-flex'
+            className='hidden size-7 p-0 sm:inline-flex'
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
           >
             <span className='sr-only'>{t('前往首页')}</span>
-            <DoubleArrowLeftIcon className='h-4 w-4' />
+            <DoubleArrowLeftIcon className='h-3.5 w-3.5' />
           </Button>
           <Button
             variant='outline'
-            className='size-8 p-0'
+            className='size-7 p-0'
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
             <span className='sr-only'>{t('前往上一页')}</span>
-            <ChevronLeftIcon className='h-4 w-4' />
+            <ChevronLeftIcon className='h-3.5 w-3.5' />
           </Button>
 
           {/* Page number buttons */}
@@ -128,7 +126,7 @@ export function DataTablePagination<TData>({
               ) : (
                 <Button
                   variant={currentPage === pageNumber ? 'default' : 'outline'}
-                  className='h-8 min-w-8 px-2'
+                  className='h-7 min-w-7 px-2 text-xs'
                   onClick={() => table.setPageIndex((pageNumber as number) - 1)}
                 >
                   <span className='sr-only'>
@@ -142,21 +140,21 @@ export function DataTablePagination<TData>({
 
           <Button
             variant='outline'
-            className='size-8 p-0'
+            className='size-7 p-0'
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
             <span className='sr-only'>{t('前往下一页')}</span>
-            <ChevronRightIcon className='h-4 w-4' />
+            <ChevronRightIcon className='h-3.5 w-3.5' />
           </Button>
           <Button
             variant='outline'
-            className='hidden size-8 p-0 sm:inline-flex'
+            className='hidden size-7 p-0 sm:inline-flex'
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
           >
             <span className='sr-only'>{t('前往末页')}</span>
-            <DoubleArrowRightIcon className='h-4 w-4' />
+            <DoubleArrowRightIcon className='h-3.5 w-3.5' />
           </Button>
         </div>
       </div>

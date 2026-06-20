@@ -239,7 +239,7 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
 
   return (
     <>
-      <div className={cn('space-y-4 sm:space-y-5', props.className)}>
+      <div className={cn('max-w-full min-w-0 space-y-3', props.className)}>
         {toolbarNode}
         {mobileNode}
         {desktopNode}
@@ -322,12 +322,12 @@ function renderDesktop<TData>(
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_0_0_theme(colors.border)] transition-opacity duration-150',
+        'border-border bg-card shadow-[0_1px_0_0_theme(colors.border)] max-w-full min-w-0 overflow-hidden rounded-lg border transition-opacity duration-150',
         isFetchingOnly && 'pointer-events-none opacity-60',
         props.tableClassName
       )}
     >
-      <div className='overflow-x-auto'>
+      <div className='max-w-full overflow-x-auto'>
         <Table>
           <TableHeader
             className={cn(
@@ -382,7 +382,9 @@ function renderDesktop<TData>(
                   <DefaultRow
                     key={row.id}
                     row={row}
-                    className={props.getRowClassName?.(row, { isMobile: false })}
+                    className={props.getRowClassName?.(row, {
+                      isMobile: false,
+                    })}
                   />
                 )
               })
@@ -391,7 +393,7 @@ function renderDesktop<TData>(
         </Table>
       </div>
       {showInlinePagination && (
-        <div className='border-t border-border bg-card px-4 py-3'>
+        <div className='border-border bg-card border-t px-3 py-2'>
           <DataTablePagination table={props.table} />
         </div>
       )}

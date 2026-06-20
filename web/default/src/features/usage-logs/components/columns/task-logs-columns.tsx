@@ -278,13 +278,13 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           <>
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+              className='group flex max-w-[180px] min-w-0 items-center gap-1 overflow-hidden text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full error message')}
             >
-            <span className='truncate leading-snug text-destructive group-hover:underline'>
-              {failReason}
-            </span>
+              <span className='text-destructive min-w-0 truncate leading-snug group-hover:underline'>
+                {failReason}
+              </span>
             </button>
             <FailReasonDialog
               failReason={failReason}
@@ -295,8 +295,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         )
       },
       meta: { label: t('Details') },
-      size: 200,
-      maxSize: 220,
+      size: 170,
+      maxSize: 190,
     }
   )
 

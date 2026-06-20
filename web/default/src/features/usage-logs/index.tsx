@@ -20,9 +20,9 @@ import { useCallback, useMemo } from 'react'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
-import { SegmentedTabs } from '@/components/page-primitives'
 import { SectionPageLayout } from '@/components/layout'
 import type { NavGroup } from '@/components/layout/types'
+import { SegmentedTabs } from '@/components/page-primitives'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
 import {
@@ -115,7 +115,7 @@ function UsageLogsContent() {
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
         <SectionPageLayout.Content>
-          <div className='space-y-4'>
+          <div className='max-w-full min-w-0 space-y-3'>
             {showTaskSwitcher && (
               <SegmentedTabs
                 value={activeCategory}

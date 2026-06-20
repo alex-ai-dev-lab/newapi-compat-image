@@ -251,11 +251,11 @@ export function useDrawingLogsColumns(
           <>
             <button
               type='button'
-              className='group flex max-w-[220px] items-center text-left text-xs'
+              className='group flex max-w-[180px] min-w-0 items-center overflow-hidden text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full prompt')}
             >
-              <span className='text-muted-foreground truncate leading-snug group-hover:underline'>
+              <span className='text-muted-foreground min-w-0 truncate leading-snug group-hover:underline'>
                 {prompt}
               </span>
             </button>
@@ -269,8 +269,8 @@ export function useDrawingLogsColumns(
         )
       },
       meta: { label: t('Prompt') },
-      size: 200,
-      maxSize: 220,
+      size: 170,
+      maxSize: 190,
     },
     createFailReasonColumn<MidjourneyLog>({
       headerLabel: t('Fail Reason'),

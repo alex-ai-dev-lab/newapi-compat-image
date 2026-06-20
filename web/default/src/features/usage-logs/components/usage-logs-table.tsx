@@ -35,7 +35,6 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { SectionCard } from '@/components/page-primitives'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { DataTablePage } from '@/components/data-table'
 import {
@@ -178,63 +177,52 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isCommon = logCategory === 'common'
 
   return (
-    <SectionCard
-      contentClassName='p-0'
-    >
-      <div className='p-4 sm:p-5'>
-        <DataTablePage
+    <DataTablePage
+      className='max-w-full min-w-0'
+      table={table}
+      columns={columns as ColumnDef<Record<string, unknown>>[]}
+      isLoading={isLoadingData}
+      isFetching={isFetching}
+      emptyTitle={t('No Logs Found')}
+      emptyDescription={t(
+        'No usage logs available. Logs will appear here once API calls are made.'
+      )}
+      skeletonKeyPrefix='usage-log-skeleton'
+      tableClassName={cn(
+        'min-w-0 max-w-full [&_[data-slot=table]]:text-[13px] [&_[data-slot=table]_td]:text-[13px] [&_[data-slot=table]_td_*]:text-[13px] [&_[data-slot=table]_th]:text-[12px] [&_[data-slot=table]_th_*]:text-[12px]'
+      )}
+      tableHeaderClassName='bg-muted/35 sticky top-0 z-10'
+      mobile={
+        <UsageLogsMobileList
           table={table}
-          columns={columns as ColumnDef<Record<string, unknown>>[]}
           isLoading={isLoadingData}
-          isFetching={isFetching}
-          emptyTitle={t('No Logs Found')}
-          emptyDescription={t(
-            'No usage logs available. Logs will appear here once API calls are made.'
-          )}
-          skeletonKeyPrefix='usage-log-skeleton'
-          tableClassName={cn(
-            '[&_[data-slot=table]]:text-[13px] [&_[data-slot=table]_td]:text-[13px] [&_[data-slot=table]_td_*]:text-[13px] [&_[data-slot=table]_th]:text-[13px] [&_[data-slot=table]_th_*]:text-[13px]'
-          )}
-          tableHeaderClassName='bg-muted/35 sticky top-0 z-10'
-          mobile={
-            <UsageLogsMobileList
-              table={table}
-              isLoading={isLoadingData}
-              logCategory={logCategory}
-            />
-          }
-          toolbar={
-            isCommon ? (
-              <CommonLogsFilterBar table={table} />
-            ) : (
-              <TaskLogsFilterBar table={table} logCategory={logCategory} />
-            )
-          }
-          renderRow={(row) => {
-            const logType = (row.original as Record<string, unknown>).type as
-              | number
-              | undefined
-            const tintClass =
-              isCommon && logType != null ? (logTypeRowTint[logType] ?? '') : ''
-
-            return (
-              <TableRow
-                key={row.id}
-                className={cn('transition-colors', tintClass)}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={isCommon ? 'py-2.5' : 'py-3.5'}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
-              </TableRow>
-            )
-          }}
+          logCategory={logCategory}
         />
-      </div>
-    </SectionCard>
+      }
+      toolbar={
+        isCommon ? (
+          <CommonLogsFilterBar table={table} />
+        ) : (
+          <TaskLogsFilterBar table={table} logCategory={logCategory} />
+        )
+      }
+      renderRow={(row) => {
+        const logType = (row.original as Record<string, unknown>).type as
+          | number
+          | undefined
+        const tintClass =
+          isCommon && logType != null ? (logTypeRowTint[logType] ?? '') : ''
+
+        return (
+          <TableRow key={row.id} className={cn('transition-colors', tintClass)}>
+            {row.getVisibleCells().map((cell) => (
+              <TableCell key={cell.id} className='py-2'>
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </TableCell>
+            ))}
+          </TableRow>
+        )
+      }}
+    />
   )
 }

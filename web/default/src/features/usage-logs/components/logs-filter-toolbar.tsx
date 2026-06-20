@@ -63,7 +63,7 @@ export function LogsFilterField(props: LogsFilterFieldProps) {
   return (
     <div
       className={cn(
-        'min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:text-sm [&_[data-slot=select-value]]:leading-5',
+        'min-w-0 [&_[data-slot=select-trigger]]:h-8 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:text-sm [&_[data-slot=select-value]]:leading-5',
         props.wide && 'sm:col-span-2',
         props.className
       )}
@@ -107,7 +107,10 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
     return (
       <Drawer open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
         <div
-          className={cn('bg-card/50 rounded-lg border p-2.5', props.className)}
+          className={cn(
+            'bg-card/50 min-w-0 rounded-lg border p-2.5',
+            props.className
+          )}
         >
           <div className='grid gap-2'>{props.mobilePinnedFilters}</div>
 
@@ -188,11 +191,11 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
   return (
     <div
       className={cn(
-        'bg-card/50 rounded-lg border p-2.5 sm:p-3',
+        'bg-card/50 max-w-full min-w-0 rounded-lg border p-2.5',
         props.className
       )}
     >
-      <div className='grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
+      <div className='grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]'>
         {props.primaryFilters}
         {advancedOpen && props.advancedFilters}
       </div>
