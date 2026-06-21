@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 const DISPLAY_DECIMALS = 12
 const SNAP_DECIMALS = 8
 const SNAP_EPSILON = 1e-12
+const DISPLAY_DRIFT_EPSILON = 5e-6
 
 function toNumberOrNull(value: unknown): number | null {
   if (
@@ -40,7 +41,11 @@ function roundToDecimals(value: number, decimals: number): number {
 }
 
 function snapFloatDrift(value: number): number {
-  const tolerance = Math.max(SNAP_EPSILON, Math.abs(value) * Number.EPSILON * 8)
+  const tolerance = Math.max(
+    SNAP_EPSILON,
+    DISPLAY_DRIFT_EPSILON,
+    Math.abs(value) * Number.EPSILON * 8
+  )
 
   for (let decimals = 0; decimals <= SNAP_DECIMALS; decimals += 1) {
     const rounded = roundToDecimals(value, decimals)

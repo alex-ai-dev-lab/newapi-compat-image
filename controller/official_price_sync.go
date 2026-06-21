@@ -21,10 +21,9 @@ import (
 // (OpenAI / Anthropic / Google / etc.), so it is used as the single official
 // source here.
 //
-// The sync is additive: official-source prices are imported only when a model
-// is missing locally. Existing local prices are preserved so hand-maintained
-// special models and manual overrides are not overwritten by the upstream
-// source.
+// The sync is authoritative for official models: all models present in
+// models.dev official provider buckets are overwritten with the latest official
+// prices. Local-only custom models that do not appear in models.dev are kept.
 
 const (
 	officialPriceSourceURL  = "https://models.dev/api.json"
@@ -37,10 +36,11 @@ var (
 	officialSyncOnce  sync.Once
 	officialSyncMu    sync.Mutex
 	officialSyncState = struct {
-		LastRunUnix   int64
-		LastOK        bool
-		LastError     string
-		LastModelsNum int
+		LastRunUnix    int64
+		LastOK         bool
+		LastError      string
+		LastModelsNum  int
+		LastChangedNum int
 	}{}
 )
 
@@ -80,85 +80,120 @@ func fetchOfficialPricing() (map[string]any, error) {
 	return convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
 }
 
-// mergeOfficialRatioField adds official prices only for keys that do not exist
-// locally. Existing local values always win.
-func mergeOfficialRatioField(current map[string]float64, raw any) (map[string]float64, int) {
-	merged := make(map[string]float64, len(current))
-	for k, v := range current {
-		merged[k] = v
+func officialModelSet(converted map[string]any) map[string]bool {
+	result := make(map[string]bool)
+	raw, ok := converted[modelsDevOfficialNamesField]
+	if !ok {
+		return result
 	}
-
-	added := 0
 	if m, ok := raw.(map[string]any); ok {
 		for k, v := range m {
-			if _, exists := merged[k]; exists {
-				continue
-			}
-			if f, ok := toFloat(v); ok {
-				merged[k] = f
-				added++
+			if enabled, ok := v.(bool); !ok || enabled {
+				result[k] = true
 			}
 		}
 	}
-	return merged, added
+	return result
 }
 
-// applyOfficialPricing adds missing official prices to local pricing maps.
-// Only model_ratio / completion_ratio / cache_ratio are present in the
-// models.dev conversion.
-func applyOfficialPricing(converted map[string]any) (int, error) {
-	addedModels := 0
+// replaceOfficialRatioField rewrites pricing for official models and preserves
+// local-only custom models. If a model is official but a specific lane no
+// longer exists in models.dev, the stale local lane is removed.
+func replaceOfficialRatioField(current map[string]float64, raw any, officialModels map[string]bool) (map[string]float64, int) {
+	officialValues := make(map[string]float64)
+	if m, ok := raw.(map[string]any); ok {
+		for k, v := range m {
+			if !officialModels[k] {
+				continue
+			}
+			if f, ok := toFloat(v); ok && isValidNonNegativeCost(f) {
+				officialValues[k] = roundRatioValue(f)
+			}
+		}
+	}
 
+	merged := make(map[string]float64, len(current)+len(officialValues))
+	changed := 0
+	for k, v := range current {
+		if officialModels[k] {
+			if _, hasOfficialValue := officialValues[k]; !hasOfficialValue {
+				changed++
+				continue
+			}
+		}
+		merged[k] = v
+	}
+
+	for k, officialValue := range officialValues {
+		if currentValue, exists := current[k]; !exists || !nearlyEqual(currentValue, officialValue) {
+			changed++
+		}
+		merged[k] = officialValue
+	}
+	return merged, changed
+}
+
+func updateFloatOption(key string, values map[string]float64, updater func(string) error) error {
+	jsonStr, err := common.Marshal(values)
+	if err != nil {
+		return err
+	}
+	if err := model.UpdateOption(key, string(jsonStr)); err != nil {
+		return err
+	}
+	return updater(string(jsonStr))
+}
+
+// applyOfficialPricing aligns local pricing maps with models.dev official
+// prices for every official model, while preserving custom local-only models.
+func applyOfficialPricing(converted map[string]any) (int, error) {
+	officialModels := officialModelSet(converted)
+	if len(officialModels) == 0 {
+		return 0, fmt.Errorf("official models.dev payload did not include official model names")
+	}
+
+	changedTotal := 0
 	if raw, ok := converted["model_ratio"]; ok {
-		cur, added := mergeOfficialRatioField(ratio_setting.GetModelRatioCopy(), raw)
-		if added > 0 {
-			addedModels = added
-			jsonStr, err := common.Marshal(cur)
-			if err != nil {
-				return addedModels, err
-			}
-			if err := model.UpdateOption("ModelRatio", string(jsonStr)); err != nil {
-				return addedModels, err
-			}
-			if err := ratio_setting.UpdateModelRatioByJSONString(string(jsonStr)); err != nil {
-				return addedModels, err
+		cur, changed := replaceOfficialRatioField(ratio_setting.GetModelRatioCopy(), raw, officialModels)
+		if changed > 0 {
+			changedTotal += changed
+			if err := updateFloatOption("ModelRatio", cur, ratio_setting.UpdateModelRatioByJSONString); err != nil {
+				return changedTotal, err
 			}
 		}
 	}
 
 	if raw, ok := converted["completion_ratio"]; ok {
-		cur, added := mergeOfficialRatioField(ratio_setting.GetCompletionRatioCopy(), raw)
-		if added > 0 {
-			jsonStr, err := common.Marshal(cur)
-			if err != nil {
-				return addedModels, err
-			}
-			if err := model.UpdateOption("CompletionRatio", string(jsonStr)); err != nil {
-				return addedModels, err
-			}
-			if err := ratio_setting.UpdateCompletionRatioByJSONString(string(jsonStr)); err != nil {
-				return addedModels, err
+		cur, changed := replaceOfficialRatioField(ratio_setting.GetCompletionRatioCopy(), raw, officialModels)
+		if changed > 0 {
+			changedTotal += changed
+			if err := updateFloatOption("CompletionRatio", cur, ratio_setting.UpdateCompletionRatioByJSONString); err != nil {
+				return changedTotal, err
 			}
 		}
 	}
 
 	if raw, ok := converted["cache_ratio"]; ok {
-		cur, added := mergeOfficialRatioField(ratio_setting.GetCacheRatioCopy(), raw)
-		if added > 0 {
-			jsonStr, err := common.Marshal(cur)
-			if err != nil {
-				return addedModels, err
-			}
-			if err := model.UpdateOption("CacheRatio", string(jsonStr)); err != nil {
-				return addedModels, err
-			}
-			if err := ratio_setting.UpdateCacheRatioByJSONString(string(jsonStr)); err != nil {
-				return addedModels, err
+		cur, changed := replaceOfficialRatioField(ratio_setting.GetCacheRatioCopy(), raw, officialModels)
+		if changed > 0 {
+			changedTotal += changed
+			if err := updateFloatOption("CacheRatio", cur, ratio_setting.UpdateCacheRatioByJSONString); err != nil {
+				return changedTotal, err
 			}
 		}
 	}
 
-	return addedModels, nil
+	if raw, ok := converted["create_cache_ratio"]; ok {
+		cur, changed := replaceOfficialRatioField(ratio_setting.GetCreateCacheRatioCopy(), raw, officialModels)
+		if changed > 0 {
+			changedTotal += changed
+			if err := updateFloatOption("CreateCacheRatio", cur, ratio_setting.UpdateCreateCacheRatioByJSONString); err != nil {
+				return changedTotal, err
+			}
+		}
+	}
+
+	return changedTotal, nil
 }
 
 func toFloat(v any) (float64, bool) {
@@ -219,8 +254,11 @@ func RunOfficialPriceSync() (int, error) {
 
 	officialSyncState.LastOK = true
 	officialSyncState.LastError = ""
-	officialSyncState.LastModelsNum = merged
-	common.SysLog(fmt.Sprintf("official price sync ok: %d models added", merged))
+	officialSyncState.LastChangedNum = merged
+	if names := officialModelSet(converted); len(names) > 0 {
+		officialSyncState.LastModelsNum = len(names)
+	}
+	common.SysLog(fmt.Sprintf("official price sync ok: %d official models, %d pricing entries changed", officialSyncState.LastModelsNum, merged))
 	return merged, nil
 }
 
@@ -247,10 +285,11 @@ func OfficialPriceSyncStatus() map[string]any {
 	officialSyncMu.Lock()
 	defer officialSyncMu.Unlock()
 	return map[string]any{
-		"last_run_unix":   officialSyncState.LastRunUnix,
-		"last_ok":         officialSyncState.LastOK,
-		"last_error":      officialSyncState.LastError,
-		"last_models_num": officialSyncState.LastModelsNum,
-		"source_url":      officialPriceSourceURL,
+		"last_run_unix":    officialSyncState.LastRunUnix,
+		"last_ok":          officialSyncState.LastOK,
+		"last_error":       officialSyncState.LastError,
+		"last_models_num":  officialSyncState.LastModelsNum,
+		"last_changed_num": officialSyncState.LastChangedNum,
+		"source_url":       officialPriceSourceURL,
 	}
 }

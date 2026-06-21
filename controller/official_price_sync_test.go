@@ -13,7 +13,7 @@ func TestConvertModelsDevToRatioDataUsesOnlyOfficialProviders(t *testing.T) {
 		"openai": {
 			"models": {
 				"gpt-5.5": {
-					"cost": {"input": 5, "output": 30, "cache_read": 0.5}
+					"cost": {"input": 5, "output": 30, "cache_read": 0.5, "cache_write": 6.25}
 				}
 			}
 		},
@@ -43,6 +43,9 @@ func TestConvertModelsDevToRatioDataUsesOnlyOfficialProviders(t *testing.T) {
 				"qwen3-max": {
 					"cost": {"input": 1.2, "output": 6, "cache_read": 0.12}
 				},
+				"qwen-zero": {
+					"cost": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+				},
 				"siliconflow/deepseek-v3.2": {
 					"cost": {"input": 0.1, "output": 0.2, "cache_read": 0.01}
 				},
@@ -66,10 +69,14 @@ func TestConvertModelsDevToRatioDataUsesOnlyOfficialProviders(t *testing.T) {
 	modelRatios := converted["model_ratio"].(map[string]any)
 	completionRatios := converted["completion_ratio"].(map[string]any)
 	cacheRatios := converted["cache_ratio"].(map[string]any)
+	createCacheRatios := converted["create_cache_ratio"].(map[string]any)
+	officialNames := converted[modelsDevOfficialNamesField].(map[string]any)
 
 	require.Equal(t, 2.5, modelRatios["gpt-5.5"])
 	require.Equal(t, 6.0, completionRatios["gpt-5.5"])
 	require.Equal(t, 0.1, cacheRatios["gpt-5.5"])
+	require.Equal(t, 1.25, createCacheRatios["gpt-5.5"])
+	require.Equal(t, true, officialNames["gpt-5.5"])
 	require.NotContains(t, modelRatios, "openai/gpt-5.5")
 
 	require.Equal(t, 2.5, modelRatios["claude-opus-4-6"])
@@ -80,15 +87,20 @@ func TestConvertModelsDevToRatioDataUsesOnlyOfficialProviders(t *testing.T) {
 	require.Equal(t, 0.6, modelRatios["qwen3-max"])
 	require.Equal(t, 5.0, completionRatios["qwen3-max"])
 	require.Equal(t, 0.1, cacheRatios["qwen3-max"])
+	require.Equal(t, 0.0, modelRatios["qwen-zero"])
+	require.Equal(t, 0.0, completionRatios["qwen-zero"])
+	require.Equal(t, 0.0, cacheRatios["qwen-zero"])
+	require.Equal(t, 0.0, createCacheRatios["qwen-zero"])
 	require.NotContains(t, modelRatios, "siliconflow/deepseek-v3.2")
 	require.NotContains(t, modelRatios, "MiniMax/MiniMax-M2.7")
 }
 
-func TestMergeOfficialRatioFieldAddsMissingOnly(t *testing.T) {
+func TestReplaceOfficialRatioFieldOverwritesOfficialModelsOnly(t *testing.T) {
 	current := map[string]float64{
 		"grok-4.3-high":    99,
 		"claude-opus-4-7":  2.5,
 		"manual-local-one": 12,
+		"stale-official":   42,
 	}
 	official := map[string]any{
 		"grok-4.3-high":    1.5,
@@ -96,14 +108,21 @@ func TestMergeOfficialRatioFieldAddsMissingOnly(t *testing.T) {
 		"claude-opus-4-8":  2.5,
 		"bad-price-format": "skip-me",
 	}
+	officialModels := map[string]bool{
+		"grok-4.3-high":   true,
+		"claude-opus-4-7": true,
+		"claude-opus-4-8": true,
+		"stale-official":  true,
+	}
 
-	merged, added := mergeOfficialRatioField(current, official)
+	merged, changed := replaceOfficialRatioField(current, official, officialModels)
 
-	require.Equal(t, 1, added)
-	require.Equal(t, 99.0, merged["grok-4.3-high"])
-	require.Equal(t, 2.5, merged["claude-opus-4-7"])
+	require.Equal(t, 4, changed)
+	require.Equal(t, 1.5, merged["grok-4.3-high"])
+	require.Equal(t, 7.5, merged["claude-opus-4-7"])
 	require.Equal(t, 12.0, merged["manual-local-one"])
 	require.Equal(t, 2.5, merged["claude-opus-4-8"])
+	require.NotContains(t, merged, "stale-official")
 	require.NotContains(t, merged, "bad-price-format")
 }
 

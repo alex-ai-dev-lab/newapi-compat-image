@@ -21,7 +21,6 @@ func TriggerOfficialPriceSync(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"added_models":   merged,
 			"updated_models": merged,
 			"status":         OfficialPriceSyncStatus(),
 		},

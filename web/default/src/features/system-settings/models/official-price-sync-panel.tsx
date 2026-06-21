@@ -57,10 +57,10 @@ export function OfficialPriceSyncPanel() {
         return
       }
       toast.success(
-        t('Official prices added: {{count}} models', {
+        t('Official prices synced: {{count}} entries', {
           count:
-            result.data.added_models ??
             result.data.updated_models ??
+            result.data.status.last_changed_num ??
             result.data.status.last_models_num,
         })
       )
@@ -109,7 +109,10 @@ export function OfficialPriceSyncPanel() {
               {t('Last run')}: {formatLastRun(status?.last_run_unix)}
             </span>
             <span>
-              {t('Models')}: {status?.last_models_num ?? 0}
+              {t('Official models')}: {status?.last_models_num ?? 0}
+            </span>
+            <span>
+              {t('Changed entries')}: {status?.last_changed_num ?? 0}
             </span>
             <span className='font-mono text-xs'>{sourceUrl}</span>
           </div>

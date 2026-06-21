@@ -43,6 +43,7 @@ const (
 	modelsDevHost               = "models.dev"
 	modelsDevPath               = "/api.json"
 	modelsDevInputCostRatioBase = 1000.0
+	modelsDevOfficialNamesField = "_official_model_names"
 )
 
 var officialModelsDevProviderIDs = map[string]bool{
@@ -179,6 +180,12 @@ func getLocalPricingSyncData() map[string]any {
 }
 
 func FetchUpstreamRatios(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"message": "上游价格同步已关闭；模型价格仅通过 models.dev/api.json 官方定时同步",
+	})
+	return
+
 	var req dto.UpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.SysError("failed to bind upstream request: " + err.Error())
@@ -735,7 +742,7 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 }
 
 func roundRatioValue(value float64) float64 {
-	return math.Round(value*1e6) / 1e6
+	return math.Round(value*1e12) / 1e12
 }
 
 func isModelsDevAPIEndpoint(rawURL string) bool {
@@ -854,16 +861,18 @@ type modelsDevModel struct {
 }
 
 type modelsDevCost struct {
-	Input     *float64 `json:"input"`
-	Output    *float64 `json:"output"`
-	CacheRead *float64 `json:"cache_read"`
+	Input      *float64 `json:"input"`
+	Output     *float64 `json:"output"`
+	CacheRead  *float64 `json:"cache_read"`
+	CacheWrite *float64 `json:"cache_write"`
 }
 
 type modelsDevCandidate struct {
-	Provider  string
-	Input     float64
-	Output    *float64
-	CacheRead *float64
+	Provider   string
+	Input      float64
+	Output     *float64
+	CacheRead  *float64
+	CacheWrite *float64
 }
 
 func cloneFloatPtr(v *float64) *float64 {
@@ -909,11 +918,17 @@ func buildModelsDevCandidate(provider string, cost modelsDevCost) (modelsDevCand
 		cacheRead = cloneFloatPtr(cost.CacheRead)
 	}
 
+	var cacheWrite *float64
+	if cost.CacheWrite != nil && isValidNonNegativeCost(*cost.CacheWrite) {
+		cacheWrite = cloneFloatPtr(cost.CacheWrite)
+	}
+
 	return modelsDevCandidate{
-		Provider:  provider,
-		Input:     input,
-		Output:    output,
-		CacheRead: cacheRead,
+		Provider:   provider,
+		Input:      input,
+		Output:     output,
+		CacheRead:  cacheRead,
+		CacheWrite: cacheWrite,
 	}, true
 }
 
@@ -938,6 +953,7 @@ func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
 //	model_ratio = input_cost_per_1M / 2
 //	completion_ratio = output_cost / input_cost
 //	cache_ratio = cache_read_cost / input_cost
+//	create_cache_ratio = cache_write_cost / input_cost
 //
 // Duplicate model keys across providers are resolved by selecting the
 // cheapest non-zero input cost. If only zero-priced candidates exist,
@@ -995,10 +1011,22 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	modelRatioMap := make(map[string]any)
 	completionRatioMap := make(map[string]any)
 	cacheRatioMap := make(map[string]any)
+	createCacheRatioMap := make(map[string]any)
+	officialModelNames := make(map[string]any, len(selectedCandidates))
 
 	for modelName, candidate := range selectedCandidates {
+		officialModelNames[modelName] = true
 		if candidate.Input == 0 {
 			modelRatioMap[modelName] = 0.0
+			if candidate.Output != nil && *candidate.Output == 0 {
+				completionRatioMap[modelName] = 0.0
+			}
+			if candidate.CacheRead != nil && *candidate.CacheRead == 0 {
+				cacheRatioMap[modelName] = 0.0
+			}
+			if candidate.CacheWrite != nil && *candidate.CacheWrite == 0 {
+				createCacheRatioMap[modelName] = 0.0
+			}
 			continue
 		}
 
@@ -1014,9 +1042,15 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 			cacheRatio := *candidate.CacheRead / candidate.Input
 			cacheRatioMap[modelName] = roundRatioValue(cacheRatio)
 		}
+
+		if candidate.CacheWrite != nil {
+			createCacheRatio := *candidate.CacheWrite / candidate.Input
+			createCacheRatioMap[modelName] = roundRatioValue(createCacheRatio)
+		}
 	}
 
 	converted := make(map[string]any)
+	converted[modelsDevOfficialNamesField] = officialModelNames
 	if len(modelRatioMap) > 0 {
 		converted["model_ratio"] = modelRatioMap
 	}
@@ -1026,20 +1060,16 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	if len(cacheRatioMap) > 0 {
 		converted["cache_ratio"] = cacheRatioMap
 	}
+	if len(createCacheRatioMap) > 0 {
+		converted["create_cache_ratio"] = createCacheRatioMap
+	}
 	return converted, nil
 }
 
 func GetSyncableChannels(c *gin.Context) {
-	syncableChannels := []dto.SyncableChannel{{
-		ID:      modelsDevPresetID,
-		Name:    modelsDevPresetName,
-		BaseURL: modelsDevPresetBaseURL,
-		Status:  1,
-	}}
-
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    syncableChannels,
+		"success": false,
+		"message": "上游价格同步已关闭；模型价格仅通过 models.dev/api.json 官方定时同步",
+		"data":    []dto.SyncableChannel{},
 	})
 }

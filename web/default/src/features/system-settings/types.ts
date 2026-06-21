@@ -425,6 +425,7 @@ export type OfficialPriceSyncStatus = {
   last_ok: boolean
   last_error: string
   last_models_num: number
+  last_changed_num: number
   source_url: string
 }
 

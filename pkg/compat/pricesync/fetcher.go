@@ -11,13 +11,11 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 )
 
-// Start launches the official price sync task only when explicitly enabled.
-//
-// Ken's current production choice is manual one-shot sync, not a default
-// background job. Set OFFICIAL_PRICE_SYNC_ENABLED=true to restore auto sync.
+// Start launches the official models.dev price sync task by default.
+// Set OFFICIAL_PRICE_SYNC_ENABLED=false to disable the scheduler explicitly.
 func Start() {
 	if !autoSyncEnabled() {
-		common.SysLog("official price sync auto task disabled; use /api/pricing/official-sync/trigger for manual sync")
+		common.SysLog("official models.dev price sync auto task disabled by OFFICIAL_PRICE_SYNC_ENABLED")
 		return
 	}
 	controller.StartOfficialPriceSyncTask()
@@ -25,5 +23,5 @@ func Start() {
 
 func autoSyncEnabled() bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("OFFICIAL_PRICE_SYNC_ENABLED")))
-	return value == "1" || value == "true" || value == "yes" || value == "on"
+	return value != "0" && value != "false" && value != "no" && value != "off"
 }

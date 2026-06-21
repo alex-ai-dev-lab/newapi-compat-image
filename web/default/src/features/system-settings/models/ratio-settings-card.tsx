@@ -41,8 +41,8 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { GroupRatioForm } from './group-ratio-form'
 import { ModelRatioForm } from './model-ratio-form'
+import { OfficialPriceSyncPanel } from './official-price-sync-panel'
 import { ToolPriceSettings } from './tool-price-settings'
-import { UpstreamRatioSync } from './upstream-ratio-sync'
 import {
   formatJsonForTextarea,
   normalizeJsonString,
@@ -208,7 +208,7 @@ const groupSchema = z.object({
 
 type ModelFormValues = z.infer<typeof modelSchema>
 type GroupFormValues = z.infer<typeof groupSchema>
-type RatioTabId = 'models' | 'groups' | 'tool-prices' | 'upstream-sync'
+type RatioTabId = 'models' | 'groups' | 'tool-prices'
 
 type PricingImportExportPayload = Partial<
   ModelFormValues &
@@ -235,7 +235,7 @@ export function RatioSettingsCard({
   groupDefaults,
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
-  visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
+  visibleTabs = ['models', 'groups', 'tool-prices'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -649,7 +649,6 @@ export function RatioSettingsCard({
     models: 'Model prices',
     groups: 'Group ratios',
     'tool-prices': 'Tool prices',
-    'upstream-sync': 'Upstream price sync',
   }
   const tabsGridClass =
     {
@@ -688,22 +687,7 @@ export function RatioSettingsCard({
         />
       )
     }
-    return (
-      <UpstreamRatioSync
-        modelRatios={{
-          ModelPrice: modelDefaults.ModelPrice,
-          ModelRatio: modelDefaults.ModelRatio,
-          CompletionRatio: modelDefaults.CompletionRatio,
-          CacheRatio: modelDefaults.CacheRatio,
-          CreateCacheRatio: modelDefaults.CreateCacheRatio,
-          ImageRatio: modelDefaults.ImageRatio,
-          AudioRatio: modelDefaults.AudioRatio,
-          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': modelDefaults.BillingMode,
-          'billing_setting.billing_expr': modelDefaults.BillingExpr,
-        }}
-      />
-    )
+    return null
   }
 
   return (
@@ -731,25 +715,28 @@ export function RatioSettingsCard({
           <span>{t('Import JSON')}</span>
         </Button>
       </SettingsPageActionsPortal>
-      {visibleTabs.length === 1 ? (
-        renderTabContent(defaultTab)
-      ) : (
-        <Tabs defaultValue={defaultTab} className='space-y-6'>
-          <TabsList className={`grid w-full ${tabsGridClass}`}>
-            {visibleTabs.map((tab) => (
-              <TabsTrigger key={tab} value={tab}>
-                {t(tabLabels[tab])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+      <div className='space-y-6'>
+        {visibleTabs.includes('models') && <OfficialPriceSyncPanel />}
+        {visibleTabs.length === 1 ? (
+          renderTabContent(defaultTab)
+        ) : (
+          <Tabs defaultValue={defaultTab} className='space-y-6'>
+            <TabsList className={`grid w-full ${tabsGridClass}`}>
+              {visibleTabs.map((tab) => (
+                <TabsTrigger key={tab} value={tab}>
+                  {t(tabLabels[tab])}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-          {visibleTabs.map((tab) => (
-            <TabsContent key={tab} value={tab}>
-              {renderTabContent(tab)}
-            </TabsContent>
-          ))}
-        </Tabs>
-      )}
+            {visibleTabs.map((tab) => (
+              <TabsContent key={tab} value={tab}>
+                {renderTabContent(tab)}
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirmOpen}
