@@ -62,7 +62,7 @@ ARG BUILD_DATE=unknown
 ARG UPSTREAM_REF=unknown
 ARG RUNTIME_IMAGE=alpine:3.20
 
-LABEL org.opencontainers.image.source="https://github.com/alex-ai-dev-lab/newapi-compat-image" \
+LABEL org.opencontainers.image.source="https://github.com/alex-ai-dev-lab/renewapi" \
       org.opencontainers.image.description="NewAPI source fork with compatibility and anti-poison profile hardening" \
       org.opencontainers.image.revision="${COMMIT_SHA}" \
       org.opencontainers.image.version="${VERSION}" \

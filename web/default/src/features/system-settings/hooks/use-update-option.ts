@@ -19,8 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
-import { updateSystemOption } from '../api'
-import type { UpdateOptionRequest } from '../types'
+import { updateSystemOption, updateSystemOptionsBulk } from '../api'
+import type { UpdateOptionRequest, UpdateOptionsBulkRequest } from '../types'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = [
@@ -89,6 +89,37 @@ export function useUpdateOption() {
     },
     onError: (error: Error) => {
       toast.error(error.message || i18next.t('Failed to update setting'))
+    },
+  })
+}
+
+export function useUpdateOptionsBulk() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (request: UpdateOptionsBulkRequest) =>
+      updateSystemOptionsBulk(request),
+    onSuccess: (data, variables) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+
+        const keys = Object.keys(variables.options)
+        if (keys.some((key) => STATUS_RELATED_KEYS.includes(key))) {
+          queryClient.invalidateQueries({ queryKey: ['status'] })
+          try {
+            window.localStorage.removeItem('status')
+          } catch {
+            /* empty */
+          }
+        }
+
+        toast.success(i18next.t('Settings updated successfully'))
+      } else {
+        toast.error(data.message || i18next.t('Failed to update settings'))
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || i18next.t('Failed to update settings'))
     },
   })
 }

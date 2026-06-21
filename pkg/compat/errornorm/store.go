@@ -3,6 +3,7 @@ package errornorm
 import (
 	"context"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -97,28 +98,5 @@ func formatReloadMsg(n int) string {
 	if n == 0 {
 		return "errornorm: reloaded 0 rules (no DB rules configured, will use built-in FixedMessage)"
 	}
-	return "errornorm: reloaded " + itoa(n) + " rules from DB"
-}
-
-// itoa avoids strconv import (kept minimal for log path).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
+	return "errornorm: reloaded " + strconv.Itoa(n) + " rules from DB"
 }

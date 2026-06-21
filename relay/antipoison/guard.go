@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -156,7 +157,28 @@ func ValidateGuardMarkers(rawMarkers []string, prefix string, expectedTools []st
 	if len(rawMarkers) == 0 {
 		return false, "missing_guard_toolcall"
 	}
+	nameRe := guardNameRegex(prefix)
 	if !strict {
+		expectedCount := 0
+		for _, tool := range expectedTools {
+			if strings.TrimSpace(tool) != "" {
+				expectedCount++
+			}
+		}
+		if expectedCount == 0 {
+			expectedCount = len(expectedTools)
+		}
+		validMarkers := 0
+		for _, raw := range rawMarkers {
+			marker, parsed := parseGuardMarker(raw)
+			if !parsed || marker.Name == "" || !nameRe.MatchString(marker.Name) {
+				continue
+			}
+			validMarkers++
+		}
+		if validMarkers < expectedCount {
+			return false, "guard_coverage_mismatch"
+		}
 		return true, ""
 	}
 	remaining := make(map[string]int, len(expectedTools))
@@ -170,7 +192,6 @@ func ValidateGuardMarkers(rawMarkers []string, prefix string, expectedTools []st
 	if len(remaining) == 0 {
 		return len(rawMarkers) >= len(expectedTools), "guard_coverage_mismatch"
 	}
-	nameRe := guardNameRegex(prefix)
 	for _, raw := range rawMarkers {
 		marker, parsed := parseGuardMarker(raw)
 		if !parsed {
@@ -219,18 +240,36 @@ func StripGuardMarkersWithConfig(text string, cfg Config) (cleaned string, rawMa
 	}
 	cfg = cfg.Normalized()
 	if cfg.MaxScanBytes > 0 && len(text) > cfg.MaxScanBytes {
-		scan := text[:cfg.MaxScanBytes]
+		scanEnd := safeUTF8PrefixLen(text, cfg.MaxScanBytes)
+		scan := text[:scanEnd]
 		cleanedPrefix, markers := StripGuardMarkers(scan)
 		if !cfg.StripOutput {
 			return text, markers
 		}
-		return cleanedPrefix + text[cfg.MaxScanBytes:], markers
+		cleaned, rawMarkers = StripGuardMarkers(text)
+		if len(rawMarkers) == 0 {
+			return cleanedPrefix + text[scanEnd:], markers
+		}
+		return cleaned, rawMarkers
 	}
 	cleaned, rawMarkers = StripGuardMarkers(text)
 	if !cfg.StripOutput {
 		return text, rawMarkers
 	}
 	return cleaned, rawMarkers
+}
+
+func safeUTF8PrefixLen(text string, maxBytes int) int {
+	if maxBytes <= 0 || maxBytes >= len(text) {
+		return len(text)
+	}
+	for maxBytes > 0 && !utf8.RuneStart(text[maxBytes]) {
+		maxBytes--
+	}
+	if maxBytes <= 0 {
+		return 0
+	}
+	return maxBytes
 }
 
 // CountGuardMarkers counts guard markers present in text.
@@ -248,8 +287,8 @@ func CountGuardMarkers(text string) int {
 // realToolCalls: number of real tool/function calls in the response.
 // guardMarkerCount: number of guard markers found.
 // In strict mode, realToolCalls must be <= guardMarkerCount.
-// In non-strict mode, validation only fails when there ARE tool calls but ZERO
-// guard markers (the clearest sign of injection), reducing false positives.
+// In non-strict mode, validation requires at least one marker per real tool
+// call but does not validate individual tool names.
 func ValidateCoverage(realToolCalls, guardMarkerCount int, strict bool) (ok bool, reason string) {
 	if realToolCalls == 0 {
 		return true, ""
@@ -260,8 +299,11 @@ func ValidateCoverage(realToolCalls, guardMarkerCount int, strict bool) (ok bool
 		}
 		return true, ""
 	}
-	if guardMarkerCount == 0 {
-		return false, "missing_guard_toolcall"
+	if guardMarkerCount < realToolCalls {
+		if guardMarkerCount == 0 {
+			return false, "missing_guard_toolcall"
+		}
+		return false, "guard_coverage_mismatch"
 	}
 	return true, ""
 }

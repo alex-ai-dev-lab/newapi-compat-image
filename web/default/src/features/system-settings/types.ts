@@ -34,6 +34,10 @@ export type UpdateOptionRequest = {
   value: string | boolean | number
 }
 
+export type UpdateOptionsBulkRequest = {
+  options: Record<string, string | boolean | number>
+}
+
 export type UpdateOptionResponse = {
   success: boolean
   message: string

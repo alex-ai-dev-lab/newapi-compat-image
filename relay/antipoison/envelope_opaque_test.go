@@ -1,6 +1,7 @@
 package antipoison
 
 import (
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -132,6 +133,15 @@ func TestOpaqueScannerSuspiciousLongBase64RetriesProbation(t *testing.T) {
 	}
 	if !errors.Is(OpaqueScanError(result), ErrOpaquePayloadSuspicious) {
 		t.Fatalf("opaque retry should surface suspicious error")
+	}
+}
+
+func TestOpaqueScannerDetectsURLSafeBase64(t *testing.T) {
+	payload := strings.Repeat("https://internal.example/<script>alert(1)</script>", 3)
+	blob := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	result := ScanOpaquePayload(blob, requiredEnvelopeConfig(), "")
+	if result.Action != OpaqueActionBlock {
+		t.Fatalf("action=%s score=%d signals=%v, want block", result.Action, result.Score, result.Signals)
 	}
 }
 

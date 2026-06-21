@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -116,8 +116,8 @@ function normalizeForm(values: ErrorRuleForm): ErrorRuleForm {
     description: values.description.trim(),
     platforms: values.platforms.trim(),
     keywords: values.keywords.trim(),
-    passthrough_body: false,
-    skip_monitoring: false,
+    passthrough_body: Boolean(values.passthrough_body),
+    skip_monitoring: Boolean(values.skip_monitoring),
     custom_message: values.custom_message.trim(),
     upstream_status: Number(values.upstream_status) || 0,
     response_code: Number(values.response_code) || 0,
@@ -134,9 +134,9 @@ function exportableRule(rule: ErrorRule): ErrorRuleForm {
     keywords: rule.keywords,
     passthrough_code: Boolean(rule.passthrough_code),
     response_code: rule.response_code,
-    passthrough_body: false,
+    passthrough_body: Boolean(rule.passthrough_body),
     custom_message: rule.custom_message,
-    skip_monitoring: false,
+    skip_monitoring: Boolean(rule.skip_monitoring),
     priority: rule.priority,
   })
 }
@@ -163,10 +163,10 @@ function parseImportRules(text: string): ErrorRuleForm[] {
       keywords: typeof value.keywords === 'string' ? value.keywords : '',
       passthrough_code: Boolean(value.passthrough_code),
       response_code: Number(value.response_code) || 0,
-      passthrough_body: false,
+      passthrough_body: Boolean(value.passthrough_body),
       custom_message:
         typeof value.custom_message === 'string' ? value.custom_message : '',
-      skip_monitoring: false,
+      skip_monitoring: Boolean(value.skip_monitoring),
       priority: Number(value.priority) || 100,
     })
   })
@@ -222,8 +222,14 @@ export function UpstreamErrorRulesSection() {
 
   const importMutation = useMutation({
     mutationFn: async (values: ErrorRuleForm[]) => {
-      for (const rule of values) {
-        await saveRule(rule)
+      const results = await Promise.allSettled(
+        values.map((rule) => saveRule(rule))
+      )
+      const failed = results.filter((result) => result.status === 'rejected')
+      if (failed.length > 0) {
+        throw new Error(
+          t('Failed to import {{count}} rules', { count: failed.length })
+        )
       }
     },
     onSuccess: (_data, values) => {
@@ -232,8 +238,10 @@ export function UpstreamErrorRulesSection() {
       setImportText('')
       queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
     },
-    onError: (error: any) => {
-      toast.error(error?.message || t('Failed to import rules'))
+    onError: (error: unknown) => {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to import rules')
+      )
     },
   })
 
@@ -273,10 +281,10 @@ export function UpstreamErrorRulesSection() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-upstream-error-rules.json'
+    link.download = 'renewapi-upstream-error-rules.json'
     link.click()
     URL.revokeObjectURL(url)
-    toast.success(t('Upstream error rules exported'))
+    toast.success(t('Upstream error rules downloaded and copied when possible'))
   }
 
   const openImportDialog = () => {
@@ -301,10 +309,6 @@ export function UpstreamErrorRulesSection() {
       toast.error(t('Invalid upstream error rules JSON'))
     }
   }
-
-  useEffect(() => {
-    if (!formOpen) setFormValues(EMPTY_RULE)
-  }, [formOpen])
 
   return (
     <SettingsSection title={t('Upstream Error Rules')}>
@@ -418,6 +422,7 @@ export function UpstreamErrorRulesSection() {
                         type='button'
                         variant='ghost'
                         size='icon'
+                        aria-label={t('Edit')}
                         onClick={() => openEdit(rule)}
                       >
                         <Pencil className='h-4 w-4' />
@@ -426,6 +431,7 @@ export function UpstreamErrorRulesSection() {
                         type='button'
                         variant='ghost'
                         size='icon'
+                        aria-label={t('Delete')}
                         onClick={() => setDeleteTarget(rule)}
                       >
                         <Trash2 className='h-4 w-4' />
@@ -565,6 +571,8 @@ export function UpstreamErrorRulesSection() {
               {[
                 ['enabled', t('Enabled')],
                 ['passthrough_code', t('Keep upstream status code')],
+                ['passthrough_body', t('Keep upstream response body')],
+                ['skip_monitoring', t('Skip monitoring')],
               ].map(([key, label]) => (
                 <label
                   key={key}

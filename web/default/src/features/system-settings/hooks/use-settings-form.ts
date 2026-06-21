@@ -216,11 +216,15 @@ export function useSettingsForm<T extends FieldValues>({
       return
     }
 
+    if (form.formState.isDirty) {
+      return
+    }
+
     baselineRef.current = flattened
     defaultValuesRef.current = expandedDefaults as T
     serializedDefaultsRef.current = serialized
     form.reset(expandedDefaults as T)
-  }, [expandedDefaults, form])
+  }, [expandedDefaults, form, form.formState.isDirty])
 
   const defaultCompare = (a: unknown, b: unknown): boolean => {
     if (a === b) return true

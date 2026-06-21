@@ -21,30 +21,17 @@ import { persist } from 'zustand/middleware'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-export interface ThemeColors {
-  primary: string
-  accent: string
-  background: string
-  foreground: string
-}
-
 interface ThemeStore {
   mode: ThemeMode
   fontSize: number
-  primaryColor: string
-  accentColor: string
   setMode: (mode: ThemeMode) => void
   setFontSize: (size: number) => void
-  setPrimaryColor: (color: string) => void
-  setAccentColor: (color: string) => void
   reset: () => void
 }
 
 const defaultTheme = {
   mode: 'system' as ThemeMode,
   fontSize: 14,
-  primaryColor: '',
-  accentColor: '',
 }
 
 export const useThemeStore = create<ThemeStore>()(
@@ -59,20 +46,10 @@ export const useThemeStore = create<ThemeStore>()(
         set({ fontSize })
         applyFontSize(fontSize)
       },
-      setPrimaryColor: (primaryColor) => {
-        set({ primaryColor })
-        applyPrimaryColor(primaryColor)
-      },
-      setAccentColor: (accentColor) => {
-        set({ accentColor })
-        applyAccentColor(accentColor)
-      },
       reset: () => {
         set(defaultTheme)
         applyThemeMode(defaultTheme.mode)
         applyFontSize(defaultTheme.fontSize)
-        applyPrimaryColor(defaultTheme.primaryColor)
-        applyAccentColor(defaultTheme.accentColor)
       },
     }),
     {
@@ -82,8 +59,6 @@ export const useThemeStore = create<ThemeStore>()(
           // Apply theme immediately after rehydration
           applyThemeMode(state.mode)
           applyFontSize(state.fontSize)
-          applyPrimaryColor(state.primaryColor)
-          applyAccentColor(state.accentColor)
         }
       },
     }
@@ -108,10 +83,6 @@ function applyThemeMode(mode: ThemeMode) {
 function applyFontSize(size: number) {
   document.documentElement.style.setProperty('--font-size-base', `${size}px`)
 }
-
-function applyPrimaryColor(_color: string) {}
-
-function applyAccentColor(_color: string) {}
 
 // Listen to system theme changes
 if (typeof window !== 'undefined') {

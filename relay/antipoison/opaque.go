@@ -237,24 +237,43 @@ func hasControlChars(text string) bool {
 
 func decodedLooksRisky(matches []string) bool {
 	for _, match := range matches {
-		candidate := strings.Trim(match, "=_-")
+		candidate := strings.Trim(match, "=")
 		if len(candidate) < 80 {
 			continue
 		}
-		decoded, err := base64.StdEncoding.DecodeString(padBase64(candidate))
-		if err != nil {
-			decoded, err = base64.RawStdEncoding.DecodeString(candidate)
-		}
-		if err != nil {
-			continue
-		}
-		lower := strings.ToLower(string(decoded))
-		if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") ||
-			strings.Contains(lower, "<script") || strings.Contains(lower, "javascript:") {
-			return true
+		for _, decoded := range decodeBase64Candidates(candidate) {
+			lower := strings.ToLower(string(decoded))
+			if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") ||
+				strings.Contains(lower, "<script") || strings.Contains(lower, "javascript:") {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func decodeBase64Candidates(candidate string) [][]byte {
+	decoders := []struct {
+		encoding *base64.Encoding
+		padded   bool
+	}{
+		{base64.StdEncoding, true},
+		{base64.RawStdEncoding, false},
+		{base64.URLEncoding, true},
+		{base64.RawURLEncoding, false},
+	}
+	results := make([][]byte, 0, len(decoders))
+	for _, decoder := range decoders {
+		input := candidate
+		if decoder.padded {
+			input = padBase64(candidate)
+		}
+		decoded, err := decoder.encoding.DecodeString(input)
+		if err == nil {
+			results = append(results, decoded)
+		}
+	}
+	return results
 }
 
 func padBase64(s string) string {

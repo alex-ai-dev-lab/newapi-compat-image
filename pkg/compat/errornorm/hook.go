@@ -5,6 +5,7 @@ package errornorm
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/compat"
@@ -59,8 +60,8 @@ func matchRuleFromContext(info *relaycommon.RelayInfo, status int, body string) 
 		return nil
 	}
 	platform := ""
-	if info != nil {
-		platform = itoaPlatform(info.ChannelType)
+	if info != nil && info.ChannelType != 0 {
+		platform = strconv.Itoa(info.ChannelType)
 	}
 	return store.Match(platform, status, body)
 }
@@ -75,21 +76,6 @@ func applyRule(err *types.NewAPIError, r *Rule, upstreamStatus int) {
 	} else {
 		err.SetMessage(FixedMessage(upstreamStatus))
 	}
-}
-
-// itoaPlatform converts int channel type to its string form.
-func itoaPlatform(channelType int) string {
-	if channelType == 0 {
-		return ""
-	}
-	var buf [20]byte
-	i := len(buf)
-	for channelType > 0 {
-		i--
-		buf[i] = byte('0' + channelType%10)
-		channelType /= 10
-	}
-	return string(buf[i:])
 }
 
 func shouldNormalize(info *relaycommon.RelayInfo) bool {

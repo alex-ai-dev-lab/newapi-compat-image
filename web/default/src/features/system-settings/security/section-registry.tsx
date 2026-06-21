@@ -119,8 +119,7 @@ const SECURITY_SECTIONS = [
           'anti_poison_setting.profiles':
             settings['anti_poison_setting.profiles'] || '{}',
           'anti_poison_setting.channels':
-            settings['anti_poison_setting.channels'] ||
-            '{"77":{"profile":"trusted"},"101":{"profile":"probation"},"94":{"profile":"quarantine"}}',
+            settings['anti_poison_setting.channels'] || '{}',
         }}
       />
     ),

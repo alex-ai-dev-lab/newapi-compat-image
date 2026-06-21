@@ -146,6 +146,40 @@ func TestGlobalTLSInsecureSkipVerifyStillApplies(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+func TestResetProxyClientCacheRebuildsDefaultClientForGlobalTLS(t *testing.T) {
+	resetHTTPClientTestState(t)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	verifiedClient, err := GetHttpClientWithOptions(HTTPClientOptions{})
+	if err != nil {
+		t.Fatalf("verified client: %v", err)
+	}
+	if resp, err := verifiedClient.Get(server.URL); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected initial default client to reject self-signed certificate")
+	}
+
+	common.TLSInsecureSkipVerify = true
+	ResetProxyClientCache()
+
+	reloadedClient, err := GetHttpClientWithOptions(HTTPClientOptions{})
+	if err != nil {
+		t.Fatalf("reloaded client: %v", err)
+	}
+	if reloadedClient == verifiedClient {
+		t.Fatal("default client should be rebuilt after cache reset")
+	}
+	resp, err := reloadedClient.Get(server.URL)
+	if err != nil {
+		t.Fatalf("expected rebuilt default client to accept self-signed certificate: %v", err)
+	}
+	_ = resp.Body.Close()
+}
+
 func TestTLSVerificationErrorDoesNotDisableChannel(t *testing.T) {
 	oldAutomaticDisable := common.AutomaticDisableChannelEnabled
 	common.AutomaticDisableChannelEnabled = true

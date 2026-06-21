@@ -47,6 +47,11 @@ func InitHttpClient() {
 		common.SysError("failed to initialize http client: " + err.Error())
 		return
 	}
+	if httpClient != nil {
+		if transport, ok := httpClient.Transport.(*http.Transport); ok && transport != nil {
+			transport.CloseIdleConnections()
+		}
+	}
 	httpClient = client
 }
 
@@ -93,16 +98,23 @@ func GetHttpClientWithOptions(options HTTPClientOptions) (*http.Client, error) {
 	return client, nil
 }
 
-// ResetProxyClientCache 清空代理客户端缓存，确保下次使用时重新初始化
+// ResetProxyClientCache 清空代理客户端缓存并重建默认客户端，确保代理或全局 TLS 设置变更后立即生效。
 func ResetProxyClientCache() {
 	proxyClientLock.Lock()
 	defer proxyClientLock.Unlock()
+	if httpClient != nil {
+		if transport, ok := httpClient.Transport.(*http.Transport); ok && transport != nil {
+			transport.CloseIdleConnections()
+		}
+		httpClient = nil
+	}
 	for _, client := range proxyClients {
 		if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
 			transport.CloseIdleConnections()
 		}
 	}
 	proxyClients = make(map[HTTPClientOptions]*http.Client)
+	InitHttpClient()
 }
 
 // NewProxyHttpClient 创建支持代理的 HTTP 客户端

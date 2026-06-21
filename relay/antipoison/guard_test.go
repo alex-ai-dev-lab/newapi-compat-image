@@ -109,9 +109,10 @@ func TestValidateCoverageNonStrict(t *testing.T) {
 	if ok || reason != "missing_guard_toolcall" {
 		t.Fatalf("non-strict 2/0 should fail missing, got ok=%v reason=%q", ok, reason)
 	}
-	// tool calls present, at least one guard -> ok (lenient)
-	if ok, _ := ValidateCoverage(3, 1, false); !ok {
-		t.Fatalf("non-strict 3/1 should pass (lenient)")
+	// tool calls present, too few guards -> mismatch
+	ok, reason = ValidateCoverage(3, 1, false)
+	if ok || reason != "guard_coverage_mismatch" {
+		t.Fatalf("non-strict 3/1 should fail mismatch, got ok=%v reason=%q", ok, reason)
 	}
 }
 
@@ -136,6 +137,42 @@ func TestValidateGuardMarkersStrictToolMatch(t *testing.T) {
 	ok, reason = ValidateGuardMarkers(raw, "abcd1234", []string{"Write"}, true)
 	if ok || reason != "guard_tool_mismatch" {
 		t.Fatalf("expected tool mismatch, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestValidateGuardMarkersNonStrictRequiresPrefixCoverage(t *testing.T) {
+	raw := []string{
+		`{"name":"aad_guard_abcd1234_Read","tool_name":"WrongToolIsIgnoredInNonStrict"}`,
+		`{"name":"aad_guard_other_Write","tool_name":"Write"}`,
+	}
+	ok, reason := ValidateGuardMarkers(raw, "abcd1234", []string{"Read", "Write"}, false)
+	if ok || reason != "guard_coverage_mismatch" {
+		t.Fatalf("expected non-strict prefix coverage mismatch, got ok=%v reason=%q", ok, reason)
+	}
+
+	raw = append(raw, `{"name":"aad_guard_abcd1234_Write","tool_name":"Anything"}`)
+	ok, reason = ValidateGuardMarkers(raw, "abcd1234", []string{"Read", "Write"}, false)
+	if !ok || reason != "" {
+		t.Fatalf("expected non-strict prefix coverage, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestStripGuardMarkersWithConfigStripsTailMarkers(t *testing.T) {
+	prefix := "abcd1234"
+	marker := guardOpenTag + `{"name":"aad_guard_` + prefix + `_Read","tool_name":"Read"}` + guardCloseTag
+	text := "你好" + strings.Repeat("x", 12) + marker + "done"
+	cleaned, raw := StripGuardMarkersWithConfig(text, Config{
+		StripOutput:  true,
+		MaxScanBytes: len("你好") + 5,
+	})
+	if strings.Contains(cleaned, guardOpenTag) || strings.Contains(cleaned, guardCloseTag) {
+		t.Fatalf("tail guard marker leaked: %q", cleaned)
+	}
+	if len(raw) != 1 {
+		t.Fatalf("raw markers=%d, want 1", len(raw))
+	}
+	if !strings.Contains(cleaned, "你好") {
+		t.Fatalf("utf-8 prefix was corrupted: %q", cleaned)
 	}
 }
 

@@ -239,6 +239,25 @@ type OptionUpdateRequest struct {
 	Value any    `json:"value"`
 }
 
+type OptionsBulkUpdateRequest struct {
+	Options map[string]any `json:"options"`
+}
+
+func optionValueToString(value any) string {
+	switch typed := value.(type) {
+	case bool:
+		return common.Interface2String(typed)
+	case float64:
+		return common.Interface2String(typed)
+	case int:
+		return common.Interface2String(typed)
+	case string:
+		return typed
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
 func UpdateOption(c *gin.Context) {
 	var option OptionUpdateRequest
 	err := common.DecodeJson(c.Request.Body, &option)
@@ -249,16 +268,7 @@ func UpdateOption(c *gin.Context) {
 		})
 		return
 	}
-	switch option.Value.(type) {
-	case bool:
-		option.Value = common.Interface2String(option.Value.(bool))
-	case float64:
-		option.Value = common.Interface2String(option.Value.(float64))
-	case int:
-		option.Value = common.Interface2String(option.Value.(int))
-	default:
-		option.Value = fmt.Sprintf("%v", option.Value)
-	}
+	option.Value = optionValueToString(option.Value)
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
@@ -632,6 +642,43 @@ func UpdateOption(c *gin.Context) {
 	}
 	err = model.UpdateOption(option.Key, option.Value.(string))
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+func UpdateOptionsBulk(c *gin.Context) {
+	var request OptionsBulkUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || len(request.Options) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "无效的参数",
+		})
+		return
+	}
+	values := make(map[string]string, len(request.Options))
+	for key, rawValue := range request.Options {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			common.ApiErrorMsg(c, "设置项不能为空")
+			return
+		}
+		value := optionValueToString(rawValue)
+		if isPaymentComplianceOptionKey(key) {
+			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return
+		}
+		if (key == "QuotaForInviter" || key == "QuotaForInvitee") && isPositiveOptionValue(value) && !operation_setting.IsPaymentComplianceConfirmed() {
+			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return
+		}
+		values[key] = value
+	}
+	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
 		return
 	}

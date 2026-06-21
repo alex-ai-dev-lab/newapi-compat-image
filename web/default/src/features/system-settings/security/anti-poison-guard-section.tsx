@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
-import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
 import {
@@ -48,29 +47,27 @@ import {
   SettingsPageFormActions,
 } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useResetForm } from '../hooks/use-reset-form'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { useSettingsForm } from '../hooks/use-settings-form'
+import { useUpdateOptionsBulk } from '../hooks/use-update-option'
 
 const antiPoisonSchema = z.object({
-  'anti_poison_setting.enabled': z.boolean(),
-  'anti_poison_setting.channel_test_nonce_enabled': z.boolean(),
-  'anti_poison_setting.response_proof_enabled': z.boolean(),
-  'anti_poison_setting.tool_call_guard_enabled': z.boolean(),
-  'anti_poison_setting.tool_call_guard_strict': z.boolean(),
-  'anti_poison_setting.failure_mode': z.enum(['block', 'warn']),
-  'anti_poison_setting.strip_guard_output': z.boolean(),
-  'anti_poison_setting.signed_header_audit_enabled': z.boolean(),
-  'anti_poison_setting.signed_header_audit_secret': z.string().optional(),
-  'anti_poison_setting.max_guard_scan_bytes': z.coerce
-    .number()
-    .min(4096)
-    .max(1048576),
-  'anti_poison_setting.downstream_proof_header': z.boolean(),
-  'anti_poison_setting.profiles': z.string().refine(isJsonObject, 'Invalid JSON object'),
-  'anti_poison_setting.channels': z.string().refine(isJsonObject, 'Invalid JSON object'),
+  anti_poison_setting: z.object({
+    enabled: z.boolean(),
+    channel_test_nonce_enabled: z.boolean(),
+    response_proof_enabled: z.boolean(),
+    tool_call_guard_enabled: z.boolean(),
+    tool_call_guard_strict: z.boolean(),
+    failure_mode: z.enum(['block', 'warn']),
+    strip_guard_output: z.boolean(),
+    signed_header_audit_enabled: z.boolean(),
+    signed_header_audit_secret: z.string().optional(),
+    max_guard_scan_bytes: z.number().min(4096).max(1048576),
+    downstream_proof_header: z.boolean(),
+    profiles: z.string().refine(isJsonObject, 'Invalid JSON object'),
+    channels: z.string().refine(isJsonObject, 'Invalid JSON object'),
+  }),
 })
 
-type AntiPoisonFormInput = z.input<typeof antiPoisonSchema>
 type AntiPoisonFormValues = z.output<typeof antiPoisonSchema>
 
 function isJsonObject(value: string): boolean {
@@ -83,34 +80,111 @@ function isJsonObject(value: string): boolean {
 }
 
 type AntiPoisonGuardSectionProps = {
-  defaultValues: AntiPoisonFormValues
+  defaultValues: {
+    'anti_poison_setting.enabled': boolean
+    'anti_poison_setting.channel_test_nonce_enabled': boolean
+    'anti_poison_setting.response_proof_enabled': boolean
+    'anti_poison_setting.tool_call_guard_enabled': boolean
+    'anti_poison_setting.tool_call_guard_strict': boolean
+    'anti_poison_setting.failure_mode': 'block' | 'warn'
+    'anti_poison_setting.strip_guard_output': boolean
+    'anti_poison_setting.signed_header_audit_enabled': boolean
+    'anti_poison_setting.signed_header_audit_secret'?: string
+    'anti_poison_setting.max_guard_scan_bytes': number
+    'anti_poison_setting.downstream_proof_header': boolean
+    'anti_poison_setting.profiles': string
+    'anti_poison_setting.channels': string
+  }
+}
+
+type ChannelProfile = {
+  id: string
+  profile: string
+}
+
+function parseChannelProfiles(value: string): ChannelProfile[] {
+  try {
+    const parsed = JSON.parse(value || '{}') as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return []
+    }
+    return Object.entries(parsed)
+      .map(([id, raw]) => {
+        const profile =
+          raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? String((raw as Record<string, unknown>).profile ?? '').trim()
+            : ''
+        return { id, profile }
+      })
+      .filter((item) => item.id && item.profile)
+      .sort((a, b) => Number(a.id) - Number(b.id))
+  } catch {
+    return []
+  }
+}
+
+function buildAntiPoisonDefaults(
+  defaults: AntiPoisonGuardSectionProps['defaultValues']
+): AntiPoisonFormValues {
+  return {
+    anti_poison_setting: {
+      enabled: defaults['anti_poison_setting.enabled'],
+      channel_test_nonce_enabled:
+        defaults['anti_poison_setting.channel_test_nonce_enabled'],
+      response_proof_enabled:
+        defaults['anti_poison_setting.response_proof_enabled'],
+      tool_call_guard_enabled:
+        defaults['anti_poison_setting.tool_call_guard_enabled'],
+      tool_call_guard_strict:
+        defaults['anti_poison_setting.tool_call_guard_strict'],
+      failure_mode: defaults['anti_poison_setting.failure_mode'],
+      strip_guard_output: defaults['anti_poison_setting.strip_guard_output'],
+      signed_header_audit_enabled:
+        defaults['anti_poison_setting.signed_header_audit_enabled'],
+      signed_header_audit_secret:
+        defaults['anti_poison_setting.signed_header_audit_secret'] || '',
+      max_guard_scan_bytes:
+        defaults['anti_poison_setting.max_guard_scan_bytes'],
+      downstream_proof_header:
+        defaults['anti_poison_setting.downstream_proof_header'],
+      profiles: defaults['anti_poison_setting.profiles'],
+      channels: defaults['anti_poison_setting.channels'],
+    },
+  }
 }
 
 export function AntiPoisonGuardSection({
   defaultValues,
 }: AntiPoisonGuardSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const form = useForm<AntiPoisonFormInput, unknown, AntiPoisonFormValues>({
-    resolver: zodResolver(antiPoisonSchema),
-    defaultValues,
-  })
-
-  useResetForm(form, defaultValues)
-
-  const onSubmit = async (data: AntiPoisonFormValues) => {
-    const updates = Object.entries(data).filter(
-      ([key, value]) => value !== defaultValues[key as keyof AntiPoisonFormValues]
-    )
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
-    }
-  }
+  const updateOptions = useUpdateOptionsBulk()
+  const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
+    useSettingsForm<AntiPoisonFormValues>({
+      resolver: zodResolver(antiPoisonSchema),
+      defaultValues: buildAntiPoisonDefaults(defaultValues),
+      onSubmit: async (_data, changedFields) => {
+        await updateOptions.mutateAsync({
+          options: Object.fromEntries(
+            Object.entries(changedFields).map(([key, value]) => [
+              key,
+              typeof value === 'number' ||
+              typeof value === 'boolean' ||
+              typeof value === 'string'
+                ? value
+                : String(value ?? ''),
+            ])
+          ),
+        })
+      },
+    })
+  const channelProfiles = parseChannelProfiles(
+    form.watch('anti_poison_setting.channels')
+  )
 
   return (
     <SettingsSection title={t('Anti-Poison Guard')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={handleSubmit}>
           <FormField
             control={form.control}
             name='anti_poison_setting.enabled'
@@ -119,7 +193,7 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable Anti-Poison')}</FormLabel>
                   <FormDescription>
-                    {t('Validate upstream behavior inside NewAPI')}
+                    {t('Validate upstream behavior inside renewapi')}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -245,7 +319,18 @@ export function AntiPoisonGuardSection({
               <FormItem>
                 <FormLabel>{t('Guard Scan Limit')}</FormLabel>
                 <FormControl>
-                  <Input type='number' min={4096} max={1048576} {...field} />
+                  <Input
+                    type='number'
+                    min={4096}
+                    max={1048576}
+                    value={field.value}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    onChange={(event) =>
+                      field.onChange(Number(event.target.value))
+                    }
+                  />
                 </FormControl>
                 <FormDescription>{t('Bytes per guarded response')}</FormDescription>
                 <FormMessage />
@@ -331,20 +416,24 @@ export function AntiPoisonGuardSection({
           />
 
           <div className='grid gap-3 rounded-md border p-3'>
-            <div className='grid gap-2 md:grid-cols-3'>
-              <div className='rounded-md border p-3'>
-                <div className='text-sm font-medium'>{t('Channel 77')}</div>
-                <div className='text-muted-foreground text-xs'>trusted · direct_stream_light_scan · opaque warn</div>
+            {channelProfiles.length > 0 ? (
+              <div className='grid gap-2 md:grid-cols-3'>
+                {channelProfiles.map((channel) => (
+                  <div key={channel.id} className='rounded-md border p-3'>
+                    <div className='text-sm font-medium'>
+                      {t('Channel')} {channel.id}
+                    </div>
+                    <div className='text-muted-foreground text-xs'>
+                      {channel.profile}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className='rounded-md border p-3'>
-                <div className='text-sm font-medium'>{t('Channel 101')}</div>
-                <div className='text-muted-foreground text-xs'>probation · envelope required · aggregate_then_replay</div>
+            ) : (
+              <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
+                {t('No channel profile mappings configured.')}
               </div>
-              <div className='rounded-md border p-3'>
-                <div className='text-sm font-medium'>{t('Channel 94')}</div>
-                <div className='text-muted-foreground text-xs'>quarantine · production routing disabled</div>
-              </div>
-            </div>
+            )}
 
             <FormField
               control={form.control}
@@ -372,8 +461,8 @@ export function AntiPoisonGuardSection({
                   <FormControl>
                     <Textarea className='min-h-24 font-mono text-xs' {...field} />
                   </FormControl>
-                  <FormDescription>
-                    {t('Default mapping: 77 trusted, 101 probation, 94 quarantine.')}
+                <FormDescription>
+                    {t('Map channel IDs to anti-poison profiles.')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -382,11 +471,11 @@ export function AntiPoisonGuardSection({
           </div>
 
           <SettingsPageFormActions
-            isSaving={updateOption.isPending}
-            onSave={form.handleSubmit(onSubmit)}
-            onReset={() => form.reset(defaultValues)}
-            isSaveDisabled={!form.formState.isDirty}
-            isResetDisabled={!form.formState.isDirty}
+            isSaving={updateOptions.isPending || isSubmitting}
+            onSave={handleSubmit}
+            onReset={handleReset}
+            isSaveDisabled={!isDirty}
+            isResetDisabled={!isDirty}
           />
         </SettingsForm>
       </Form>
