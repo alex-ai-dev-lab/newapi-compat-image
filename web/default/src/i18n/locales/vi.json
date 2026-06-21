@@ -4518,6 +4518,8 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "settings.common.loading": "Đang tải cài đặt...",
+    "settings.antiPoison.enable.description": "Xác thực hành vi upstream bên trong renewapi"
   }
 }

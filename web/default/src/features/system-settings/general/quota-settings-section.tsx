@@ -155,7 +155,7 @@ export function QuotaSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-quota-settings.json'
+    link.download = 'renewapi-quota-settings.json'
     link.click()
     URL.revokeObjectURL(url)
 

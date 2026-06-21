@@ -223,7 +223,7 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-claude-settings.json'
+    link.download = 'renewapi-claude-settings.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Claude settings exported'))

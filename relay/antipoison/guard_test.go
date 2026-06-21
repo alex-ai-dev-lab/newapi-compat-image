@@ -157,7 +157,7 @@ func TestValidateGuardMarkersNonStrictRequiresPrefixCoverage(t *testing.T) {
 	}
 }
 
-func TestStripGuardMarkersWithConfigStripsTailMarkers(t *testing.T) {
+func TestStripGuardMarkersWithConfigRedactsTailMarkerWithoutFullStrip(t *testing.T) {
 	prefix := "abcd1234"
 	marker := guardOpenTag + `{"name":"aad_guard_` + prefix + `_Read","tool_name":"Read"}` + guardCloseTag
 	text := "你好" + strings.Repeat("x", 12) + marker + "done"
@@ -168,11 +168,56 @@ func TestStripGuardMarkersWithConfigStripsTailMarkers(t *testing.T) {
 	if strings.Contains(cleaned, guardOpenTag) || strings.Contains(cleaned, guardCloseTag) {
 		t.Fatalf("tail guard marker leaked: %q", cleaned)
 	}
-	if len(raw) != 1 {
-		t.Fatalf("raw markers=%d, want 1", len(raw))
+	if len(raw) != 0 {
+		t.Fatalf("raw markers=%d, want 0 for markers outside scan budget", len(raw))
 	}
 	if !strings.Contains(cleaned, "你好") {
 		t.Fatalf("utf-8 prefix was corrupted: %q", cleaned)
+	}
+	if strings.Contains(cleaned, "done") {
+		t.Fatalf("text after unscanned guard marker should be redacted: %q", cleaned)
+	}
+}
+
+func TestStripGuardMarkersWithConfigKeepsTailWhenNoTailMarker(t *testing.T) {
+	text := "你好" + strings.Repeat("x", 12) + " safe tail"
+	cleaned, raw := StripGuardMarkersWithConfig(text, Config{
+		StripOutput:  true,
+		MaxScanBytes: len("你好") + 5,
+	})
+	if cleaned != text {
+		t.Fatalf("cleaned=%q, want original", cleaned)
+	}
+	if len(raw) != 0 {
+		t.Fatalf("raw markers=%d, want 0", len(raw))
+	}
+}
+
+func TestStripGuardMarkersWithConfigRedactsCrossBoundaryMarker(t *testing.T) {
+	prefix := "abcd1234"
+	marker := guardOpenTag + `{"name":"aad_guard_` + prefix + `_Read","tool_name":"Read"}` + guardCloseTag
+	text := strings.Repeat("x", 8) + marker + "done"
+	cleaned, raw := StripGuardMarkersWithConfig(text, Config{
+		StripOutput:  true,
+		MaxScanBytes: 12,
+	})
+	if strings.Contains(cleaned, guardOpenTag) || strings.Contains(cleaned, guardCloseTag) {
+		t.Fatalf("cross-boundary guard marker leaked: %q", cleaned)
+	}
+	if cleaned != strings.Repeat("x", 8) {
+		t.Fatalf("cleaned=%q, want prefix before marker", cleaned)
+	}
+	if len(raw) != 0 {
+		t.Fatalf("raw markers=%d, want 0 for markers outside scan budget", len(raw))
+	}
+}
+
+func TestGuardPrefixDefaultSeedRenamed(t *testing.T) {
+	if GuardPrefix("") != GuardPrefix(defaultGuardSeed) {
+		t.Fatalf("empty seed should use renewapi default seed")
+	}
+	if GuardPrefix("") == GuardPrefix("newapi-antipoison") {
+		t.Fatalf("empty seed still matches legacy newapi seed")
 	}
 }
 

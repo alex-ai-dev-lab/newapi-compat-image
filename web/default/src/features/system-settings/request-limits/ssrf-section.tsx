@@ -267,7 +267,7 @@ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-ssrf-protection.json'
+    link.download = 'renewapi-ssrf-protection.json'
     link.click()
     URL.revokeObjectURL(url)
 

@@ -933,7 +933,7 @@ export function PaymentSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-payment-gateway.json'
+    link.download = 'renewapi-payment-gateway.json'
     link.click()
     URL.revokeObjectURL(url)
 

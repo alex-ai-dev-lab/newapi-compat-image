@@ -299,7 +299,7 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-dashboard-defaults.json'
+    link.download = 'renewapi-dashboard-defaults.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Dashboard defaults exported'))

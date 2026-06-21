@@ -158,7 +158,7 @@ export function CheckinSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-checkin-settings.json'
+    link.download = 'renewapi-checkin-settings.json'
     link.click()
     URL.revokeObjectURL(url)
 

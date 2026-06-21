@@ -291,7 +291,7 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-uptime-kuma.json'
+    link.download = 'renewapi-uptime-kuma.json'
     link.click()
     URL.revokeObjectURL(url)
 

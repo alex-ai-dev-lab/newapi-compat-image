@@ -170,7 +170,7 @@ export function GrokSettingsCard(props: Props) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-grok-settings.json'
+    link.download = 'renewapi-grok-settings.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Grok settings exported'))

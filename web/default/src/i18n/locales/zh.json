@@ -4896,6 +4896,8 @@
     "Response shape validation": "响应结构校验",
     "Active Models": "活跃模型",
     "Top Vendor": "头部厂商",
-    "Showing {{filtered}} of {{total}}": "显示 {{filtered}} / {{total}}"
+    "Showing {{filtered}} of {{total}}": "显示 {{filtered}} / {{total}}",
+    "settings.common.loading": "正在加载设置...",
+    "settings.antiPoison.enable.description": "在 renewapi 内验证上游行为"
   }
 }

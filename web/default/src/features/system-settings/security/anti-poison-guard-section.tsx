@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useTranslation } from 'react-i18next'
 import {
   Form,
   FormControl,
@@ -48,6 +47,7 @@ import {
 } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
+import { useSystemSettingsTranslation } from '../lib/i18n'
 import { useUpdateOptionsBulk } from '../hooks/use-update-option'
 
 const antiPoisonSchema = z.object({
@@ -156,7 +156,7 @@ function buildAntiPoisonDefaults(
 export function AntiPoisonGuardSection({
   defaultValues,
 }: AntiPoisonGuardSectionProps) {
-  const { t } = useTranslation()
+  const { t, ts } = useSystemSettingsTranslation()
   const updateOptions = useUpdateOptionsBulk()
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
     useSettingsForm<AntiPoisonFormValues>({
@@ -193,7 +193,9 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable Anti-Poison')}</FormLabel>
                   <FormDescription>
-                    {t('Validate upstream behavior inside renewapi')}
+                    {ts('settings.antiPoison.enable.description', {
+                      defaultValue: 'Validate upstream behavior inside renewapi',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>

@@ -217,7 +217,7 @@ export function PasskeySection(props: PasskeySectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-passkey-authentication.json'
+    link.download = 'renewapi-passkey-authentication.json'
     link.click()
     URL.revokeObjectURL(url)
 

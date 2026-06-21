@@ -4518,6 +4518,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "settings.common.loading": "設定を読み込んでいます...",
+    "settings.antiPoison.enable.description": "renewapi 内で上流の動作を検証します"
   }
 }

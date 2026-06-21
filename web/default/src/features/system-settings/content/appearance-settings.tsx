@@ -308,7 +308,7 @@ export function AppearanceSettings({ defaultValues }: AppearanceSettingsProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-appearance.json'
+    link.download = 'renewapi-appearance.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Appearance exported'))

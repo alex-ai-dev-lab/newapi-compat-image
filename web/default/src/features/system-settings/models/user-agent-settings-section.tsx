@@ -189,7 +189,7 @@ export function UserAgentSettingsSection() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'newapi-user-agents.json'
+    a.download = 'renewapi-user-agents.json'
     a.click()
     URL.revokeObjectURL(url)
   }

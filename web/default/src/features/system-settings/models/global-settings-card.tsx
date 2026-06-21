@@ -201,7 +201,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-global-model-configuration.json'
+    link.download = 'renewapi-global-model-configuration.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Global model configuration exported'))

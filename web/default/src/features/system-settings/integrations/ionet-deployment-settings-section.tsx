@@ -153,7 +153,7 @@ export function IoNetDeploymentSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-ionet-deployment.json'
+    link.download = 'renewapi-ionet-deployment.json'
     link.click()
     URL.revokeObjectURL(url)
 

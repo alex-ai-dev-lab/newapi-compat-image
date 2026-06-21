@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useParams } from '@tanstack/react-router'
-import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { useSystemOptions, getOptionValue } from '../hooks/use-system-options'
+import { useSystemSettingsTranslation } from '../lib/i18n'
 import type { SystemOption } from '../types'
 import { SettingsPageProvider } from './settings-page-context'
 
@@ -58,6 +58,13 @@ function SettingsPageFrame(props: SettingsPageFrameProps) {
     useState<HTMLDivElement | null>(null)
   const [titleStatusContainer, setTitleStatusContainer] =
     useState<HTMLSpanElement | null>(null)
+  const actionsContainerRef = useRef<HTMLDivElement | null>(null)
+  const titleStatusContainerRef = useRef<HTMLSpanElement | null>(null)
+
+  useLayoutEffect(() => {
+    setActionsContainer(actionsContainerRef.current)
+    setTitleStatusContainer(titleStatusContainerRef.current)
+  }, [])
 
   return (
     <SettingsPageProvider
@@ -69,14 +76,14 @@ function SettingsPageFrame(props: SettingsPageFrameProps) {
           <span className='inline-flex max-w-full min-w-0 items-center gap-2 align-middle'>
             <span className='truncate'>{props.title}</span>
             <span
-              ref={setTitleStatusContainer}
+              ref={titleStatusContainerRef}
               className='inline-flex shrink-0'
             />
           </span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <div
-            ref={setActionsContainer}
+            ref={actionsContainerRef}
             className='flex flex-wrap items-center justify-end gap-2'
           />
         </SectionPageLayout.Actions>
@@ -108,7 +115,7 @@ export function SettingsPage<
   loadingMessage = 'Loading settings...',
   resolveSettings,
 }: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
-  const { t } = useTranslation()
+  const { t, ts } = useSystemSettingsTranslation()
   const { data, isLoading } = useSystemOptions()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params = useParams({ from: routePath as any })
@@ -129,7 +136,9 @@ export function SettingsPage<
     return (
       <SettingsPageFrame title={t(sectionMeta.titleKey)}>
         <div className='text-muted-foreground flex min-h-40 items-center justify-center text-sm'>
-          {t(loadingMessage)}
+          {ts('settings.common.loading', {
+            defaultValue: loadingMessage,
+          })}
         </div>
       </SettingsPageFrame>
     )

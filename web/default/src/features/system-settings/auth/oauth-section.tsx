@@ -344,7 +344,7 @@ export function OAuthSection(props: OAuthSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-oauth-integrations.json'
+    link.download = 'renewapi-oauth-integrations.json'
     link.click()
     URL.revokeObjectURL(url)
 

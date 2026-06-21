@@ -258,7 +258,7 @@ export function SidebarModulesSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-sidebar-modules.json'
+    link.download = 'renewapi-sidebar-modules.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Sidebar configuration exported'))

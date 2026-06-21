@@ -225,7 +225,7 @@ export function HeaderNavigationSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-header-navigation.json'
+    link.download = 'renewapi-header-navigation.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Header navigation exported'))

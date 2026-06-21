@@ -314,7 +314,7 @@ export function ApiInfoSection({ enabled, data }: ApiInfoSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-api-addresses.json'
+    link.download = 'renewapi-api-addresses.json'
     link.click()
     URL.revokeObjectURL(url)
 

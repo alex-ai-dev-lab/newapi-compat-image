@@ -35,6 +35,8 @@ func CORS() gin.HandlerFunc {
 func isTrustedCORSOrigin(origin string) bool {
 	origin = strings.TrimRight(strings.TrimSpace(origin), "/")
 	if origin == "" {
+		// Non-browser and same-origin requests legitimately omit Origin; CORS
+		// should not reject those paths before normal authentication runs.
 		return true
 	}
 	allowed := map[string]struct{}{}

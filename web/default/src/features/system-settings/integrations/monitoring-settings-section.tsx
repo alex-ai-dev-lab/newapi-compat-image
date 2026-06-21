@@ -281,7 +281,7 @@ export function MonitoringSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-monitoring-alerts.json'
+    link.download = 'renewapi-monitoring-alerts.json'
     link.click()
     URL.revokeObjectURL(url)
 

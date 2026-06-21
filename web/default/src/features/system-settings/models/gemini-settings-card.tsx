@@ -280,7 +280,7 @@ export function GeminiSettingsCard({ defaultValues }: GeminiSettingsCardProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-gemini-settings.json'
+    link.download = 'renewapi-gemini-settings.json'
     link.click()
     URL.revokeObjectURL(url)
     toast.success(t('Gemini settings exported'))

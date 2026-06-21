@@ -163,7 +163,7 @@ export function ChatSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-chat-presets.json'
+    link.download = 'renewapi-chat-presets.json'
     link.click()
     URL.revokeObjectURL(url)
 

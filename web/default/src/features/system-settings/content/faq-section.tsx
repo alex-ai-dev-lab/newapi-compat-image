@@ -281,7 +281,7 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-faq.json'
+    link.download = 'renewapi-faq.json'
     link.click()
     URL.revokeObjectURL(url)
 

@@ -110,7 +110,7 @@ export function DrawingSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-drawing.json'
+    link.download = 'renewapi-drawing.json'
     link.click()
     URL.revokeObjectURL(url)
 

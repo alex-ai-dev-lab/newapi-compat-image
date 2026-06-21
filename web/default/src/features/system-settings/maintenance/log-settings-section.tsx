@@ -162,7 +162,7 @@ export function LogSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-log-maintenance.json'
+    link.download = 'renewapi-log-maintenance.json'
     link.click()
     URL.revokeObjectURL(url)
 

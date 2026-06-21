@@ -340,7 +340,7 @@ export function AnnouncementsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-announcements.json'
+    link.download = 'renewapi-announcements.json'
     link.click()
     URL.revokeObjectURL(url)
 

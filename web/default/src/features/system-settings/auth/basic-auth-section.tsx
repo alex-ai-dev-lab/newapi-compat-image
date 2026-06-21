@@ -137,7 +137,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-basic-auth.json'
+    link.download = 'renewapi-basic-auth.json'
     link.click()
     URL.revokeObjectURL(url)
 

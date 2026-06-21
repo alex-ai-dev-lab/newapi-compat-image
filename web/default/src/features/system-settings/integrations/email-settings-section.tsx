@@ -194,7 +194,7 @@ export function EmailSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-smtp-email.json'
+    link.download = 'renewapi-smtp-email.json'
     link.click()
     URL.revokeObjectURL(url)
 

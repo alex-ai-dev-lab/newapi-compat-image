@@ -88,14 +88,15 @@ export function SettingsPageActionsPortal(
 ) {
   const { actionsContainer } = useContext(SettingsPageContext)
 
-  if (!actionsContainer) return null
-
-  return createPortal(
+  const content = (
     <div className='flex flex-wrap items-center justify-end gap-2'>
       {props.children}
-    </div>,
-    actionsContainer
+    </div>
   )
+
+  if (!actionsContainer) return content
+
+  return createPortal(content, actionsContainer)
 }
 
 type SettingsPageFormActionsProps = {

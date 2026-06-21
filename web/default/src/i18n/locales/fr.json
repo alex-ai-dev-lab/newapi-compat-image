@@ -4518,6 +4518,8 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "settings.common.loading": "Chargement des paramètres...",
+    "settings.antiPoison.enable.description": "Valider le comportement en amont dans renewapi"
   }
 }

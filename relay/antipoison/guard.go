@@ -35,6 +35,7 @@ const (
 
 	randomPrefixBytes     = 8
 	randomPrefixHexLength = randomPrefixBytes * 2
+	defaultGuardSeed      = "renewapi-antipoison"
 )
 
 // Config is the resolved per-channel anti-poison configuration.
@@ -110,7 +111,7 @@ func RandomPrefix() string {
 // importing a CSPRNG on the hot path while remaining unpredictable to upstream.
 func GuardPrefix(seed string) string {
 	if seed == "" {
-		seed = "newapi-antipoison"
+		seed = defaultGuardSeed
 	}
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])[:8]
@@ -246,11 +247,19 @@ func StripGuardMarkersWithConfig(text string, cfg Config) (cleaned string, rawMa
 		if !cfg.StripOutput {
 			return text, markers
 		}
-		cleaned, rawMarkers = StripGuardMarkers(text)
-		if len(rawMarkers) == 0 {
-			return cleanedPrefix + text[scanEnd:], markers
+		searchStart := scanEnd - len(guardOpenTag) + 1
+		if searchStart < 0 {
+			searchStart = 0
 		}
-		return cleaned, rawMarkers
+		if markerOffset := strings.Index(text[searchStart:], guardOpenTag); markerOffset >= 0 {
+			markerStart := searchStart + markerOffset
+			if markerStart < scanEnd {
+				cleanedBeforeMarker, markersBeforeMarker := StripGuardMarkers(text[:markerStart])
+				return cleanedBeforeMarker, markersBeforeMarker
+			}
+			return cleanedPrefix + text[scanEnd:markerStart], markers
+		}
+		return cleanedPrefix + text[scanEnd:], markers
 	}
 	cleaned, rawMarkers = StripGuardMarkers(text)
 	if !cfg.StripOutput {

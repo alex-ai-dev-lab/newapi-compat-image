@@ -153,7 +153,7 @@ export function WorkerSettingsSection({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'newapi-worker-proxy.json'
+    link.download = 'renewapi-worker-proxy.json'
     link.click()
     URL.revokeObjectURL(url)
 

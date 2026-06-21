@@ -4611,6 +4611,8 @@
     "Response shape validation": "Response shape validation",
     "Active Models": "Active Models",
     "Top Vendor": "Top Vendor",
-    "Showing {{filtered}} of {{total}}": "Showing {{filtered}} of {{total}}"
+    "Showing {{filtered}} of {{total}}": "Showing {{filtered}} of {{total}}",
+    "settings.common.loading": "Loading settings...",
+    "settings.antiPoison.enable.description": "Validate upstream behavior inside renewapi"
   }
 }
