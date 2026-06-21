@@ -1,10 +1,10 @@
-name: Build NewAPI source image package
+name: Build renewapi source image package
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Optional image tag. Defaults to v1.0.0-rc.11."
+        description: "Optional image tag. Defaults to the short source SHA."
         required: false
         type: string
       create_release:
@@ -51,15 +51,15 @@ jobs:
         run: |
           set -euo pipefail
           short="${GITHUB_SHA::12}"
-          raw_tag="${INPUT_IMAGE_TAG:-v1.0.0-rc.11}"
+          raw_tag="${INPUT_IMAGE_TAG:-sha-$short}"
           tag="$(printf '%s' "$raw_tag" | tr -c 'A-Za-z0-9_.-' '-')"
           tag="${tag%-}"
           if [ -z "$tag" ]; then
-            tag="v1.0.0-rc.11"
+            tag="sha-$short"
           fi
-          release_tag="${INPUT_RELEASE_TAG:-newapi-source-$tag}"
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/newapi-compat-image"
-          tarball="newapi-compat-image-${tag}-linux-amd64.tar.gz"
+          release_tag="${INPUT_RELEASE_TAG:-renewapi-source-$tag}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/renewapi"
+          tarball="renewapi-${tag}-linux-amd64.tar.gz"
           {
             echo "short=$short"
             echo "tag=$tag"
@@ -148,7 +148,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.release_tag }}
-          name: NewAPI source image ${{ steps.meta.outputs.tag }}
+          name: renewapi source image ${{ steps.meta.outputs.tag }}
           body_path: release-assets/RELEASE_NOTES.md
           draft: false
           prerelease: false
