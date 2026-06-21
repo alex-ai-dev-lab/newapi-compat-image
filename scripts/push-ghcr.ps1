@@ -6,7 +6,7 @@ if (-not $env:GITHUB_TOKEN -or -not $env:GITHUB_USERNAME) { throw "GITHUB_TOKEN 
 if (-not $Image) {
   $registry = if ($env:GHCR_REGISTRY) { $env:GHCR_REGISTRY } else { "ghcr.io" }
   $owner = if ($env:GHCR_OWNER) { $env:GHCR_OWNER } else { $env:GITHUB_USERNAME }
-  $name = if ($env:GHCR_IMAGE) { $env:GHCR_IMAGE } else { "newapi-compat-image" }
+  $name = if ($env:GHCR_IMAGE) { $env:GHCR_IMAGE } else { "renewapi" }
   $Image = "$registry/$owner/$name:latest"
 }
 $env:GITHUB_TOKEN | docker login ghcr.io -u $env:GITHUB_USERNAME --password-stdin | Out-Null

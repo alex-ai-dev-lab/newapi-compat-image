@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $Image) { $Image = "ghcr.io/alex-ai-dev-lab/newapi-compat-image:$Version" }
+if (-not $Image) { $Image = "ghcr.io/alex-ai-dev-lab/renewapi:$Version" }
 $commit = (git -C $root rev-parse --short=12 HEAD)
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $upstream = (git -C $root rev-parse --short=12 v1.0.0-rc.11 2>$null)

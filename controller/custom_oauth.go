@@ -12,8 +12,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
+
+const maxCustomOAuthDiscoveryBytes int64 = 2 << 20
 
 // CustomOAuthProviderResponse is the response structure for custom OAuth providers
 // It excludes sensitive fields like client_secret
@@ -166,6 +170,22 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 		return
 	}
 
+	fetchSetting := system_setting.GetFetchSetting()
+	if err := common.ValidateURLWithFetchSetting(
+		targetURL,
+		fetchSetting.EnableSSRFProtection,
+		fetchSetting.AllowPrivateIp,
+		fetchSetting.DomainFilterMode,
+		fetchSetting.IpFilterMode,
+		fetchSetting.DomainList,
+		fetchSetting.IpList,
+		fetchSetting.AllowedPorts,
+		fetchSetting.ApplyIPFilterForDomain,
+	); err != nil {
+		common.ApiErrorMsg(c, "Discovery URL 被 SSRF 策略拦截: "+err.Error())
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 
@@ -176,8 +196,14 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 	}
 	httpReq.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(httpReq)
+	client, err := service.NewHttpClientWithOptions(service.HTTPClientOptions{})
+	if err != nil {
+		common.ApiErrorMsg(c, "创建 Discovery 客户端失败: "+err.Error())
+		return
+	}
+	discoveryClient := *client
+	discoveryClient.Timeout = 20 * time.Second
+	resp, err := discoveryClient.Do(httpReq)
 	if err != nil {
 		common.ApiErrorMsg(c, "获取 Discovery 配置失败: "+err.Error())
 		return
@@ -194,8 +220,18 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 		return
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCustomOAuthDiscoveryBytes+1))
+	if err != nil {
+		common.ApiErrorMsg(c, "读取 Discovery 配置失败: "+err.Error())
+		return
+	}
+	if int64(len(body)) > maxCustomOAuthDiscoveryBytes {
+		common.ApiErrorMsg(c, "Discovery 配置过大")
+		return
+	}
+
 	var discovery map[string]any
-	if err = common.DecodeJson(resp.Body, &discovery); err != nil {
+	if err = common.Unmarshal(body, &discovery); err != nil {
 		common.ApiErrorMsg(c, "解析 Discovery 配置失败: "+err.Error())
 		return
 	}

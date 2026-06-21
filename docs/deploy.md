@@ -9,13 +9,13 @@ Default compose uses SQLite when `SQL_DSN` is empty and persists:
 Deploy from Windows:
 
 ```powershell
-.\scripts\deploy-server.ps1 -Image ghcr.io/alex-ai-dev-lab/newapi-compat-image:latest
+.\scripts\deploy-server.ps1 -Image ghcr.io/alex-ai-dev-lab/renewapi:latest
 ```
 
 Dry run:
 
 ```powershell
-.\scripts\deploy-server.ps1 -Image ghcr.io/alex-ai-dev-lab/newapi-compat-image:latest -DryRun
+.\scripts\deploy-server.ps1 -Image ghcr.io/alex-ai-dev-lab/renewapi:latest -DryRun
 ```
 
 Rollback:

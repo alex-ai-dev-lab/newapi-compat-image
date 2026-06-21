@@ -34,6 +34,28 @@ const defaultTheme = {
   fontSize: 14,
 }
 
+const THEME_STORAGE_KEY = 'renewapi-theme'
+const LEGACY_THEME_STORAGE_KEY = 'newapi-theme'
+
+function migrateLegacyThemeStorage() {
+  if (typeof window === 'undefined') return
+  try {
+    if (
+      window.localStorage.getItem(THEME_STORAGE_KEY) === null &&
+      window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY) !== null
+    ) {
+      window.localStorage.setItem(
+        THEME_STORAGE_KEY,
+        window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY) ?? ''
+      )
+    }
+  } catch {
+    /* localStorage can be unavailable; theme defaults still apply. */
+  }
+}
+
+migrateLegacyThemeStorage()
+
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set) => ({
@@ -53,7 +75,7 @@ export const useThemeStore = create<ThemeStore>()(
       },
     }),
     {
-      name: 'newapi-theme',
+      name: THEME_STORAGE_KEY,
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Apply theme immediately after rehydration

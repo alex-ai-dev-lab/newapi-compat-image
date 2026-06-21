@@ -18,7 +18,7 @@ Build args:
 Local build:
 
 ```powershell
-.\scripts\local-build.ps1 -Image ghcr.io/alex-ai-dev-lab/newapi-compat-image:dev -Load
+.\scripts\local-build.ps1 -Image ghcr.io/alex-ai-dev-lab/renewapi:dev -Load
 ```
 
 Multi-arch push:

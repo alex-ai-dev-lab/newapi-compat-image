@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,14 @@ import (
 type headerNavAccess struct {
 	Enabled     bool
 	RequireAuth bool
+}
+
+var headerNavCache = struct {
+	sync.RWMutex
+	raw     string
+	modules map[string]headerNavAccess
+}{
+	modules: map[string]headerNavAccess{},
 }
 
 func getHeaderNavAccess(module string) headerNavAccess {
@@ -28,12 +37,38 @@ func getHeaderNavAccess(module string) headerNavAccess {
 		return fallback
 	}
 
+	modules := getHeaderNavModules(raw, fallback)
+	if access, ok := modules[module]; ok {
+		return access
+	}
+	return fallback
+}
+
+func getHeaderNavModules(raw string, fallback headerNavAccess) map[string]headerNavAccess {
+	headerNavCache.RLock()
+	if raw == headerNavCache.raw {
+		modules := headerNavCache.modules
+		headerNavCache.RUnlock()
+		return modules
+	}
+	headerNavCache.RUnlock()
+
 	var parsed map[string]any
 	if err := common.Unmarshal([]byte(raw), &parsed); err != nil {
-		return fallback
+		parsed = map[string]any{}
 	}
 
-	return parseHeaderNavAccess(parsed[module], fallback)
+	modules := make(map[string]headerNavAccess, len(parsed))
+	for name, value := range parsed {
+		modules[name] = parseHeaderNavAccess(value, fallback)
+	}
+
+	headerNavCache.Lock()
+	headerNavCache.raw = raw
+	headerNavCache.modules = modules
+	headerNavCache.Unlock()
+
+	return modules
 }
 
 func parseHeaderNavAccess(raw any, fallback headerNavAccess) headerNavAccess {
@@ -125,7 +160,16 @@ func HeaderNavModuleAuth(module string) gin.HandlerFunc {
 func HeaderNavModulePublicOrUserAuth(module string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		access := getHeaderNavAccess(module)
-		if !access.Enabled || access.RequireAuth {
+		if !access.Enabled {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("%s is disabled", module),
+			})
+			c.Abort()
+			return
+		}
+
+		if access.RequireAuth {
 			UserAuth()(c)
 			return
 		}

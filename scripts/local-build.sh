@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 version="${VERSION:-dev}"
-image="${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/newapi-compat-image:$version}"
+image="${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/renewapi:$version}"
 commit="$(git -C "$root" rev-parse --short=12 HEAD)"
 date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 upstream="$(git -C "$root" rev-parse --short=12 v1.0.0-rc.11 2>/dev/null || true)"

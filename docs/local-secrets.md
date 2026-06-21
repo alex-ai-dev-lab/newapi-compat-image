@@ -15,7 +15,7 @@ GITHUB_TOKEN=
 GITHUB_REPO=
 GHCR_REGISTRY=ghcr.io
 GHCR_OWNER=
-GHCR_IMAGE=newapi-compat-image
+GHCR_IMAGE=renewapi
 ```
 
 `server-access.env` keys:

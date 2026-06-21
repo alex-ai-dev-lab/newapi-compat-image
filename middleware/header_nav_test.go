@@ -130,22 +130,22 @@ func TestHeaderNavModulePublicOrUserAuthAllowsDefaultPublicAccess(t *testing.T) 
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
-func TestHeaderNavModulePublicOrUserAuthRequiresLoginWhenDisabled(t *testing.T) {
+func TestHeaderNavModulePublicOrUserAuthRejectsDisabledModule(t *testing.T) {
 	raw := `{"pricing":{"enabled":false,"requireAuth":false}}`
 	withHeaderNavModules(t, raw)
 
 	recorder := performHeaderNavRequest(t, HeaderNavModulePublicOrUserAuth("pricing"), false)
 
-	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
 }
 
-func TestHeaderNavModulePublicOrUserAuthAllowsLoggedInWhenDisabled(t *testing.T) {
+func TestHeaderNavModulePublicOrUserAuthRejectsLoggedInWhenDisabled(t *testing.T) {
 	raw := `{"pricing":{"enabled":false,"requireAuth":false}}`
 	withHeaderNavModules(t, raw)
 
 	recorder := performHeaderNavRequest(t, HeaderNavModulePublicOrUserAuth("pricing"), true)
 
-	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
 }
 
 func TestHeaderNavModulePublicOrUserAuthRequiresLoginWhenRequireAuth(t *testing.T) {
@@ -157,11 +157,11 @@ func TestHeaderNavModulePublicOrUserAuthRequiresLoginWhenRequireAuth(t *testing.
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
 
-func TestHeaderNavModulePublicOrUserAuthRequiresLoginForLegacyDisabledModule(t *testing.T) {
+func TestHeaderNavModulePublicOrUserAuthRejectsLegacyDisabledModule(t *testing.T) {
 	raw := `{"pricing":false}`
 	withHeaderNavModules(t, raw)
 
 	recorder := performHeaderNavRequest(t, HeaderNavModulePublicOrUserAuth("pricing"), false)
 
-	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
 }
