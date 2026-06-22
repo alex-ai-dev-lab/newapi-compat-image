@@ -222,7 +222,10 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Channel Test Nonce')}</FormLabel>
                   <FormDescription>
-                    {t('Require text channel tests to echo a random nonce')}
+                    {ts('settings.antiPoison.channelTestNonce.description', {
+                      defaultValue:
+                        'Require text channel tests to echo a random nonce',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -243,7 +246,10 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Tool Call Guard')}</FormLabel>
                   <FormDescription>
-                    {t('Require guarded tool calls on tool-enabled requests')}
+                    {ts('settings.antiPoison.toolCallGuard.description', {
+                      defaultValue:
+                        'Require guarded tool calls on tool-enabled requests',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -264,7 +270,10 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Response Proof')}</FormLabel>
                   <FormDescription>
-                    {t('Experimental normal text proof, disabled by default')}
+                    {ts('settings.antiPoison.responseProof.description', {
+                      defaultValue:
+                        'Experimental normal text proof, disabled by default',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -285,7 +294,9 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Strict Tool Matching')}</FormLabel>
                   <FormDescription>
-                    {t('Guard JSON must match the tool name')}
+                    {ts('settings.antiPoison.strictToolMatching.description', {
+                      defaultValue: 'Guard JSON must match the tool name',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -341,7 +352,9 @@ export function AntiPoisonGuardSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Bytes per guarded response')}
+                  {ts('settings.antiPoison.scanLimit.description', {
+                    defaultValue: 'Bytes per guarded response',
+                  })}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -356,7 +369,10 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Strip Guard Output')}</FormLabel>
                   <FormDescription>
-                    {t('Remove nonce and guard markers before returning')}
+                    {ts('settings.antiPoison.stripGuardOutput.description', {
+                      defaultValue:
+                        'Remove nonce and guard markers before returning',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -377,9 +393,10 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Signed Header Audit')}</FormLabel>
                   <FormDescription>
-                    {t(
-                      'Optional internal proof, hidden from downstream clients'
-                    )}
+                    {ts('settings.antiPoison.signedHeaderAudit.description', {
+                      defaultValue:
+                        'Optional internal proof, hidden from downstream clients',
+                    })}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -414,7 +431,13 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Expose Proof Header')}</FormLabel>
                   <FormDescription>
-                    {t('Keep disabled for transparent client behavior')}
+                    {ts(
+                      'settings.antiPoison.downstreamProofHeader.description',
+                      {
+                        defaultValue:
+                          'Keep disabled for transparent client behavior',
+                      }
+                    )}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -443,7 +466,9 @@ export function AntiPoisonGuardSection({
               </div>
             ) : (
               <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
-                {t('No channel profile mappings configured.')}
+                {ts('settings.antiPoison.channels.empty', {
+                  defaultValue: 'No channel profile mappings configured.',
+                })}
               </div>
             )}
 
@@ -460,9 +485,10 @@ export function AntiPoisonGuardSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'JSON import/export for trusted, unknown, probation, and quarantine profile configuration.'
-                    )}
+                    {ts('settings.antiPoison.profiles.description', {
+                      defaultValue:
+                        'JSON import/export for trusted, unknown, probation, and quarantine profile configuration.',
+                    })}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -482,7 +508,9 @@ export function AntiPoisonGuardSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Map channel IDs to anti-poison profiles.')}
+                    {ts('settings.antiPoison.channels.description', {
+                      defaultValue: 'Map channel IDs to anti-poison profiles.',
+                    })}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

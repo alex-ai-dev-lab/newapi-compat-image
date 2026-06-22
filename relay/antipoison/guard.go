@@ -1,9 +1,10 @@
 // Package antipoison implements an optional, per-channel defense against
-// tool-call poisoning for relayed model traffic. It is modeled on the
-// AllApiDeck anti-poison contract: the gateway injects a guard instruction so
-// the model must emit a <aad_guard_json> marker for every real tool call, then
-// the gateway validates that real tool calls are covered by guard markers
-// before returning the response to the client.
+// tool-call poisoning for relayed model traffic. Guard markers intentionally
+// keep the legacy AllApiDeck "aad" wire prefix (<aad_guard_json> and
+// aad_guard_*) because it is part of the prompt/validation contract already
+// seen by upstream models. Other markers keep their existing "newapi" prefixes
+// for the same compatibility reason; the fork-level seed uses "renewapi" only
+// for internal deterministic nonce derivation.
 //
 // Design goals (per project stability requirements):
 //   - Default OFF; only active when the channel enables it.
@@ -257,22 +258,26 @@ func StripGuardMarkersWithConfig(text string, cfg Config) (cleaned string, rawMa
 	cfg = cfg.Normalized()
 	if cfg.MaxScanBytes > 0 && len(text) > cfg.MaxScanBytes {
 		scanEnd := safeUTF8PrefixLen(text, cfg.MaxScanBytes)
-		scan := text[:scanEnd]
-		cleanedPrefix, markers := StripGuardMarkers(scan)
+		scannedPrefix := text[:scanEnd]
+		cleanedPrefix, markers := StripGuardMarkers(scannedPrefix)
 		if !cfg.StripOutput {
 			return text, markers
 		}
-		searchStart := scanEnd - len(guardOpenTag) + 1
-		if searchStart < 0 {
-			searchStart = 0
+
+		// A marker may start just before MaxScanBytes and finish outside the
+		// scan window. Step back by len(openTag)-1 so a boundary-crossing open
+		// tag is detected and the unscanned tail is not leaked.
+		overlapStart := scanEnd - len(guardOpenTag) + 1
+		if overlapStart < 0 {
+			overlapStart = 0
 		}
-		if markerOffset := strings.Index(text[searchStart:], guardOpenTag); markerOffset >= 0 {
-			markerStart := searchStart + markerOffset
-			if markerStart < scanEnd {
-				cleanedBeforeMarker, markersBeforeMarker := StripGuardMarkers(text[:markerStart])
+		if markerStart := strings.Index(text[overlapStart:], guardOpenTag); markerStart >= 0 {
+			cutAt := overlapStart + markerStart
+			if cutAt <= scanEnd {
+				cleanedBeforeMarker, markersBeforeMarker := StripGuardMarkers(text[:cutAt])
 				return cleanedBeforeMarker, markersBeforeMarker
 			}
-			return cleanedPrefix + text[scanEnd:markerStart], markers
+			return cleanedPrefix + text[scanEnd:cutAt], markers
 		}
 		return cleanedPrefix + text[scanEnd:], markers
 	}
@@ -302,32 +307,4 @@ func CountGuardMarkers(text string) int {
 		return 0
 	}
 	return len(guardJSONRegex.FindAllString(text, -1))
-}
-
-// ValidateCoverage checks whether the number of real tool calls is covered by
-// guard markers and (optionally) whether each marker name binds to the request
-// prefix. It returns ok=true when coverage is acceptable.
-//
-// realToolCalls: number of real tool/function calls in the response.
-// guardMarkerCount: number of guard markers found.
-// In strict mode, realToolCalls must be <= guardMarkerCount.
-// In non-strict mode, validation requires at least one marker per real tool
-// call but does not validate individual tool names.
-func ValidateCoverage(realToolCalls, guardMarkerCount int, strict bool) (ok bool, reason string) {
-	if realToolCalls == 0 {
-		return true, ""
-	}
-	if strict {
-		if realToolCalls > guardMarkerCount {
-			return false, "guard_coverage_mismatch"
-		}
-		return true, ""
-	}
-	if guardMarkerCount < realToolCalls {
-		if guardMarkerCount == 0 {
-			return false, "missing_guard_toolcall"
-		}
-		return false, "guard_coverage_mismatch"
-	}
-	return true, ""
 }

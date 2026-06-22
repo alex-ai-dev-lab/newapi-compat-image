@@ -48,33 +48,30 @@ func ValidateAndStripClaudeResponse(resp *dto.ClaudeResponse, cfg Config, guardP
 		return resp, nil
 	}
 
-	// Count real tool_use blocks in response content.
-	toolUseCount := 0
+	expectedTools := make([]string, 0)
 	for _, block := range resp.Content {
 		if block.Type == "tool_use" {
-			toolUseCount++
+			expectedTools = append(expectedTools, strings.TrimSpace(block.Name))
 		}
 	}
 
-	// Strip guard markers from all text blocks and count how many we found.
-	totalGuardCount := 0
+	var rawMarkers []string
 	for i := range resp.Content {
 		if resp.Content[i].Type == "text" {
 			text := resp.Content[i].GetText()
 			if text == "" {
 				continue
 			}
-			cleaned, rawMarkers := StripGuardMarkersWithConfig(text, cfg)
+			cleaned, found := StripGuardMarkersWithConfig(text, cfg)
 			resp.Content[i].SetText(cleaned)
-			totalGuardCount += len(rawMarkers)
+			rawMarkers = append(rawMarkers, found...)
 		}
 	}
 
-	// Validate coverage: do we have enough guards for the tool calls?
-	ok, reason := ValidateCoverage(toolUseCount, totalGuardCount, cfg.StrictMode)
+	ok, reason := ValidateGuardMarkers(rawMarkers, guardPrefix, expectedTools, cfg.StrictMode)
 	if !ok {
 		msg := fmt.Sprintf("anti-poison validation failed: %s (tools=%d guards=%d)",
-			reason, toolUseCount, totalGuardCount)
+			reason, len(expectedTools), len(rawMarkers))
 		if cfg.FailureMode == FailureModeBlock {
 			return nil, fmt.Errorf("%s", msg)
 		}

@@ -191,17 +191,3 @@ func OpaqueScanStrict(cfg Config) bool {
 func StreamModeForConfig(cfg Config) string {
 	return cfg.Normalized().StreamMode
 }
-
-func LegacyGlobalConfig() Config {
-	global := operation_setting.GetAntiPoisonSetting()
-	return Config{
-		Enabled:       global.Enabled,
-		StrictMode:    global.ToolCallGuardStrict,
-		FailureMode:   global.FailureMode,
-		StripOutput:   global.StripGuardOutput,
-		MaxScanBytes:  global.MaxGuardScanBytes,
-		ResponseProof: global.ResponseProofEnabled,
-		CanaryEcho:    global.CanaryEchoEnabled,
-		ShapeCheck:    global.ShapeCheckEnabled,
-	}.Normalized()
-}

@@ -3,6 +3,7 @@ package errornorm
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -26,6 +27,23 @@ func TestHook_OnClientResponseError_ReplacesRelayMessage(t *testing.T) {
 	require.NotContains(t, normalized.ToOpenAIError().Message, "injected")
 }
 
+func TestHook_OnClientResponseError_UsesAcceptLanguage(t *testing.T) {
+	err := types.NewOpenAIError(
+		errors.New("upstream injected private message"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusUnauthorized,
+	)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 75}}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.Header.Set("Accept-Language", "en-US,en;q=0.9")
+
+	normalized := New().OnClientResponseError(c, info, err)
+
+	require.Equal(t, "Authentication failed. Check the API key or upstream credentials.", normalized.Error())
+	require.NotContains(t, normalized.ToOpenAIError().Message, "injected")
+}
+
 func TestHook_OnClientResponseError_SkipsBeforeChannelSelected(t *testing.T) {
 	err := types.NewOpenAIError(
 		errors.New("local validation message"),
@@ -37,6 +55,36 @@ func TestHook_OnClientResponseError_SkipsBeforeChannelSelected(t *testing.T) {
 	normalized := h.OnClientResponseError(&gin.Context{}, nil, err)
 
 	require.Equal(t, "local validation message", normalized.Error())
+}
+
+func TestApplyRuleForRequest_UsesCustomMessageFirst(t *testing.T) {
+	err := types.NewOpenAIError(
+		errors.New("upstream injected message"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.Header.Set("Accept-Language", "en-US")
+
+	applyRuleForRequest(c, err, &Rule{CustomMessage: "custom"}, http.StatusForbidden)
+
+	require.Equal(t, "custom", err.Error())
+}
+
+func TestApplyRuleForRequest_FallbackUsesAcceptLanguage(t *testing.T) {
+	err := types.NewOpenAIError(
+		errors.New("upstream injected message"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.Header.Set("Accept-Language", "en-US")
+
+	applyRuleForRequest(c, err, &Rule{}, http.StatusForbidden)
+
+	require.Equal(t, "Permission denied. Check model access, group access, or region restrictions.", err.Error())
 }
 
 func TestApplyRule_NeverPassesThroughUpstreamBody(t *testing.T) {

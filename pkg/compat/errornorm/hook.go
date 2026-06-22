@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/compat"
@@ -43,12 +44,12 @@ func (h *Hook) OnClientResponseError(c *gin.Context, info *relaycommon.RelayInfo
 
 	// DB rule first; fall back to built-in FixedMessage.
 	if rule := matchRuleFromContext(info, status, original); rule != nil {
-		applyRule(err, rule, status)
+		applyRuleForRequest(c, err, rule, status)
 		compat.GetMetrics().ErrorNormalizeHit.Add(1)
 		return err
 	}
 
-	err.SetMessage(FixedMessage(status))
+	err.SetMessage(FixedMessageForRequest(c, status))
 	compat.GetMetrics().ErrorNormalizeHit.Add(1)
 	return err
 }
@@ -66,16 +67,21 @@ func matchRuleFromContext(info *relaycommon.RelayInfo, status int, body string) 
 	return store.Match(platform, status, body)
 }
 
-// applyRule mutates err according to the DB rule.
-func applyRule(err *types.NewAPIError, r *Rule, upstreamStatus int) {
+// applyRuleForRequest mutates err according to the DB rule.
+func applyRuleForRequest(c *gin.Context, err *types.NewAPIError, r *Rule, upstreamStatus int) {
 	if !r.PassthroughCode && r.ResponseCode != 0 {
 		err.StatusCode = r.ResponseCode
 	}
 	if r.CustomMessage != "" {
 		err.SetMessage(r.CustomMessage)
 	} else {
-		err.SetMessage(FixedMessage(upstreamStatus))
+		err.SetMessage(FixedMessageForRequest(c, upstreamStatus))
 	}
+}
+
+// applyRule is retained for tests and callers that do not have request context.
+func applyRule(err *types.NewAPIError, r *Rule, upstreamStatus int) {
+	applyRuleForRequest(nil, err, r, upstreamStatus)
 }
 
 func shouldNormalize(info *relaycommon.RelayInfo) bool {
@@ -92,40 +98,121 @@ func shouldNormalize(info *relaycommon.RelayInfo) bool {
 	return true
 }
 
-// FixedMessage returns the fixed client-visible message for a given HTTP status.
+type fixedMessageSet struct {
+	BadRequest            string
+	Unauthorized          string
+	PaymentRequired       string
+	Forbidden             string
+	NotFound              string
+	Conflict              string
+	RequestTooLarge        string
+	UnprocessableEntity    string
+	TooManyRequests        string
+	Timeout               string
+	Overloaded             string
+	ServerError            string
+	ClientError            string
+	Default                string
+}
+
+var fixedMessagesByLanguage = map[string]fixedMessageSet{
+	"zh": {
+		BadRequest:         "请求参数错误，请检查模型、消息格式或上下文长度。",
+		Unauthorized:       "鉴权失败，请检查 API Key 或上游凭证。",
+		PaymentRequired:    "余额或账单异常，请检查上游账户额度。",
+		Forbidden:          "权限不足，请检查模型权限、分组权限或地区限制。",
+		NotFound:           "资源不存在，请检查模型名、接口路径或上游地址。",
+		Conflict:           "请求冲突，请稍后重试。",
+		RequestTooLarge:     "请求体过大，请压缩输入或拆分请求。",
+		UnprocessableEntity: "请求格式可解析但参数组合不被支持。",
+		TooManyRequests:     "请求过于频繁或额度不足，请稍后重试。",
+		Timeout:            "请求超时，请稍后重试或改用流式输出。",
+		Overloaded:          "上游模型过载，请稍后重试。",
+		ServerError:         "上游服务异常，请稍后重试。",
+		ClientError:         "请求无法被上游处理，请检查请求参数和模型权限。",
+		Default:             "上游请求失败，请稍后重试。",
+	},
+	"en": {
+		BadRequest:         "Invalid request. Check the model, message format, or context length.",
+		Unauthorized:       "Authentication failed. Check the API key or upstream credentials.",
+		PaymentRequired:    "Billing or balance issue. Check the upstream account quota.",
+		Forbidden:          "Permission denied. Check model access, group access, or region restrictions.",
+		NotFound:           "Resource not found. Check the model name, endpoint path, or upstream address.",
+		Conflict:           "Request conflict. Please retry later.",
+		RequestTooLarge:     "Request body is too large. Compress the input or split the request.",
+		UnprocessableEntity: "The request format is valid, but this parameter combination is unsupported.",
+		TooManyRequests:     "Too many requests or insufficient quota. Please retry later.",
+		Timeout:            "Request timed out. Retry later or use streaming output.",
+		Overloaded:          "The upstream model is overloaded. Please retry later.",
+		ServerError:         "Upstream service error. Please retry later.",
+		ClientError:         "The upstream service could not process the request. Check parameters and model access.",
+		Default:             "Upstream request failed. Please retry later.",
+	},
+}
+
+func FixedMessageForRequest(c *gin.Context, status int) string {
+	return fixedMessage(status, languageFromRequest(c))
+}
+
+// FixedMessage returns the Chinese fixed client-visible message for callers
+// without request language context.
 func FixedMessage(status int) string {
+	return fixedMessage(status, "zh")
+}
+
+func fixedMessage(status int, language string) string {
+	messages, ok := fixedMessagesByLanguage[language]
+	if !ok {
+		messages = fixedMessagesByLanguage["zh"]
+	}
 	switch status {
 	case http.StatusBadRequest:
-		return "请求参数错误，请检查模型、消息格式或上下文长度。"
+		return messages.BadRequest
 	case http.StatusUnauthorized:
-		return "鉴权失败，请检查 API Key 或上游凭证。"
+		return messages.Unauthorized
 	case http.StatusPaymentRequired:
-		return "余额或账单异常，请检查上游账户额度。"
+		return messages.PaymentRequired
 	case http.StatusForbidden:
-		return "权限不足，请检查模型权限、分组权限或地区限制。"
+		return messages.Forbidden
 	case http.StatusNotFound:
-		return "资源不存在，请检查模型名、接口路径或上游地址。"
+		return messages.NotFound
 	case http.StatusConflict:
-		return "请求冲突，请稍后重试。"
+		return messages.Conflict
 	case http.StatusRequestEntityTooLarge:
-		return "请求体过大，请压缩输入或拆分请求。"
+		return messages.RequestTooLarge
 	case http.StatusUnprocessableEntity:
-		return "请求格式可解析但参数组合不被支持。"
+		return messages.UnprocessableEntity
 	case http.StatusTooManyRequests:
-		return "请求过于频繁或额度不足，请稍后重试。"
+		return messages.TooManyRequests
 	case http.StatusGatewayTimeout, http.StatusRequestTimeout:
-		return "请求超时，请稍后重试或改用流式输出。"
+		return messages.Timeout
 	}
 	if status == 529 {
-		return "上游模型过载，请稍后重试。"
+		return messages.Overloaded
 	}
 	if status >= 500 && status <= 599 {
-		return "上游服务异常，请稍后重试。"
+		return messages.ServerError
 	}
 	if status >= 400 && status <= 499 {
-		return "请求无法被上游处理，请检查请求参数和模型权限。"
+		return messages.ClientError
 	}
-	return "上游请求失败，请稍后重试。"
+	return messages.Default
+}
+
+func languageFromRequest(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return "zh"
+	}
+	for _, part := range strings.Split(c.GetHeader("Accept-Language"), ",") {
+		tag := strings.ToLower(strings.TrimSpace(strings.Split(part, ";")[0]))
+		switch {
+		case tag == "en" || strings.HasPrefix(tag, "en-"):
+			return "en"
+		case tag == "zh" || strings.HasPrefix(tag, "zh-"):
+			return "zh"
+		}
+	}
+	return "zh"
 }
 
 func channelIDForLog(info *relaycommon.RelayInfo) int {

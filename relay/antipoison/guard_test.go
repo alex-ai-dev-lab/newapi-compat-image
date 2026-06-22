@@ -84,38 +84,6 @@ func TestCountGuardMarkers(t *testing.T) {
 	}
 }
 
-func TestValidateCoverageNoToolCalls(t *testing.T) {
-	ok, reason := ValidateCoverage(0, 0, true)
-	if !ok || reason != "" {
-		t.Fatalf("no tool calls should pass, got ok=%v reason=%q", ok, reason)
-	}
-}
-
-func TestValidateCoverageStrict(t *testing.T) {
-	// 2 tool calls, 2 guards -> ok
-	if ok, _ := ValidateCoverage(2, 2, true); !ok {
-		t.Fatalf("2/2 strict should pass")
-	}
-	// 3 tool calls, 2 guards -> mismatch
-	ok, reason := ValidateCoverage(3, 2, true)
-	if ok || reason != "guard_coverage_mismatch" {
-		t.Fatalf("3/2 strict should fail mismatch, got ok=%v reason=%q", ok, reason)
-	}
-}
-
-func TestValidateCoverageNonStrict(t *testing.T) {
-	// tool calls present, zero guards -> missing
-	ok, reason := ValidateCoverage(2, 0, false)
-	if ok || reason != "missing_guard_toolcall" {
-		t.Fatalf("non-strict 2/0 should fail missing, got ok=%v reason=%q", ok, reason)
-	}
-	// tool calls present, too few guards -> mismatch
-	ok, reason = ValidateCoverage(3, 1, false)
-	if ok || reason != "guard_coverage_mismatch" {
-		t.Fatalf("non-strict 3/1 should fail mismatch, got ok=%v reason=%q", ok, reason)
-	}
-}
-
 func TestConfigNormalized(t *testing.T) {
 	c := Config{Enabled: true}.Normalized()
 	if c.FailureMode != FailureModeBlock {

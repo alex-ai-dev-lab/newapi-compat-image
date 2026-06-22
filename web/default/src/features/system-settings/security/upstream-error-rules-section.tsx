@@ -84,6 +84,8 @@ const EMPTY_RULE: ErrorRuleForm = {
   priority: 100,
 }
 
+const IMPORT_CONCURRENCY = 4
+
 async function listRules() {
   const res = await api.get<{ success: boolean; data: ErrorRule[] }>(
     '/api/compat/error-rules'
@@ -178,6 +180,10 @@ export function UpstreamErrorRulesSection() {
   const [formOpen, setFormOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
+  const [importProgress, setImportProgress] = useState<{
+    done: number
+    total: number
+  } | null>(null)
   const [formValues, setFormValues] = useState<ErrorRuleForm>(EMPTY_RULE)
   const [deleteTarget, setDeleteTarget] = useState<ErrorRule | null>(null)
 
@@ -222,13 +228,37 @@ export function UpstreamErrorRulesSection() {
 
   const importMutation = useMutation({
     mutationFn: async (values: ErrorRuleForm[]) => {
-      const results = await Promise.allSettled(
-        values.map((rule) => saveRule(rule))
+      let nextIndex = 0
+      let failed = 0
+      setImportProgress({ done: 0, total: values.length })
+
+      async function worker() {
+        for (;;) {
+          const index = nextIndex
+          nextIndex += 1
+          if (index >= values.length) {
+            return
+          }
+          try {
+            await saveRule(values[index])
+          } catch {
+            failed += 1
+          } finally {
+            setImportProgress((prev) =>
+              prev ? { ...prev, done: prev.done + 1 } : prev
+            )
+          }
+        }
+      }
+
+      const workers = Array.from(
+        { length: Math.min(IMPORT_CONCURRENCY, values.length) },
+        () => worker()
       )
-      const failed = results.filter((result) => result.status === 'rejected')
-      if (failed.length > 0) {
+      await Promise.all(workers)
+      if (failed > 0) {
         throw new Error(
-          t('Failed to import {{count}} rules', { count: failed.length })
+          t('Failed to import {{count}} rules', { count: failed })
         )
       }
     },
@@ -236,12 +266,14 @@ export function UpstreamErrorRulesSection() {
       toast.success(t('Imported {{count}} rules', { count: values.length }))
       setImportOpen(false)
       setImportText('')
+      setImportProgress(null)
       queryClient.invalidateQueries({ queryKey: ['upstream-error-rules'] })
     },
     onError: (error: unknown) => {
       toast.error(
         error instanceof Error ? error.message : t('Failed to import rules')
       )
+      setImportProgress(null)
     },
   })
 
@@ -289,6 +321,7 @@ export function UpstreamErrorRulesSection() {
 
   const openImportDialog = () => {
     setImportText('')
+    setImportProgress(null)
     setImportOpen(true)
   }
 
@@ -651,13 +684,35 @@ export function UpstreamErrorRulesSection() {
               onChange={(event) => setImportText(event.target.value)}
               placeholder='{ "UpstreamErrorRules": [] }'
               className='font-mono text-xs'
+              disabled={importMutation.isPending}
             />
+            {importProgress ? (
+              <div className='space-y-1'>
+                <div className='text-muted-foreground flex justify-between text-xs'>
+                  <span>{t('Import progress')}</span>
+                  <span>
+                    {importProgress.done}/{importProgress.total}
+                  </span>
+                </div>
+                <div className='bg-muted h-2 overflow-hidden rounded'>
+                  <div
+                    className='bg-primary h-full transition-all'
+                    style={{
+                      width: `${Math.round(
+                        (importProgress.done / importProgress.total) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
               type='button'
               variant='outline'
               onClick={() => setImportOpen(false)}
+              disabled={importMutation.isPending}
             >
               {t('Cancel')}
             </Button>
@@ -666,7 +721,9 @@ export function UpstreamErrorRulesSection() {
               onClick={importConfig}
               disabled={importMutation.isPending}
             >
-              {importMutation.isPending ? t('Importing...') : t('Import')}
+              {importMutation.isPending && importProgress
+                ? t('Importing {{done}}/{{total}}', importProgress)
+                : t('Import')}
             </Button>
           </DialogFooter>
         </DialogContent>
