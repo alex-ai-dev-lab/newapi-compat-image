@@ -200,24 +200,20 @@ func ValidateAndStripClaudeCanary(resp *dto.ClaudeResponse, cfg Config, nonce st
 		return nil
 	}
 
-	// Scan all text content blocks
-	for i := range resp.Content {
-		if resp.Content[i].Type == "text" {
-			text := resp.Content[i].GetText()
-			if text == "" {
-				continue
+	field, ok := firstResponseTextField(claudeResponseTextFields(resp, true), func(text string) bool {
+		return text == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripCanary(field.text, nonce, cfg)
+		if err != nil {
+			if cfg.FailureMode == FailureModeWarn {
+				common.SysLog("canary validation warning: " + err.Error())
+				return nil
 			}
-			cleaned, err := ValidateAndStripCanary(text, nonce, cfg)
-			if err != nil {
-				if cfg.FailureMode == FailureModeWarn {
-					common.SysLog("canary validation warning: " + err.Error())
-					return nil
-				}
-				return err
-			}
-			resp.Content[i].SetText(cleaned)
-			return nil
+			return err
 		}
+		field.set(cleaned)
+		return nil
 	}
 
 	// No text content found
@@ -234,16 +230,11 @@ func ValidateAndStripOpenAICanary(resp *dto.OpenAITextResponse, cfg Config, nonc
 		return nil
 	}
 
-	for i := range resp.Choices {
-		msg := &resp.Choices[i].Message
-		if !msg.IsStringContent() {
-			continue
-		}
-		text := msg.StringContent()
-		if text == "" {
-			continue
-		}
-		cleaned, err := ValidateAndStripCanary(text, nonce, cfg)
+	field, ok := firstResponseTextField(openAIResponseTextFields(resp), func(text string) bool {
+		return text == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripCanary(field.text, nonce, cfg)
 		if err != nil {
 			if cfg.FailureMode == FailureModeWarn {
 				common.SysLog("canary validation warning: " + err.Error())
@@ -251,7 +242,7 @@ func ValidateAndStripOpenAICanary(resp *dto.OpenAITextResponse, cfg Config, nonc
 			}
 			return err
 		}
-		msg.SetStringContent(cleaned)
+		field.set(cleaned)
 		return nil
 	}
 
@@ -268,25 +259,20 @@ func ValidateAndStripResponsesCanary(resp *dto.OpenAIResponsesResponse, cfg Conf
 		return nil
 	}
 
-	for i := range resp.Output {
-		for j := range resp.Output[i].Content {
-			if resp.Output[i].Content[j].Type == "text" {
-				text := resp.Output[i].Content[j].Text
-				if text == "" {
-					continue
-				}
-				cleaned, err := ValidateAndStripCanary(text, nonce, cfg)
-				if err != nil {
-					if cfg.FailureMode == FailureModeWarn {
-						common.SysLog("canary validation warning: " + err.Error())
-						return nil
-					}
-					return err
-				}
-				resp.Output[i].Content[j].Text = cleaned
+	field, ok := firstResponseTextField(responsesTextFields(resp, true), func(text string) bool {
+		return text == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripCanary(field.text, nonce, cfg)
+		if err != nil {
+			if cfg.FailureMode == FailureModeWarn {
+				common.SysLog("canary validation warning: " + err.Error())
 				return nil
 			}
+			return err
 		}
+		field.set(cleaned)
+		return nil
 	}
 
 	if cfg.FailureMode == FailureModeWarn {

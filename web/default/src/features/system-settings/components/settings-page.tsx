@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useParams } from '@tanstack/react-router'
 import { SectionPageLayout } from '@/components/layout'
 import { useSystemOptions, getOptionValue } from '../hooks/use-system-options'
@@ -69,6 +75,7 @@ function SettingsPageFrame(props: SettingsPageFrameProps) {
   return (
     <SettingsPageProvider
       actionsContainer={actionsContainer}
+      actionsContainerReady={Boolean(actionsContainer)}
       titleStatusContainer={titleStatusContainer}
     >
       <SectionPageLayout>

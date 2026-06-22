@@ -80,16 +80,15 @@ func ValidateAndStripOpenAIAnswerEnvelope(resp *dto.OpenAITextResponse, nonce st
 	if resp == nil || !EnvelopeRequired(cfg, false) {
 		return nil
 	}
-	for i := range resp.Choices {
-		msg := &resp.Choices[i].Message
-		if !msg.IsStringContent() {
-			continue
-		}
-		cleaned, err := ValidateAndExtractAnswerEnvelope(msg.StringContent(), nonce, cfg)
+	field, ok := firstResponseTextField(openAIResponseTextFields(resp), func(text string) bool {
+		return false
+	})
+	if ok {
+		cleaned, err := ValidateAndExtractAnswerEnvelope(field.text, nonce, cfg)
 		if err != nil {
 			return err
 		}
-		msg.SetStringContent(cleaned)
+		field.set(cleaned)
 		return nil
 	}
 	return ErrEnvelopeMissing
@@ -99,18 +98,16 @@ func ValidateAndStripResponsesAnswerEnvelope(resp *dto.OpenAIResponsesResponse, 
 	if resp == nil || !EnvelopeRequired(cfg, false) {
 		return nil
 	}
-	for i := range resp.Output {
-		for j := range resp.Output[i].Content {
-			if strings.TrimSpace(resp.Output[i].Content[j].Text) == "" {
-				continue
-			}
-			cleaned, err := ValidateAndExtractAnswerEnvelope(resp.Output[i].Content[j].Text, nonce, cfg)
-			if err != nil {
-				return err
-			}
-			resp.Output[i].Content[j].Text = cleaned
-			return nil
+	field, ok := firstResponseTextField(responsesTextFields(resp, false), func(text string) bool {
+		return strings.TrimSpace(text) == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndExtractAnswerEnvelope(field.text, nonce, cfg)
+		if err != nil {
+			return err
 		}
+		field.set(cleaned)
+		return nil
 	}
 	return ErrEnvelopeMissing
 }
@@ -119,15 +116,15 @@ func ValidateAndStripClaudeAnswerEnvelope(resp *dto.ClaudeResponse, nonce string
 	if resp == nil || !EnvelopeRequired(cfg, false) {
 		return nil
 	}
-	for i := range resp.Content {
-		if resp.Content[i].Type != "text" || strings.TrimSpace(resp.Content[i].GetText()) == "" {
-			continue
-		}
-		cleaned, err := ValidateAndExtractAnswerEnvelope(resp.Content[i].GetText(), nonce, cfg)
+	field, ok := firstResponseTextField(claudeResponseTextFields(resp, true), func(text string) bool {
+		return strings.TrimSpace(text) == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndExtractAnswerEnvelope(field.text, nonce, cfg)
 		if err != nil {
 			return err
 		}
-		resp.Content[i].SetText(cleaned)
+		field.set(cleaned)
 		return nil
 	}
 	return ErrEnvelopeMissing

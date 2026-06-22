@@ -387,7 +387,7 @@ export function UpstreamErrorRulesSection() {
         </div>
       </div>
 
-      <div className='rounded-md border'>
+      <div className='hidden rounded-md border md:block'>
         <Table>
           <TableHeader>
             <TableRow>
@@ -419,7 +419,10 @@ export function UpstreamErrorRulesSection() {
                     {rule.priority}
                   </TableCell>
                   <TableCell>
-                    <div className='max-w-[260px] truncate font-medium'>
+                    <div
+                      className='max-w-[260px] truncate font-medium'
+                      title={rule.description}
+                    >
                       {rule.description}
                     </div>
                   </TableCell>
@@ -430,7 +433,10 @@ export function UpstreamErrorRulesSection() {
                     <div>
                       {t('HTTP')}: {rule.upstream_status || t('Any')}
                     </div>
-                    <div className='max-w-[240px] truncate'>
+                    <div
+                      className='max-w-[240px] truncate'
+                      title={rule.keywords || t('Any')}
+                    >
                       {t('Keywords')}: {rule.keywords || t('Any')}
                     </div>
                   </TableCell>
@@ -440,7 +446,10 @@ export function UpstreamErrorRulesSection() {
                         ? t('Keep status')
                         : `${t('Status')} ${rule.response_code || t('Upstream')}`}
                     </div>
-                    <div className='max-w-[260px] truncate'>
+                    <div
+                      className='max-w-[260px] truncate'
+                      title={rule.custom_message || t('Built-in fixed message')}
+                    >
                       {rule.custom_message || t('Built-in fixed message')}
                     </div>
                   </TableCell>
@@ -476,6 +485,87 @@ export function UpstreamErrorRulesSection() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className='grid gap-3 md:hidden'>
+        {isLoading ? (
+          <div className='text-muted-foreground rounded-md border p-3 text-sm'>
+            {t('Loading...')}
+          </div>
+        ) : sortedRules.length === 0 ? (
+          <div className='text-muted-foreground rounded-md border p-3 text-sm'>
+            {t('No custom rules. Built-in fixed messages are still active.')}
+          </div>
+        ) : (
+          sortedRules.map((rule) => (
+            <div key={rule.id} className='rounded-md border p-3'>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='min-w-0'>
+                  <div className='text-sm font-medium break-words'>
+                    {rule.description}
+                  </div>
+                  <div className='text-muted-foreground mt-1 font-mono text-xs'>
+                    {t('Priority')} {rule.priority}
+                  </div>
+                </div>
+                <Badge variant={rule.enabled ? 'default' : 'secondary'}>
+                  {rule.enabled ? t('Enabled') : t('Disabled')}
+                </Badge>
+              </div>
+
+              <div className='mt-3 grid gap-2 text-xs'>
+                <div className='bg-muted/40 rounded-md p-2'>
+                  <div className='font-medium'>{t('Match')}</div>
+                  <div className='text-muted-foreground mt-1 space-y-1 break-words'>
+                    <div>
+                      {t('Platform')}: {rule.platforms || t('Any')}
+                    </div>
+                    <div>
+                      {t('HTTP')}: {rule.upstream_status || t('Any')}
+                    </div>
+                    <div>
+                      {t('Keywords')}: {rule.keywords || t('Any')}
+                    </div>
+                  </div>
+                </div>
+                <div className='bg-muted/40 rounded-md p-2'>
+                  <div className='font-medium'>{t('Response')}</div>
+                  <div className='text-muted-foreground mt-1 space-y-1 break-words'>
+                    <div>
+                      {rule.passthrough_code
+                        ? t('Keep status')
+                        : `${t('Status')} ${rule.response_code || t('Upstream')}`}
+                    </div>
+                    <div>
+                      {rule.custom_message || t('Built-in fixed message')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className='mt-3 flex justify-end gap-1'>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  aria-label={t('Edit')}
+                  onClick={() => openEdit(rule)}
+                >
+                  <Pencil className='h-4 w-4' />
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  aria-label={t('Delete')}
+                  onClick={() => setDeleteTarget(rule)}
+                >
+                  <Trash2 className='h-4 w-4' />
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

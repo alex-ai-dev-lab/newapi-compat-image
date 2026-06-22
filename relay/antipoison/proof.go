@@ -112,25 +112,18 @@ func ValidateAndStripOpenAIResponseProof(resp *dto.OpenAITextResponse, cfg Confi
 	if resp == nil || nonce == "" {
 		return nil
 	}
-	sawChoice := false
-	for i := range resp.Choices {
-		sawChoice = true
-		msg := &resp.Choices[i].Message
-		if !msg.IsStringContent() {
-			continue
-		}
-		text := msg.StringContent()
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		cleaned, err := ValidateAndStripResponseProof(text, nonce, cfg)
+	field, ok := firstResponseTextField(openAIResponseTextFields(resp), func(text string) bool {
+		return strings.TrimSpace(text) == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripResponseProof(field.text, nonce, cfg)
 		if err != nil {
 			return err
 		}
-		msg.SetStringContent(cleaned)
+		field.set(cleaned)
 		return nil
 	}
-	if sawChoice {
+	if len(resp.Choices) > 0 {
 		return nil
 	}
 	return errors.New("anti-poison response proof missing")
@@ -140,22 +133,18 @@ func ValidateAndStripResponsesResponseProof(resp *dto.OpenAIResponsesResponse, c
 	if resp == nil || nonce == "" {
 		return nil
 	}
-	sawOutput := false
-	for i := range resp.Output {
-		sawOutput = true
-		for j := range resp.Output[i].Content {
-			if strings.TrimSpace(resp.Output[i].Content[j].Text) == "" {
-				continue
-			}
-			cleaned, err := ValidateAndStripResponseProof(resp.Output[i].Content[j].Text, nonce, cfg)
-			if err != nil {
-				return err
-			}
-			resp.Output[i].Content[j].Text = cleaned
-			return nil
+	field, ok := firstResponseTextField(responsesTextFields(resp, false), func(text string) bool {
+		return strings.TrimSpace(text) == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripResponseProof(field.text, nonce, cfg)
+		if err != nil {
+			return err
 		}
+		field.set(cleaned)
+		return nil
 	}
-	if sawOutput {
+	if len(resp.Output) > 0 {
 		return nil
 	}
 	return errors.New("anti-poison response proof missing")
@@ -165,24 +154,18 @@ func ValidateAndStripClaudeResponseProof(resp *dto.ClaudeResponse, cfg Config, n
 	if resp == nil || nonce == "" {
 		return nil
 	}
-	sawContent := false
-	for i := range resp.Content {
-		sawContent = true
-		if resp.Content[i].Type != "text" {
-			continue
-		}
-		text := resp.Content[i].GetText()
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		cleaned, err := ValidateAndStripResponseProof(text, nonce, cfg)
+	field, ok := firstResponseTextField(claudeResponseTextFields(resp, true), func(text string) bool {
+		return strings.TrimSpace(text) == ""
+	})
+	if ok {
+		cleaned, err := ValidateAndStripResponseProof(field.text, nonce, cfg)
 		if err != nil {
 			return err
 		}
-		resp.Content[i].SetText(cleaned)
+		field.set(cleaned)
 		return nil
 	}
-	if sawContent {
+	if len(resp.Content) > 0 {
 		return nil
 	}
 	return errors.New("anti-poison response proof missing")

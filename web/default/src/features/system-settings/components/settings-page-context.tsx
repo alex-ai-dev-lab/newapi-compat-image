@@ -30,18 +30,21 @@ import { Button } from '@/components/ui/button'
 
 type SettingsPageContextValue = {
   actionsContainer: HTMLDivElement | null
+  actionsContainerReady: boolean
   titleStatusContainer: HTMLSpanElement | null
   suppressSectionHeader: boolean
 }
 
 const SettingsPageContext = createContext<SettingsPageContextValue>({
   actionsContainer: null,
+  actionsContainerReady: false,
   titleStatusContainer: null,
   suppressSectionHeader: false,
 })
 
 type SettingsPageProviderProps = {
   actionsContainer: HTMLDivElement | null
+  actionsContainerReady?: boolean
   titleStatusContainer?: HTMLSpanElement | null
   children: ReactNode
   suppressSectionHeader?: boolean
@@ -52,6 +55,7 @@ export function SettingsPageProvider(props: SettingsPageProviderProps) {
     <SettingsPageContext.Provider
       value={{
         actionsContainer: props.actionsContainer,
+        actionsContainerReady: props.actionsContainerReady ?? false,
         titleStatusContainer: props.titleStatusContainer ?? null,
         suppressSectionHeader: props.suppressSectionHeader ?? true,
       }}
@@ -86,7 +90,8 @@ type SettingsPageActionsPortalProps = {
 export function SettingsPageActionsPortal(
   props: SettingsPageActionsPortalProps
 ) {
-  const { actionsContainer } = useContext(SettingsPageContext)
+  const { actionsContainer, actionsContainerReady } =
+    useContext(SettingsPageContext)
 
   const content = (
     <div className='flex flex-wrap items-center justify-end gap-2'>
@@ -94,9 +99,16 @@ export function SettingsPageActionsPortal(
     </div>
   )
 
+  if (!actionsContainerReady) return <div aria-hidden='true' className='h-9' />
+
   if (!actionsContainer) return content
 
-  return createPortal(content, actionsContainer)
+  return (
+    <>
+      <div aria-hidden='true' className='h-9' />
+      {createPortal(content, actionsContainer)}
+    </>
+  )
 }
 
 type SettingsPageFormActionsProps = {
