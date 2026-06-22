@@ -21,7 +21,7 @@ func applyClaudeAntiPoisonRequest(c *gin.Context, info *relaycommon.RelayInfo, r
 	if !claudeRequestHasTools(req) {
 		return
 	}
-	cfg := antipoison.FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := antipoison.ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return
 	}
@@ -77,7 +77,7 @@ func ApplyClaudeAntiPoisonResponse(c *gin.Context, info *relaycommon.RelayInfo, 
 	if info == nil || resp == nil {
 		return nil
 	}
-	cfg := antipoison.FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := antipoison.ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return nil
 	}
@@ -119,7 +119,7 @@ func ApplyClaudeAntiPoisonStreamChunk(c *gin.Context, info *relaycommon.RelayInf
 	if info == nil || chunk == nil || info.AntiPoisonGuardPrefix == "" {
 		return
 	}
-	cfg := antipoison.FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := antipoison.ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return
 	}
@@ -133,7 +133,7 @@ func applyClaudeAntiPoisonStreamFinal(c *gin.Context, info *relaycommon.RelayInf
 	if info == nil || accumulated == nil {
 		return nil
 	}
-	cfg := antipoison.FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := antipoison.ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return nil
 	}

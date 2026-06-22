@@ -38,7 +38,7 @@ func CanaryEnabled(info *relaycommon.RelayInfo) bool {
 	if info == nil || info.ChannelMeta == nil {
 		return false
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	return cfg.Enabled && cfg.CanaryEcho
 }
 

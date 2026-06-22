@@ -12,7 +12,7 @@ func ApplyClaudeResponseValidation(info *relaycommon.RelayInfo, resp *dto.Claude
 	if info == nil || resp == nil || info.AntiPoisonGuardPrefix == "" {
 		return nil
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return nil
 	}
@@ -26,7 +26,7 @@ func ApplyClaudeStreamChunkStripping(info *relaycommon.RelayInfo, chunk *dto.Cla
 	if info == nil || chunk == nil || info.AntiPoisonGuardPrefix == "" {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return
 	}

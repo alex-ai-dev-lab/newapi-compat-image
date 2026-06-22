@@ -16,7 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMemo } from 'react'
 import * as z from 'zod'
+import { useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   Form,
@@ -28,7 +30,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -37,18 +38,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   SettingsForm,
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
-import {
-  SettingsPageFormActions,
-} from '../components/settings-page-context'
+import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
-import { useSystemSettingsTranslation } from '../lib/i18n'
 import { useUpdateOptionsBulk } from '../hooks/use-update-option'
+import { useSystemSettingsTranslation } from '../lib/i18n'
 
 const antiPoisonSchema = z.object({
   anti_poison_setting: z.object({
@@ -177,8 +177,13 @@ export function AntiPoisonGuardSection({
         })
       },
     })
-  const channelProfiles = parseChannelProfiles(
-    form.watch('anti_poison_setting.channels')
+  const channelProfilesJSON = useWatch({
+    control: form.control,
+    name: 'anti_poison_setting.channels',
+  })
+  const channelProfiles = useMemo(
+    () => parseChannelProfiles(channelProfilesJSON),
+    [channelProfilesJSON]
   )
 
   return (
@@ -194,7 +199,8 @@ export function AntiPoisonGuardSection({
                   <FormLabel>{t('Enable Anti-Poison')}</FormLabel>
                   <FormDescription>
                     {ts('settings.antiPoison.enable.description', {
-                      defaultValue: 'Validate upstream behavior inside renewapi',
+                      defaultValue:
+                        'Validate upstream behavior inside renewapi',
                     })}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -334,7 +340,9 @@ export function AntiPoisonGuardSection({
                     }
                   />
                 </FormControl>
-                <FormDescription>{t('Bytes per guarded response')}</FormDescription>
+                <FormDescription>
+                  {t('Bytes per guarded response')}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -369,7 +377,9 @@ export function AntiPoisonGuardSection({
                 <SettingsSwitchContent>
                   <FormLabel>{t('Signed Header Audit')}</FormLabel>
                   <FormDescription>
-                    {t('Optional internal proof, hidden from downstream clients')}
+                    {t(
+                      'Optional internal proof, hidden from downstream clients'
+                    )}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -444,10 +454,15 @@ export function AntiPoisonGuardSection({
                 <FormItem>
                   <FormLabel>{t('Profile JSON')}</FormLabel>
                   <FormControl>
-                    <Textarea className='min-h-32 font-mono text-xs' {...field} />
+                    <Textarea
+                      className='min-h-32 font-mono text-xs'
+                      {...field}
+                    />
                   </FormControl>
                   <FormDescription>
-                    {t('JSON import/export for trusted, unknown, probation, and quarantine profile configuration.')}
+                    {t(
+                      'JSON import/export for trusted, unknown, probation, and quarantine profile configuration.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -461,9 +476,12 @@ export function AntiPoisonGuardSection({
                 <FormItem>
                   <FormLabel>{t('Channel Profile JSON')}</FormLabel>
                   <FormControl>
-                    <Textarea className='min-h-24 font-mono text-xs' {...field} />
+                    <Textarea
+                      className='min-h-24 font-mono text-xs'
+                      {...field}
+                    />
                   </FormControl>
-                <FormDescription>
+                  <FormDescription>
                     {t('Map channel IDs to anti-poison profiles.')}
                   </FormDescription>
                   <FormMessage />

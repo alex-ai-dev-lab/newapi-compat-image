@@ -56,6 +56,8 @@ const LIGHT_CANVAS_CHART_COLORS: CanvasChartColors = {
     'rgb(249, 115, 22)', // #F97316 orange
     'rgb(139, 92, 246)', // #8B5CF6 violet
     'rgb(12, 206, 107)', // #0CCE6B green
+    'rgb(217, 119, 87)', // terracotta
+    'rgb(38, 38, 38)', // graphite
   ],
 }
 
@@ -83,6 +85,8 @@ const DARK_CANVAS_CHART_COLORS: CanvasChartColors = {
     'rgb(251, 146, 60)', // orange (lighter #F97316)
     'rgb(167, 139, 250)', // violet (lighter #8B5CF6)
     'rgb(74, 222, 128)', // green (lighter #0CCE6B)
+    'rgb(240, 151, 120)', // terracotta
+    'rgb(245, 245, 245)', // graphite on dark
   ],
 }
 

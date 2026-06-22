@@ -17,7 +17,7 @@ func ProbeRequired(info *relaycommon.RelayInfo) bool {
 	if info == nil || info.IsChannelTest {
 		return false
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	return cfg.Enabled && (cfg.ProbeBeforeEveryRequest || cfg.ProbeTTLSeconds > 0)
 }
 

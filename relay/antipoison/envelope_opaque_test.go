@@ -136,6 +136,16 @@ func TestOpaqueScannerSuspiciousLongBase64RetriesProbation(t *testing.T) {
 	}
 }
 
+func TestOpaqueScannerRespectsMaxScanBytes(t *testing.T) {
+	cfg := requiredEnvelopeConfig()
+	cfg.MaxScanBytes = 32
+	payload := strings.Repeat("x", 64) + "\u200b"
+	result := ScanOpaquePayload(payload, cfg, "")
+	if result.Action != OpaqueActionAllow {
+		t.Fatalf("action=%s score=%d signals=%v, want allow outside scan budget", result.Action, result.Score, result.Signals)
+	}
+}
+
 func TestOpaqueScannerDetectsURLSafeBase64(t *testing.T) {
 	payload := strings.Repeat("https://internal.example/<script>alert(1)</script>", 3)
 	blob := base64.RawURLEncoding.EncodeToString([]byte(payload))

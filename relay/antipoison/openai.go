@@ -39,7 +39,7 @@ func ApplyOpenAIRequestGuard(info *relaycommon.RelayInfo, req *dto.GeneralOpenAI
 	if info == nil || req == nil || !ShouldGuardOpenAIRequest(req) {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return
 	}
@@ -52,7 +52,7 @@ func ApplyOpenAIAnswerEnvelope(info *relaycommon.RelayInfo, req *dto.GeneralOpen
 	if info == nil || req == nil {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !EnvelopeRequired(cfg, info.IsStream) {
 		return
 	}
@@ -65,38 +65,32 @@ func ApplyResponsesRequestGuard(info *relaycommon.RelayInfo, req *dto.OpenAIResp
 	if info == nil || req == nil || !ShouldGuardResponsesRequest(req) {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !cfg.Enabled {
 		return
 	}
 	prefix := RandomPrefix()
 	info.AntiPoisonGuardPrefix = prefix
-	guardPrompt := BuildGuardPrompt(prefix)
-	if len(req.Instructions) == 0 || common.GetJsonType(req.Instructions) == "null" {
-		if b, err := common.Marshal(guardPrompt); err == nil {
-			req.Instructions = b
-		}
-		return
-	}
-	var existing string
-	if err := common.Unmarshal(req.Instructions, &existing); err == nil {
-		if b, marshalErr := common.Marshal(guardPrompt + "\n" + existing); marshalErr == nil {
-			req.Instructions = b
-		}
-	}
+	injectResponsesInstruction(req, BuildGuardPrompt(prefix))
 }
 
 func ApplyResponsesAnswerEnvelope(info *relaycommon.RelayInfo, req *dto.OpenAIResponsesRequest) {
 	if info == nil || req == nil {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !EnvelopeRequired(cfg, info.IsStream) {
 		return
 	}
 	nonce := RandomPrefix()
 	info.AntiPoisonAnswerEnvelopeNonce = nonce
-	prompt := BuildAnswerEnvelopePrompt(nonce)
+	injectResponsesInstruction(req, BuildAnswerEnvelopePrompt(nonce))
+}
+
+func injectResponsesInstruction(req *dto.OpenAIResponsesRequest, prompt string) {
+	if req == nil || prompt == "" {
+		return
+	}
 	if len(req.Instructions) == 0 || common.GetJsonType(req.Instructions) == "null" {
 		if b, err := common.Marshal(prompt); err == nil {
 			req.Instructions = b
@@ -271,7 +265,7 @@ func ResponseGuardConfig(info *relaycommon.RelayInfo) Config {
 	if info == nil {
 		return GlobalConfig()
 	}
-	return FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	return ConfigForRelayInfo(info)
 }
 
 func IsToolCallFinishReason(reason string) bool {

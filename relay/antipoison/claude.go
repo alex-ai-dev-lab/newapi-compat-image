@@ -13,7 +13,7 @@ func ApplyClaudeAnswerEnvelope(info *relaycommon.RelayInfo, req *dto.ClaudeReque
 	if info == nil || req == nil {
 		return
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	if !EnvelopeRequired(cfg, info.IsStream) {
 		return
 	}

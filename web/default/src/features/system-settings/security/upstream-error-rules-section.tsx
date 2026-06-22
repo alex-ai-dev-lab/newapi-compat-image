@@ -116,8 +116,8 @@ function normalizeForm(values: ErrorRuleForm): ErrorRuleForm {
     description: values.description.trim(),
     platforms: values.platforms.trim(),
     keywords: values.keywords.trim(),
-    passthrough_body: Boolean(values.passthrough_body),
-    skip_monitoring: Boolean(values.skip_monitoring),
+    passthrough_body: false,
+    skip_monitoring: false,
     custom_message: values.custom_message.trim(),
     upstream_status: Number(values.upstream_status) || 0,
     response_code: Number(values.response_code) || 0,
@@ -569,18 +569,41 @@ export function UpstreamErrorRulesSection() {
 
             <div className='grid gap-3 rounded-md border p-3 md:grid-cols-2'>
               {[
-                ['enabled', t('Enabled')],
-                ['passthrough_code', t('Keep upstream status code')],
-                ['passthrough_body', t('Keep upstream response body')],
-                ['skip_monitoring', t('Skip monitoring')],
-              ].map(([key, label]) => (
+                { key: 'enabled', label: t('Enabled') },
+                {
+                  key: 'passthrough_code',
+                  label: t('Keep upstream status code'),
+                },
+                {
+                  key: 'passthrough_body',
+                  label: t('Keep upstream response body'),
+                  deprecated: true,
+                },
+                {
+                  key: 'skip_monitoring',
+                  label: t('Skip monitoring'),
+                  deprecated: true,
+                },
+              ].map(({ key, label, deprecated }) => (
                 <label
                   key={key}
                   className='flex items-center justify-between gap-4 text-sm'
                 >
-                  <span>{label}</span>
+                  <span>
+                    {label}
+                    {deprecated ? (
+                      <span className='text-muted-foreground ml-2 text-xs'>
+                        {t('Deprecated')}
+                      </span>
+                    ) : null}
+                  </span>
                   <Switch
-                    checked={Boolean(formValues[key as keyof ErrorRuleForm])}
+                    checked={
+                      deprecated
+                        ? false
+                        : Boolean(formValues[key as keyof ErrorRuleForm])
+                    }
+                    disabled={deprecated}
                     onCheckedChange={(checked) =>
                       setFormValues((prev) => ({
                         ...prev,

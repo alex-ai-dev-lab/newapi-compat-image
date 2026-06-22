@@ -22,13 +22,7 @@ export function getRankingFallbackPalette(colors: CanvasChartColors) {
   // Build from the high-contrast categorical series only, plus a few
   // semantic accents — never black/near-black or the muted border grey,
   // so stacked series stay visually distinct.
-  return [
-    ...colors.series,
-    colors.chart1,
-    colors.success,
-    colors.warning,
-    colors.destructive,
-  ]
+  return [...colors.series, colors.success, colors.warning, colors.destructive]
 }
 
 export function getVendorColours(
@@ -47,8 +41,8 @@ export function getVendorColours(
     Moonshot: s[8], // violet
     Meta: s[9], // green
     MiniMax: colors.warning,
-    Anthropic: colors.chart1,
-    xAI: colors.mutedForeground,
+    Anthropic: s[10] ?? 'rgb(217, 119, 87)', // terracotta
+    xAI: s[11] ?? colors.foreground,
     Tencent: colors.success,
     Baidu: colors.destructive,
     Others: colors.mutedForeground,
@@ -67,13 +61,25 @@ export function buildVendorColourMap(
   let fallbackIdx = 0
   const vendorColours = getVendorColours(colors)
   const fallbackPalette = getRankingFallbackPalette(colors)
+  const used = new Set<string>()
 
   for (const name of names) {
     if (vendorColours[name]) {
       result[name] = vendorColours[name]
+      used.add(vendorColours[name])
     } else {
-      result[name] = fallbackPalette[fallbackIdx % fallbackPalette.length]
-      fallbackIdx++
+      let colour = fallbackPalette[fallbackIdx % fallbackPalette.length]
+      for (let i = 0; i < fallbackPalette.length; i++) {
+        const candidate =
+          fallbackPalette[(fallbackIdx + i) % fallbackPalette.length]
+        if (!used.has(candidate)) {
+          colour = candidate
+          fallbackIdx += i + 1
+          break
+        }
+      }
+      result[name] = colour
+      used.add(colour)
     }
   }
 

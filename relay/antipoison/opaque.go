@@ -39,6 +39,10 @@ func ScanOpaquePayload(text string, cfg Config, userPrompt string) OpaqueScanRes
 	if !OpaqueScanEnabled(cfg) || strings.TrimSpace(text) == "" {
 		return result
 	}
+	cfg = cfg.Normalized()
+	if cfg.MaxScanBytes > 0 && len(text) > cfg.MaxScanBytes {
+		text = text[:safeUTF8PrefixLen(text, cfg.MaxScanBytes)]
+	}
 	score := 0
 	lowerPrompt := strings.ToLower(userPrompt)
 	userAskedEncoding := strings.Contains(lowerPrompt, "base64") ||
@@ -303,13 +307,16 @@ func entropy(s string) float64 {
 	if s == "" {
 		return 0
 	}
-	counts := make(map[rune]int)
-	for _, r := range s {
-		counts[r]++
+	var counts [256]int
+	for i := 0; i < len(s); i++ {
+		counts[s[i]]++
 	}
-	total := float64(len([]rune(s)))
+	total := float64(len(s))
 	var h float64
 	for _, count := range counts {
+		if count == 0 {
+			continue
+		}
 		p := float64(count) / total
 		h -= p * math.Log2(p)
 	}

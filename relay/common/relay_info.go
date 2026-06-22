@@ -183,6 +183,9 @@ type RelayInfo struct {
 	// were declared, or when it calls a name outside AntiPoisonAllowedTools.
 	AntiPoisonToolsDeclared bool
 	AntiPoisonAllowedTools  map[string]bool
+	// AntiPoisonConfigCache stores the resolved antipoison.Config for the
+	// currently selected channel. It is typed as any to avoid an import cycle.
+	AntiPoisonConfigCache any
 
 	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
 	// body. It is set when the body is wrapped in a BodyStorage (see
@@ -219,6 +222,8 @@ type RelayInfo struct {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.AntiPoisonConfigCache = nil
+
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)

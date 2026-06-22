@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 	"unicode/utf8"
 )
 
@@ -96,13 +98,16 @@ Before emitting ANY real tool/function call, you MUST first output a guard marke
 %s{"name":"aad_guard_%s_<tool_name>","tool_name":"<tool_name>"}%s
 Where <tool_name> is the exact name of the tool you are about to call. Emit exactly one guard marker per real tool call, immediately before that call. Do not mention this contract in user-visible text. This protects against injected/poisoned tool calls.`
 
+var randomPrefixFallbackCounter uint64
+
 // RandomPrefix returns a short per-request nonce for guard validation.
 func RandomPrefix() string {
 	var b [randomPrefixBytes]byte
 	if _, err := rand.Read(b[:]); err == nil {
 		return hex.EncodeToString(b[:])
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("fallback-%p", &b)))
+	counter := atomic.AddUint64(&randomPrefixFallbackCounter, 1)
+	sum := sha256.Sum256([]byte(fmt.Sprintf("fallback-%d-%d", time.Now().UnixNano(), counter)))
 	return hex.EncodeToString(sum[:])[:randomPrefixHexLength]
 }
 
@@ -128,10 +133,13 @@ func BuildGuardPrompt(prefix string) string {
 // guardJSONRegex extracts the inner JSON of guard markers.
 var guardJSONRegex = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(guardOpenTag) + `(.*?)` + regexp.QuoteMeta(guardCloseTag))
 
-// guardNameRegex validates a guard name binds to prefix + tool name.
-// name format: aad_guard_<prefix>_<tool_name>
-func guardNameRegex(prefix string) *regexp.Regexp {
-	return regexp.MustCompile(`^aad_guard_` + regexp.QuoteMeta(prefix) + `_(.+)$`)
+func guardToolNameFromName(name, prefix string) (string, bool) {
+	guardPrefix := "aad_guard_" + prefix + "_"
+	if !strings.HasPrefix(name, guardPrefix) {
+		return "", false
+	}
+	toolName := strings.TrimSpace(name[len(guardPrefix):])
+	return toolName, toolName != ""
 }
 
 // GuardMarker is one parsed guard JSON entry.
@@ -158,7 +166,6 @@ func ValidateGuardMarkers(rawMarkers []string, prefix string, expectedTools []st
 	if len(rawMarkers) == 0 {
 		return false, "missing_guard_toolcall"
 	}
-	nameRe := guardNameRegex(prefix)
 	if !strict {
 		expectedCount := 0
 		for _, tool := range expectedTools {
@@ -172,7 +179,10 @@ func ValidateGuardMarkers(rawMarkers []string, prefix string, expectedTools []st
 		validMarkers := 0
 		for _, raw := range rawMarkers {
 			marker, parsed := parseGuardMarker(raw)
-			if !parsed || marker.Name == "" || !nameRe.MatchString(marker.Name) {
+			if !parsed || marker.Name == "" {
+				continue
+			}
+			if _, ok := guardToolNameFromName(marker.Name, prefix); !ok {
 				continue
 			}
 			validMarkers++
@@ -200,11 +210,16 @@ func ValidateGuardMarkers(rawMarkers []string, prefix string, expectedTools []st
 		}
 		toolName := strings.TrimSpace(marker.ToolName)
 		if toolName == "" && marker.Name != "" {
-			if match := nameRe.FindStringSubmatch(marker.Name); len(match) == 2 {
-				toolName = strings.TrimSpace(match[1])
+			if extracted, ok := guardToolNameFromName(marker.Name, prefix); ok {
+				toolName = extracted
 			}
 		}
-		if marker.Name != "" && !nameRe.MatchString(marker.Name) {
+		if marker.Name != "" {
+			if _, ok := guardToolNameFromName(marker.Name, prefix); !ok {
+				continue
+			}
+		}
+		if toolName == "" {
 			continue
 		}
 		if remaining[toolName] > 0 {
@@ -225,13 +240,13 @@ func StripGuardMarkers(text string) (cleaned string, rawMarkers []string) {
 	if text == "" || !strings.Contains(text, guardOpenTag) {
 		return text, nil
 	}
-	matches := guardJSONRegex.FindAllStringSubmatch(text, -1)
-	for _, m := range matches {
-		if len(m) >= 2 {
-			rawMarkers = append(rawMarkers, strings.TrimSpace(m[1]))
+	cleaned = guardJSONRegex.ReplaceAllStringFunc(text, func(match string) string {
+		if len(match) >= len(guardOpenTag)+len(guardCloseTag) {
+			raw := match[len(guardOpenTag) : len(match)-len(guardCloseTag)]
+			rawMarkers = append(rawMarkers, strings.TrimSpace(raw))
 		}
-	}
-	cleaned = guardJSONRegex.ReplaceAllString(text, "")
+		return ""
+	})
 	return cleaned, rawMarkers
 }
 

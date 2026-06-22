@@ -35,6 +35,7 @@ var knownClaudeStopReasons = map[string]bool{
 var (
 	openAIChatCompletionIDPattern = regexp.MustCompile(`^chatcmpl-[A-Za-z0-9\-]+$`)
 	openAIResponsesIDPattern      = regexp.MustCompile(`^resp_[A-Za-z0-9\-]+$`)
+	claudeIDPattern               = regexp.MustCompile(`^msg_[A-Za-z0-9]+$`)
 )
 
 func isOpenAIChatCompatibleID(id string) bool {
@@ -49,7 +50,7 @@ func ValidateClaudeResponseShape(resp *dto.ClaudeResponse, requestModel string, 
 
 	// Validate ID format: must match ^msg_[A-Za-z0-9]+$
 	if resp.Id != "" {
-		if !regexp.MustCompile(`^msg_[A-Za-z0-9]+$`).MatchString(resp.Id) {
+		if !claudeIDPattern.MatchString(resp.Id) {
 			return shapeError("claude id malformed: %q", resp.Id)
 		}
 	}

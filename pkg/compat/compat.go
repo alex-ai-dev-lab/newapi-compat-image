@@ -4,6 +4,7 @@ package compat
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -60,25 +61,37 @@ func (NoOpRelayHook) OnClientResponseError(c *gin.Context, info *relaycommon.Rel
 
 // HookChain orchestrates multiple RelayHooks in registration order.
 type HookChain struct {
-	hooks []RelayHook
-	mu    sync.RWMutex
+	hooks atomic.Value
+	mu    sync.Mutex
 }
 
 func NewHookChain() *HookChain {
-	return &HookChain{hooks: []RelayHook{}}
+	hc := &HookChain{}
+	hc.hooks.Store([]RelayHook{})
+	return hc
 }
 
 func (hc *HookChain) Register(h RelayHook) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	hc.hooks = append(hc.hooks, h)
+	hooks := hc.snapshot()
+	next := make([]RelayHook, 0, len(hooks)+1)
+	next = append(next, hooks...)
+	next = append(next, h)
+	hc.hooks.Store(next)
 	common.SysLog("compat: registered hook: " + h.Name())
 }
 
+func (hc *HookChain) snapshot() []RelayHook {
+	if hc == nil {
+		return nil
+	}
+	hooks, _ := hc.hooks.Load().([]RelayHook)
+	return hooks
+}
+
 func (hc *HookChain) OnInit(c *gin.Context, info *relaycommon.RelayInfo) error {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		if err := h.OnInit(c, info); err != nil {
 			return err
 		}
@@ -87,17 +100,13 @@ func (hc *HookChain) OnInit(c *gin.Context, info *relaycommon.RelayInfo) error {
 }
 
 func (hc *HookChain) OnSelectRetryParam(c *gin.Context, info *relaycommon.RelayInfo, p *service.RetryParam) {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		h.OnSelectRetryParam(c, info, p)
 	}
 }
 
 func (hc *HookChain) BeforeChannelCall(c *gin.Context, info *relaycommon.RelayInfo, ch *model.Channel, p *service.RetryParam) *types.NewAPIError {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		if err := h.BeforeChannelCall(c, info, ch, p); err != nil {
 			return err
 		}
@@ -106,27 +115,21 @@ func (hc *HookChain) BeforeChannelCall(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (hc *HookChain) AfterChannelCall(c *gin.Context, info *relaycommon.RelayInfo, ch *model.Channel, err *types.NewAPIError) {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		h.AfterChannelCall(c, info, ch, err)
 	}
 }
 
 func (hc *HookChain) OnRetryDecision(c *gin.Context, info *relaycommon.RelayInfo, ch *model.Channel, err *types.NewAPIError, p *service.RetryParam, shouldRetryResult bool) bool {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
 	result := shouldRetryResult
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		result = h.OnRetryDecision(c, info, ch, err, p, result)
 	}
 	return result
 }
 
 func (hc *HookChain) OnClientResponseError(c *gin.Context, info *relaycommon.RelayInfo, err *types.NewAPIError) *types.NewAPIError {
-	hc.mu.RLock()
-	defer hc.mu.RUnlock()
-	for _, h := range hc.hooks {
+	for _, h := range hc.snapshot() {
 		err = h.OnClientResponseError(c, info, err)
 	}
 	return err

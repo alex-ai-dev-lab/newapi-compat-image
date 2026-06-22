@@ -140,6 +140,14 @@ func TestValidateGuardMarkersStrictToolMatch(t *testing.T) {
 	}
 }
 
+func TestValidateGuardMarkersStrictExtractsToolFromName(t *testing.T) {
+	raw := []string{`{"name":"aad_guard_abcd1234_Read"}`}
+	ok, reason := ValidateGuardMarkers(raw, "abcd1234", []string{"Read"}, true)
+	if !ok || reason != "" {
+		t.Fatalf("expected strict match from name, got ok=%v reason=%q", ok, reason)
+	}
+}
+
 func TestValidateGuardMarkersNonStrictRequiresPrefixCoverage(t *testing.T) {
 	raw := []string{
 		`{"name":"aad_guard_abcd1234_Read","tool_name":"WrongToolIsIgnoredInNonStrict"}`,

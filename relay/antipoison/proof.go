@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
@@ -33,7 +32,7 @@ func ResponseProofEnabled(info *relaycommon.RelayInfo) bool {
 	if info.IsStream {
 		return false
 	}
-	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	cfg := ConfigForRelayInfo(info)
 	return cfg.Enabled && cfg.ResponseProof
 }
 
@@ -70,19 +69,7 @@ func ApplyResponsesResponseProof(info *relaycommon.RelayInfo, req *dto.OpenAIRes
 		return
 	}
 	nonce := EnsureResponseProofNonce(info)
-	prompt := BuildResponseProofPrompt(nonce)
-	if len(req.Instructions) == 0 || common.GetJsonType(req.Instructions) == "null" {
-		if b, err := common.Marshal(prompt); err == nil {
-			req.Instructions = b
-		}
-		return
-	}
-	var existing string
-	if err := common.Unmarshal(req.Instructions, &existing); err == nil {
-		if b, marshalErr := common.Marshal(prompt + "\n" + existing); marshalErr == nil {
-			req.Instructions = b
-		}
-	}
+	injectResponsesInstruction(req, BuildResponseProofPrompt(nonce))
 }
 
 func ApplyClaudeResponseProof(info *relaycommon.RelayInfo, req *dto.ClaudeRequest) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -96,6 +97,18 @@ func FromChannelSettingsForChannel(channelID int, s dto.ChannelSettings) Config 
 		cfg.ShapeCheck = *s.AntiPoisonShapeCheckEnabled
 	}
 	return cfg.Normalized()
+}
+
+func ConfigForRelayInfo(info *relaycommon.RelayInfo) Config {
+	if info == nil {
+		return GlobalConfig()
+	}
+	if cfg, ok := info.AntiPoisonConfigCache.(Config); ok {
+		return cfg
+	}
+	cfg := FromChannelSettingsForChannel(info.ChannelId, info.ChannelSetting)
+	info.AntiPoisonConfigCache = cfg
+	return cfg
 }
 
 func GlobalConfig() Config {
