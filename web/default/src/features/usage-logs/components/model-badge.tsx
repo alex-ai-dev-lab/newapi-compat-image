@@ -101,7 +101,7 @@ function ModelBadgeContent(props: ModelBadgeProps) {
       showDot={!provider}
       autoColor={provider ? undefined : props.modelName}
       className={cn(
-        'border-border/60 bg-muted/30 h-7 max-w-[172px] min-w-0 gap-1.5 border px-2.5 [font-family:var(--font-body)]',
+        'border-border/60 bg-muted/30 h-7 max-w-[260px] min-w-0 gap-1.5 border px-2.5 [font-family:var(--font-body)]',
         provider && 'text-foreground',
         props.className
       )}
@@ -116,7 +116,9 @@ function ModelBadgeContent(props: ModelBadgeProps) {
             {getLobeIcon(provider.icon, 14)}
           </span>
         )}
-        <span className='min-w-0 truncate'>{props.modelName}</span>
+        <span className='min-w-0 truncate' title={props.modelName}>
+          {props.modelName}
+        </span>
       </span>
     </StatusBadge>
   )
