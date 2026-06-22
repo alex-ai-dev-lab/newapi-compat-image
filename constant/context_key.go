@@ -9,6 +9,8 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	ContextKeyFallbackModels   ContextKey = "fallback_models"
+	ContextKeyTruncationRetry  ContextKey = "truncation_retry"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
@@ -19,6 +21,9 @@ const (
 	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	ContextKeyTokenRPMLimit          ContextKey = "token_rpm_limit"
+	ContextKeyTokenTPMLimit          ContextKey = "token_tpm_limit"
+	ContextKeyTokenConcurrencyLimit  ContextKey = "token_concurrency_limit"
 
 	/* channel related keys */
 	ContextKeyChannelId                         ContextKey = "channel_id"
@@ -39,6 +44,7 @@ const (
 	ContextKeyChannelPreferredMultiKeyChannelId ContextKey = "channel_preferred_multi_key_channel_id"
 	ContextKeyChannelPreferredMultiKeyIndex     ContextKey = "channel_preferred_multi_key_index"
 	ContextKeyChannelKey                        ContextKey = "channel_key"
+	ContextKeyProviderRoutingPolicy             ContextKey = "provider_routing_policy"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"

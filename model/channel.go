@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -169,7 +171,20 @@ func (c ChannelInfo) Value() (driver.Value, error) {
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
+	var bytesValue []byte
+	switch v := value.(type) {
+	case []byte:
+		bytesValue = v
+	case string:
+		bytesValue = []byte(v)
+	case nil:
+		bytesValue = []byte("{}")
+	default:
+		return fmt.Errorf("unsupported ChannelInfo scan type: %T", value)
+	}
+	if len(strings.TrimSpace(string(bytesValue))) == 0 {
+		bytesValue = []byte("{}")
+	}
 	return common.Unmarshal(bytesValue, c)
 }
 
@@ -587,6 +602,25 @@ func (channel *Channel) GetBaseURL() string {
 		url = constant.ChannelBaseURLs[channel.Type]
 	}
 	return url
+}
+
+func (channel *Channel) GetBaseURLHost() string {
+	baseURL := channel.GetBaseURL()
+	if baseURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" {
+		return baseURL
+	}
+	return parsed.Host
+}
+
+func (channel *Channel) IdString() string {
+	if channel == nil {
+		return ""
+	}
+	return strconv.Itoa(channel.Id)
 }
 
 func (channel *Channel) GetModelMapping() string {

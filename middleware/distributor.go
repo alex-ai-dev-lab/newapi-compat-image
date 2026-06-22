@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,8 +26,10 @@ import (
 )
 
 type ModelRequest struct {
-	Model string `json:"model"`
-	Group string `json:"group,omitempty"`
+	Model          string                         `json:"model"`
+	Group          string                         `json:"group,omitempty"`
+	Models         []string                       `json:"-"`
+	ProviderPolicy *service.ProviderRoutingPolicy `json:"-"`
 }
 
 func Distribute() func(c *gin.Context) {
@@ -37,6 +40,12 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		if modelRequest.ProviderPolicy != nil && !modelRequest.ProviderPolicy.Empty() {
+			common.SetContextKey(c, constant.ContextKeyProviderRoutingPolicy, modelRequest.ProviderPolicy)
+		}
+		if len(modelRequest.Models) > 1 {
+			common.SetContextKey(c, constant.ContextKeyFallbackModels, modelRequest.Models)
 		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
@@ -113,6 +122,9 @@ func Distribute() func(c *gin.Context) {
 								abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
 								return
 							}
+						} else if !service.ChannelMatchesProviderRoutingPolicy(preferred, modelRequest.ProviderPolicy) {
+							loggerMsg := fmt.Sprintf("affinity channel skipped by provider routing policy: channel=%d", preferred.Id)
+							common.SysLog(loggerMsg)
 						} else if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
@@ -135,10 +147,11 @@ func Distribute() func(c *gin.Context) {
 
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:        c,
-						ModelName:  modelRequest.Model,
-						TokenGroup: usingGroup,
-						Retry:      common.GetPointer(0),
+						Ctx:                   c,
+						ModelName:             modelRequest.Model,
+						TokenGroup:            usingGroup,
+						Retry:                 common.GetPointer(0),
+						ProviderRoutingPolicy: modelRequest.ProviderPolicy,
 					})
 					if err != nil {
 						showGroup := usingGroup
@@ -221,9 +234,114 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	c.Request.Body = io.NopCloser(storage)
 
 	return &ModelRequest{
-		Model: model,
-		Group: group,
+		Model:          model,
+		Group:          group,
+		Models:         parseFallbackModelsFromJSON(requestBody, model),
+		ProviderPolicy: parseProviderRoutingPolicyFromJSON(requestBody),
 	}, nil
+}
+
+func parseFallbackModelsFromJSON(requestBody []byte, primaryModel string) []string {
+	if !common.GetEnvOrDefaultBool("REQUEST_MODELS_FALLBACK_ENABLED", false) {
+		return nil
+	}
+	result := gjson.GetBytes(requestBody, "models")
+	if !result.Exists() || !result.IsArray() {
+		return nil
+	}
+	models := make([]string, 0, len(result.Array())+1)
+	if primaryModel != "" {
+		models = append(models, primaryModel)
+	}
+	for _, item := range result.Array() {
+		if item.Type != gjson.String {
+			continue
+		}
+		model := strings.TrimSpace(item.String())
+		if model != "" {
+			models = append(models, model)
+		}
+	}
+	models = dedupeProviderSelectors(models)
+	if len(models) < 2 {
+		return nil
+	}
+	maxModels := common.GetEnvOrDefault("REQUEST_MODELS_FALLBACK_MAX", 4)
+	if maxModels <= 0 {
+		return nil
+	}
+	if len(models) > maxModels {
+		models = models[:maxModels]
+	}
+	return models
+}
+
+func parseProviderRoutingPolicyFromJSON(requestBody []byte) *service.ProviderRoutingPolicy {
+	if !common.GetEnvOrDefaultBool("PROVIDER_ROUTING_CONTROL_ENABLED", false) {
+		return nil
+	}
+	policy := &service.ProviderRoutingPolicy{
+		Only:   readProviderRoutingSelectors(requestBody, "provider.only", "only"),
+		Ignore: readProviderRoutingSelectors(requestBody, "provider.ignore", "ignore"),
+		Order:  readProviderRoutingSelectors(requestBody, "provider.order", "order"),
+	}
+	if policy.Empty() {
+		return nil
+	}
+	return policy
+}
+
+func readProviderRoutingSelectors(requestBody []byte, paths ...string) []string {
+	var selectors []string
+	for _, path := range paths {
+		result := gjson.GetBytes(requestBody, path)
+		if !result.Exists() || result.Type == gjson.Null {
+			continue
+		}
+		switch result.Type {
+		case gjson.String:
+			selectors = appendProviderSelectorCSV(selectors, result.String())
+		case gjson.JSON:
+			if result.IsArray() {
+				for _, item := range result.Array() {
+					if item.Type == gjson.String {
+						selectors = appendProviderSelectorCSV(selectors, item.String())
+					}
+				}
+			}
+		}
+	}
+	return dedupeProviderSelectors(selectors)
+}
+
+func appendProviderSelectorCSV(selectors []string, value string) []string {
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			selectors = append(selectors, part)
+		}
+	}
+	return selectors
+}
+
+func dedupeProviderSelectors(selectors []string) []string {
+	if len(selectors) < 2 {
+		return selectors
+	}
+	seen := make(map[string]struct{}, len(selectors))
+	deduped := make([]string, 0, len(selectors))
+	for _, selector := range selectors {
+		key := strings.ToLower(strings.TrimSpace(selector))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, selector)
+	}
+	return deduped
 }
 
 func getJSONStringValue(result gjson.Result, field string) (string, error) {
@@ -298,6 +416,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			}
 			if req != nil {
 				modelRequest.Model = req.Model
+				modelRequest.Models = req.Models
+				modelRequest.ProviderPolicy = req.ProviderPolicy
 			}
 		} else if c.Request.Method == http.MethodGet {
 			relayMode = relayconstant.RelayModeVideoFetchByID
@@ -312,6 +432,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 				return nil, false, err
 			}
 			modelRequest.Model = req.Model
+			modelRequest.Models = req.Models
+			modelRequest.ProviderPolicy = req.ProviderPolicy
 			relayMode = relayconstant.RelayModeVideoSubmit
 		} else if c.Request.Method == http.MethodGet {
 			relayMode = relayconstant.RelayModeVideoFetchByID
@@ -334,6 +456,9 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
+		modelRequest.Group = req.Group
+		modelRequest.Models = req.Models
+		modelRequest.ProviderPolicy = req.ProviderPolicy
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -358,6 +483,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			req, err := getModelFromRequest(c)
 			if err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Models = req.Models
+				modelRequest.ProviderPolicy = req.ProviderPolicy
 			}
 		}
 	}
@@ -370,6 +497,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			// 先尝试从请求读取
 			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Models = req.Models
+				modelRequest.ProviderPolicy = req.ProviderPolicy
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranslation
@@ -377,6 +506,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			// 先尝试从请求读取
 			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Models = req.Models
+				modelRequest.ProviderPolicy = req.ProviderPolicy
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranscription
@@ -391,11 +522,20 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 		modelRequest.Model = req.Model
 		modelRequest.Group = req.Group
+		modelRequest.Models = req.Models
+		modelRequest.ProviderPolicy = req.ProviderPolicy
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 	}
 
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {
 		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
+	}
+	modelRequest.Model = service.ResolveLatestModelAlias(modelRequest.Model)
+	if len(modelRequest.Models) > 0 {
+		for i := range modelRequest.Models {
+			modelRequest.Models[i] = service.ResolveLatestModelAlias(modelRequest.Models[i])
+		}
+		modelRequest.Models = dedupeProviderSelectors(modelRequest.Models)
 	}
 	return &modelRequest, shouldSelectChannel, nil
 }
@@ -441,7 +581,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	}
 	// c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, channel.GetBaseURL())
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, resolveChannelBaseURL(channel, modelName))
 
 	common.SetContextKey(c, constant.ContextKeySystemPromptOverride, false)
 
@@ -450,7 +590,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	case constant.ChannelTypeAzure:
 		c.Set("api_version", channel.Other)
 	case constant.ChannelTypeVertexAi:
-		c.Set("region", channel.Other)
+		c.Set("region", selectVertexRegion(channel.Other))
 	case constant.ChannelTypeXunfei:
 		c.Set("api_version", channel.Other)
 	case constant.ChannelTypeGemini:
@@ -466,6 +606,38 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	}
 	return nil
 }
+
+func resolveChannelBaseURL(channel *model.Channel, modelName string) string {
+	if channel == nil {
+		return ""
+	}
+	baseURL := channel.GetBaseURL()
+	if strings.Contains(baseURL, "{model}") {
+		baseURL = strings.ReplaceAll(baseURL, "{model}", modelName)
+	}
+	return baseURL
+}
+
+func selectVertexRegion(other string) string {
+	parts := strings.Split(other, ",")
+	regions := make([]string, 0, len(parts))
+	for _, part := range parts {
+		region := strings.TrimSpace(part)
+		if region != "" {
+			regions = append(regions, region)
+		}
+	}
+	if len(regions) == 0 {
+		return strings.TrimSpace(other)
+	}
+	if len(regions) == 1 {
+		return regions[0]
+	}
+	next := atomic.AddUint64(&vertexRegionCounter, 1)
+	return regions[int(next-1)%len(regions)]
+}
+
+var vertexRegionCounter uint64
 
 // extractModelNameFromGeminiPath 从 Gemini API URL 路径中提取模型名
 // 输入格式: /v1beta/models/gemini-2.0-flash:generateContent

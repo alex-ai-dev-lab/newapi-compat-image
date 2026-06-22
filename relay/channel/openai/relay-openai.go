@@ -836,6 +836,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
 			break
 		}
+		if service.ShouldTriggerTruncationFallback(c, choice.FinishReason) {
+			return nil, service.NewTruncationFallbackError(c, info.ChannelId, info.OriginModelName)
+		}
 	}
 
 	forceFormat := false

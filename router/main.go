@@ -15,6 +15,7 @@ import (
 
 func SetRouter(router *gin.Engine, assets ThemeAssets) {
 	router.GET("/healthz", middleware.RouteTag("health"), controller.Healthz)
+	router.GET("/metrics", middleware.RouteTag("metrics"), controller.Metrics)
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)

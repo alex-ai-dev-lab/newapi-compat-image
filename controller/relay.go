@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -160,6 +161,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed)
 		return
 	}
+	if !checkTokenTPMLimit(c, tokens) {
+		newAPIError = types.NewErrorWithStatusCode(
+			fmt.Errorf("token TPM limit exceeded"),
+			types.ErrorCodeRateLimitExceeded,
+			http.StatusTooManyRequests,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+		return
+	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
@@ -200,6 +211,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		PreferredChannelId:            relayInfo.EncryptedReasoningAffinityChannelId,
 		RequireClaudeThinkingSupport:  relayInfo.ClaudeThinkingPreferSupportedChannel,
 		RequireOpenAIResponsesSupport: relayFormat == types.RelayFormatOpenAIResponses || relayFormat == types.RelayFormatOpenAIResponsesCompaction,
+		ProviderRoutingPolicy:         getProviderRoutingPolicy(c),
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -208,109 +220,134 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Compat hook: OnSelectRetryParam (populates ExcludedChannelIds, PreferredChannelId, etc.)
 	compat.Hooks().OnSelectRetryParam(c, relayInfo, retryParam)
 
-	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
-		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
-		if channelErr != nil {
-			if maybeFallbackClaudeThinkingToSanitized(c, relayInfo, retryParam) {
-				retryParam.ResetRetryNextTry()
-				continue
+	fallbackModels := getFallbackModels(c, relayInfo.OriginModelName)
+	for modelIndex, fallbackModel := range fallbackModels {
+		if modelIndex > 0 {
+			if switchErr := switchRelayFallbackModel(c, relayInfo, retryParam, fallbackModel, tokens, meta); switchErr != nil {
+				newAPIError = switchErr
+				break
 			}
-			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			break
+			maxRetryTimes = compatRelayRetryBudget(relayInfo, relayFormat)
+			compat.Hooks().OnSelectRetryParam(c, relayInfo, retryParam)
 		}
-
-		addUsedChannel(c, channel.Id)
-
-		// Compat hook: BeforeChannelCall (scrubs body for thinking/reasoning)
-		if hookErr := compat.Hooks().BeforeChannelCall(c, relayInfo, channel, retryParam); hookErr != nil {
-			newAPIError = hookErr
-			break
-		}
-
-		// Legacy compat scrub functions (will be moved into hooks in next commits)
-		if scrubErr := prepareClaudeThinkingRetryBody(c, relayInfo, retryParam, channel); scrubErr != nil {
-			newAPIError = scrubErr
-			break
-		}
-		if scrubErr := prepareEncryptedReasoningRetryBody(c, relayInfo, channel); scrubErr != nil {
-			newAPIError = scrubErr
-			break
-		}
-
-		bodyStorage, bodyErr := common.GetBodyStorage(c)
-		if bodyErr != nil {
-			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
-			} else {
-				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
+			relayInfo.RetryIndex = retryParam.GetRetry()
+			service.SleepBeforeRouterRetry(c, relayInfo.RetryIndex)
+			service.ApplyRouterCooldownFilter(relayInfo, retryParam)
+			channel, channelErr := getChannel(c, relayInfo, retryParam)
+			if channelErr != nil {
+				if maybeFallbackClaudeThinkingToSanitized(c, relayInfo, retryParam) {
+					retryParam.ResetRetryNextTry()
+					continue
+				}
+				logger.LogError(c, channelErr.Error())
+				newAPIError = channelErr
+				break
 			}
-			break
-		}
-		c.Request.Body = io.NopCloser(bodyStorage)
 
-		switch relayFormat {
-		case types.RelayFormatOpenAIRealtime:
-			newAPIError = relay.WssHelper(c, relayInfo)
-		case types.RelayFormatClaude:
-			newAPIError = relay.ClaudeHelper(c, relayInfo)
-		case types.RelayFormatGemini:
-			newAPIError = geminiRelayHandler(c, relayInfo)
-		default:
-			newAPIError = relayHandler(c, relayInfo)
-		}
+			addUsedChannel(c, channel.Id)
 
+			// Compat hook: BeforeChannelCall (scrubs body for thinking/reasoning)
+			if hookErr := compat.Hooks().BeforeChannelCall(c, relayInfo, channel, retryParam); hookErr != nil {
+				newAPIError = hookErr
+				break
+			}
+
+			// Legacy compat scrub functions (will be moved into hooks in next commits)
+			if scrubErr := prepareClaudeThinkingRetryBody(c, relayInfo, retryParam, channel); scrubErr != nil {
+				newAPIError = scrubErr
+				break
+			}
+			if scrubErr := prepareEncryptedReasoningRetryBody(c, relayInfo, channel); scrubErr != nil {
+				newAPIError = scrubErr
+				break
+			}
+
+			bodyStorage, bodyErr := common.GetBodyStorage(c)
+			if bodyErr != nil {
+				if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+				} else {
+					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				}
+				break
+			}
+			c.Request.Body = io.NopCloser(bodyStorage)
+
+			switch relayFormat {
+			case types.RelayFormatOpenAIRealtime:
+				newAPIError = relay.WssHelper(c, relayInfo)
+			case types.RelayFormatClaude:
+				newAPIError = relay.ClaudeHelper(c, relayInfo)
+			case types.RelayFormatGemini:
+				newAPIError = geminiRelayHandler(c, relayInfo)
+			default:
+				newAPIError = relayHandler(c, relayInfo)
+			}
+
+			if newAPIError == nil {
+				newAPIError = compatStreamRetryError(relayInfo)
+			}
+
+			// Compat hook: AfterChannelCall (tracks failures)
+			compat.Hooks().AfterChannelCall(c, relayInfo, channel, newAPIError)
+
+			if newAPIError == nil {
+				relayInfo.LastError = nil
+				clearCompatChannelFailure(channel.Id, relayInfo)
+				service.ClearRouterCooldown(channel.Id, relayInfo)
+				firstByteLatency := relayInfo.FirstResponseTime.Sub(relayInfo.StartTime)
+				if firstByteLatency < 0 {
+					firstByteLatency = 0
+				}
+				service.RecordAntiPoisonSuccess(channel.Id, channel.GetSetting(), firstByteLatency, time.Since(relayInfo.StartTime))
+				return
+			}
+
+			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			relayInfo.LastError = newAPIError
+			service.RecordRouterCooldownFailure(channel.Id, relayInfo, newAPIError)
+
+			processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			if service.IsAntiPoisonValidationError(newAPIError) {
+				if retryParam.ExcludedChannelIds == nil {
+					retryParam.ExcludedChannelIds = make(map[int]bool)
+				}
+				retryParam.ExcludedChannelIds[channel.Id] = true
+			}
+			if isTruncationFallbackError(newAPIError) {
+				service.ExcludeChannelForRetry(retryParam, channel.Id)
+			}
+
+			remainingRetries := maxRetryTimes - retryParam.GetRetry()
+			shouldRetryResult := shouldRetry(c, newAPIError, remainingRetries)
+
+			// Compat hook: OnRetryDecision (can override shouldRetry, adjust excludes/preferences)
+			finalShouldRetry := compat.Hooks().OnRetryDecision(c, relayInfo, channel, newAPIError, retryParam, shouldRetryResult)
+
+			if !finalShouldRetry {
+				break
+			}
+
+			// Legacy compat retry functions (will be moved into hooks in next commits)
+			disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
+			markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
+			if relayInfo.EncryptedReasoningScrubFallback && service.ShouldFallbackEncryptedReasoningError(newAPIError) {
+				logger.LogWarn(c, fmt.Sprintf(
+					"encrypted reasoning fallback triggered: from_channel=%d reason=%s",
+					channel.Id,
+					common.LocalLogPreview(newAPIError.MaskSensitiveErrorWithStatusCode()),
+				))
+				retryParam.PreferredChannelId = 0
+			}
+		}
 		if newAPIError == nil {
-			newAPIError = compatStreamRetryError(relayInfo)
-		}
-
-		// Compat hook: AfterChannelCall (tracks failures)
-		compat.Hooks().AfterChannelCall(c, relayInfo, channel, newAPIError)
-
-		if newAPIError == nil {
-			relayInfo.LastError = nil
-			clearCompatChannelFailure(channel.Id, relayInfo)
-			firstByteLatency := relayInfo.FirstResponseTime.Sub(relayInfo.StartTime)
-			if firstByteLatency < 0 {
-				firstByteLatency = 0
-			}
-			service.RecordAntiPoisonSuccess(channel.Id, channel.GetSetting(), firstByteLatency, time.Since(relayInfo.StartTime))
-			return
-		}
-
-		newAPIError = service.NormalizeViolationFeeError(newAPIError)
-		relayInfo.LastError = newAPIError
-
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-		if service.IsAntiPoisonValidationError(newAPIError) {
-			if retryParam.ExcludedChannelIds == nil {
-				retryParam.ExcludedChannelIds = make(map[int]bool)
-			}
-			retryParam.ExcludedChannelIds[channel.Id] = true
-		}
-
-		remainingRetries := maxRetryTimes - retryParam.GetRetry()
-		shouldRetryResult := shouldRetry(c, newAPIError, remainingRetries)
-
-		// Compat hook: OnRetryDecision (can override shouldRetry, adjust excludes/preferences)
-		finalShouldRetry := compat.Hooks().OnRetryDecision(c, relayInfo, channel, newAPIError, retryParam, shouldRetryResult)
-
-		if !finalShouldRetry {
 			break
 		}
-
-		// Legacy compat retry functions (will be moved into hooks in next commits)
-		disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
-		markChannelExcludedForCompatRetry(retryParam, channel, newAPIError)
-		if relayInfo.EncryptedReasoningScrubFallback && service.ShouldFallbackEncryptedReasoningError(newAPIError) {
-			logger.LogWarn(c, fmt.Sprintf(
-				"encrypted reasoning fallback triggered: from_channel=%d reason=%s",
-				channel.Id,
-				common.LocalLogPreview(newAPIError.MaskSensitiveErrorWithStatusCode()),
-			))
-			retryParam.PreferredChannelId = 0
+		if modelIndex < len(fallbackModels)-1 && shouldTryNextFallbackModel(c, newAPIError) {
+			continue
 		}
+		break
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -651,6 +688,122 @@ func markChannelExcludedForCompatRetry(retryParam *service.RetryParam, channel *
 		retryParam.ExcludedChannelIds = make(map[int]bool)
 	}
 	retryParam.ExcludedChannelIds[channel.Id] = true
+}
+
+func getProviderRoutingPolicy(c *gin.Context) *service.ProviderRoutingPolicy {
+	policy, ok := common.GetContextKeyType[*service.ProviderRoutingPolicy](c, constant.ContextKeyProviderRoutingPolicy)
+	if !ok || policy == nil || policy.Empty() {
+		return nil
+	}
+	return policy
+}
+
+func checkTokenTPMLimit(c *gin.Context, tokens int) bool {
+	limit := common.GetContextKeyInt(c, constant.ContextKeyTokenTPMLimit)
+	if limit <= 0 {
+		return true
+	}
+	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	return service.CheckAndRecordTokenTPM(tokenID, limit, tokens)
+}
+
+func getFallbackModels(c *gin.Context, primaryModel string) []string {
+	models := common.GetContextKeyStringSlice(c, constant.ContextKeyFallbackModels)
+	if len(models) == 0 {
+		return []string{primaryModel}
+	}
+	if models[0] != primaryModel && primaryModel != "" {
+		models = append([]string{primaryModel}, models...)
+	}
+	return dedupeRelayModels(models)
+}
+
+func dedupeRelayModels(models []string) []string {
+	deduped := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, modelName := range models {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			continue
+		}
+		key := strings.ToLower(modelName)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, modelName)
+	}
+	if len(deduped) == 0 && strings.TrimSpace(models[0]) != "" {
+		return []string{strings.TrimSpace(models[0])}
+	}
+	return deduped
+}
+
+func switchRelayFallbackModel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam, modelName string, promptTokens int, meta *types.TokenCountMeta) *types.NewAPIError {
+	if c == nil || info == nil || retryParam == nil || modelName == "" || modelName == info.OriginModelName {
+		return nil
+	}
+	if !tokenAllowsRelayModel(c, modelName) {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("fallback model %s is not allowed by token model limit", modelName),
+			types.ErrorCodeModelNotFound,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	}
+
+	info.OriginModelName = modelName
+	info.LastError = nil
+	info.RetryIndex = 0
+	if info.Request != nil {
+		info.Request.SetModelName(modelName)
+	}
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, modelName)
+	retryParam.ModelName = modelName
+	retryParam.SetRetry(0)
+	retryParam.ExcludedChannelIds = make(map[int]bool)
+	retryParam.PreferredChannelId = 0
+	retryParam.LastSelectedChannelId = 0
+
+	priceData, err := helper.ModelPriceHelper(c, info, promptTokens, meta)
+	if err != nil {
+		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+	}
+	if !priceData.FreeModel && info.Billing != nil {
+		if err := info.Billing.Reserve(priceData.QuotaToPreConsume); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+	}
+	logger.LogInfo(c, fmt.Sprintf("models fallback switched to model %s", modelName))
+	return nil
+}
+
+func tokenAllowsRelayModel(c *gin.Context, modelName string) bool {
+	if !common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+		return true
+	}
+	raw, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+	if !ok {
+		return false
+	}
+	limits, ok := raw.(map[string]bool)
+	if !ok {
+		return false
+	}
+	matchName := ratio_setting.FormatMatchingModelName(modelName)
+	return limits[matchName]
+}
+
+func shouldTryNextFallbackModel(c *gin.Context, err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	return shouldRetry(c, err, 1)
+}
+
+func isTruncationFallbackError(err *types.NewAPIError) bool {
+	return err != nil && err.GetErrorCode() == types.ErrorCodeTruncatedResponse
 }
 
 func compatRelayRetryBudget(info *relaycommon.RelayInfo, relayFormat types.RelayFormat) int {
@@ -1041,10 +1194,11 @@ func RelayTask(c *gin.Context) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:                   c,
+		TokenGroup:            relayInfo.TokenGroup,
+		ModelName:             relayInfo.OriginModelName,
+		Retry:                 common.GetPointer(0),
+		ProviderRoutingPolicy: getProviderRoutingPolicy(c),
 	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {

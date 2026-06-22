@@ -175,6 +175,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if token.RPMLimit < 0 || token.TPMLimit < 0 || token.ConcurrencyLimit < 0 {
+		common.ApiError(c, fmt.Errorf("令牌 RPM/TPM/并发限制不能为负数"))
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -221,6 +225,9 @@ func AddToken(c *gin.Context) {
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
+		RPMLimit:           token.RPMLimit,
+		TPMLimit:           token.TPMLimit,
+		ConcurrencyLimit:   token.ConcurrencyLimit,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -258,6 +265,10 @@ func UpdateToken(c *gin.Context) {
 	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		return
+	}
+	if token.RPMLimit < 0 || token.TPMLimit < 0 || token.ConcurrencyLimit < 0 {
+		common.ApiError(c, fmt.Errorf("令牌 RPM/TPM/并发限制不能为负数"))
 		return
 	}
 	if !token.UnlimitedQuota {
@@ -299,6 +310,9 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		cleanToken.RPMLimit = token.RPMLimit
+		cleanToken.TPMLimit = token.TPMLimit
+		cleanToken.ConcurrencyLimit = token.ConcurrencyLimit
 	}
 	err = cleanToken.Update()
 	if err != nil {

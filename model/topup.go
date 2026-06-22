@@ -167,7 +167,36 @@ func topUpQueryCutoff() int64 {
 	return common.GetTimestamp() - topUpQueryWindowSeconds
 }
 
-func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+type TopUpQueryOptions struct {
+	StartTime int64
+	EndTime   int64
+}
+
+func (options TopUpQueryOptions) apply(query *gorm.DB) *gorm.DB {
+	if options.StartTime > 0 {
+		query = query.Where("create_time >= ?", options.StartTime)
+	}
+	if options.EndTime > 0 {
+		query = query.Where("create_time <= ?", options.EndTime)
+	}
+	return query
+}
+
+func (options TopUpQueryOptions) withUserDefaultWindow() TopUpQueryOptions {
+	if options.StartTime <= 0 && options.EndTime <= 0 {
+		options.StartTime = topUpQueryCutoff()
+	}
+	return options
+}
+
+func firstTopUpQueryOptions(defaultOptions TopUpQueryOptions, options []TopUpQueryOptions) TopUpQueryOptions {
+	if len(options) == 0 {
+		return defaultOptions
+	}
+	return options[0]
+}
+
+func GetUserTopUps(userId int, pageInfo *common.PageInfo, options ...TopUpQueryOptions) (topups []*TopUp, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -179,17 +208,19 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 		}
 	}()
 
-	cutoff := topUpQueryCutoff()
+	queryOptions := firstTopUpQueryOptions(TopUpQueryOptions{}.withUserDefaultWindow(), options).withUserDefaultWindow()
 
 	// Get total count within transaction
-	err = tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, cutoff).Count(&total).Error
+	query := queryOptions.apply(tx.Model(&TopUp{}).Where("user_id = ?", userId))
+	err = query.Count(&total).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
 	// Get paginated topups within same transaction
-	err = tx.Where("user_id = ? AND create_time >= ?", userId, cutoff).Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
+	query = queryOptions.apply(tx.Where("user_id = ?", userId))
+	err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -204,7 +235,7 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 }
 
 // GetAllTopUps 获取全平台的充值记录（管理员使用，不限制时间窗口）
-func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func GetAllTopUps(pageInfo *common.PageInfo, options ...TopUpQueryOptions) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -215,12 +246,16 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 		}
 	}()
 
-	if err = tx.Model(&TopUp{}).Count(&total).Error; err != nil {
+	queryOptions := firstTopUpQueryOptions(TopUpQueryOptions{}, options)
+
+	query := queryOptions.apply(tx.Model(&TopUp{}))
+	if err = query.Count(&total).Error; err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
-	if err = tx.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	query = queryOptions.apply(tx.Model(&TopUp{}))
+	if err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
@@ -237,7 +272,7 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 const searchTopUpCountHardLimit = 10000
 
 // SearchUserTopUps 按订单号搜索某用户的充值记录
-func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo, options ...TopUpQueryOptions) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -248,7 +283,8 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 		}
 	}()
 
-	query := tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, topUpQueryCutoff())
+	queryOptions := firstTopUpQueryOptions(TopUpQueryOptions{}.withUserDefaultWindow(), options).withUserDefaultWindow()
+	query := queryOptions.apply(tx.Model(&TopUp{}).Where("user_id = ?", userId))
 	if keyword != "" {
 		pattern, perr := sanitizeLikePattern(keyword)
 		if perr != nil {
@@ -277,7 +313,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 }
 
 // SearchAllTopUps 按订单号搜索全平台充值记录（管理员使用，不限制时间窗口）
-func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchAllTopUps(keyword string, pageInfo *common.PageInfo, options ...TopUpQueryOptions) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -288,7 +324,8 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 		}
 	}()
 
-	query := tx.Model(&TopUp{})
+	queryOptions := firstTopUpQueryOptions(TopUpQueryOptions{}, options)
+	query := queryOptions.apply(tx.Model(&TopUp{}))
 	if keyword != "" {
 		pattern, perr := sanitizeLikePattern(keyword)
 		if perr != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/pkg/compat"
 	"github.com/QuantumNous/new-api/pkg/compat/errornorm"
+	"github.com/QuantumNous/new-api/pkg/compat/toolschema"
 	"github.com/QuantumNous/new-api/pkg/compat/pricesync"
 	"github.com/QuantumNous/new-api/pkg/compat/scheduler"
 	"github.com/QuantumNous/new-api/pkg/compat/ua"
@@ -337,6 +338,7 @@ func InitResources() error {
 
 	// Register compat hooks (Step 3: overlay layer)
 	compat.Register(errornorm.New())
+	compat.Register(toolschema.New())
 
 	// Initialize errornorm DB-backed rules store (Step 4)
 	if err := errornorm.EnsureSchema(model.DB); err != nil {

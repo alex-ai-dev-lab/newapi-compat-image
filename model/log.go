@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
 
@@ -261,15 +260,18 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 	}
-	err := LOG_DB.Create(log).Error
-	if err != nil {
-		logger.LogError(c, "failed to record log: "+err.Error())
+	export := consumeLogExport{
+		UserId:    userId,
+		Username:  username,
+		ModelName: params.ModelName,
+		Quota:     params.Quota,
+		Timestamp: common.GetTimestamp(),
+		Tokens:    params.PromptTokens + params.CompletionTokens,
 	}
-	if common.DataExportEnabled {
-		gopool.Go(func() {
-			LogQuotaData(userId, username, params.ModelName, params.Quota, common.GetTimestamp(), params.PromptTokens+params.CompletionTokens)
-		})
+	if enqueueConsumeLog(c, log, export) {
+		return
 	}
+	recordConsumeLogSync(c, log, export)
 }
 
 type RecordTaskBillingLogParams struct {

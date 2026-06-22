@@ -86,6 +86,9 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastDetectedModels []string      `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
 	UpstreamModelUpdateLastRemovedModels  []string      `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string      `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
+	MockStatusCode                        int           `json:"mock_status_code,omitempty"`                           // Mock 渠道返回状态码，默认 200
+	MockContent                           string        `json:"mock_content,omitempty"`                               // Mock 渠道响应文本
+	MockLatencyMs                         int           `json:"mock_latency_ms,omitempty"`                            // Mock 渠道人为延迟，最大 5000ms
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

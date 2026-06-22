@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -22,6 +23,8 @@ type RetryParam struct {
 	PreferredChannelId            int
 	RequireClaudeThinkingSupport  bool
 	RequireOpenAIResponsesSupport bool
+	LastSelectedChannelId         int
+	ProviderRoutingPolicy         *ProviderRoutingPolicy
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -96,7 +99,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		if preferredErr == nil && preferred != nil &&
 			preferred.Status == common.ChannelStatusEnabled &&
 			model.IsChannelEnabledForGroupModel(param.TokenGroup, param.ModelName, preferred.Id) &&
+			ChannelMatchesProviderRoutingPolicy(preferred, param.ProviderRoutingPolicy) &&
 			channelMatchesRetryRequirements(param, preferred) {
+			param.LastSelectedChannelId = preferred.Id
 			return preferred, selectGroup, nil
 		}
 	}
@@ -109,10 +114,12 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		if param.PreferredChannelId > 0 && !param.ExcludedChannelIds[param.PreferredChannelId] {
 			preferred, preferredErr := model.CacheGetChannel(param.PreferredChannelId)
 			if preferredErr == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+				ChannelMatchesProviderRoutingPolicy(preferred, param.ProviderRoutingPolicy) &&
 				channelMatchesRetryRequirements(param, preferred) {
 				for _, autoGroup := range autoGroups {
 					if model.IsChannelEnabledForGroupModel(autoGroup, param.ModelName, preferred.Id) {
 						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
+						param.LastSelectedChannelId = preferred.Id
 						return preferred, autoGroup, nil
 					}
 				}
@@ -185,6 +192,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			return nil, param.TokenGroup, err
 		}
 	}
+	if channel != nil {
+		param.LastSelectedChannelId = channel.Id
+	}
 	return channel, selectGroup, nil
 }
 
@@ -220,7 +230,7 @@ func getRandomSatisfiedChannelWithRequirements(param *RetryParam, group string, 
 		return nil, errors.New("retry param is nil")
 	}
 	if !param.RequireClaudeThinkingSupport && !param.RequireOpenAIResponsesSupport {
-		return model.GetRandomSatisfiedChannelExcluding(group, param.ModelName, retry, param.ExcludedChannelIds)
+		return model.GetRandomSatisfiedChannelExcludingWithPolicy(group, param.ModelName, retry, param.ExcludedChannelIds, param.ProviderRoutingPolicy)
 	}
 	excluded := param.ExcludedChannelIds
 	if excluded == nil {
@@ -228,7 +238,7 @@ func getRandomSatisfiedChannelWithRequirements(param *RetryParam, group string, 
 		param.ExcludedChannelIds = excluded
 	}
 	for attempts := 0; attempts < 64; attempts++ {
-		channel, err := model.GetRandomSatisfiedChannelExcluding(group, param.ModelName, retry, excluded)
+		channel, err := model.GetRandomSatisfiedChannelExcludingWithPolicy(group, param.ModelName, retry, excluded, param.ProviderRoutingPolicy)
 		if err != nil || channel == nil {
 			return channel, err
 		}
@@ -238,4 +248,108 @@ func getRandomSatisfiedChannelWithRequirements(param *RetryParam, group string, 
 		excluded[channel.Id] = true
 	}
 	return nil, nil
+}
+
+type ProviderRoutingPolicy struct {
+	Only   []string
+	Ignore []string
+	Order  []string
+}
+
+func (p *ProviderRoutingPolicy) Empty() bool {
+	return p == nil || (len(p.Only) == 0 && len(p.Ignore) == 0 && len(p.Order) == 0)
+}
+
+func ChannelMatchesProviderRoutingPolicy(channel *model.Channel, policy *ProviderRoutingPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	return policy.Matches(channel)
+}
+
+func ProviderRoutingOrderRank(channel *model.Channel, policy *ProviderRoutingPolicy) int {
+	if policy == nil {
+		return 0
+	}
+	return policy.OrderRank(channel)
+}
+
+func (p *ProviderRoutingPolicy) Matches(channel *model.Channel) bool {
+	if p == nil || p.Empty() || channel == nil {
+		return true
+	}
+	if len(p.Only) > 0 && !channelMatchesAnyProviderSelector(channel, p.Only) {
+		return false
+	}
+	if len(p.Ignore) > 0 && channelMatchesAnyProviderSelector(channel, p.Ignore) {
+		return false
+	}
+	return true
+}
+
+func (p *ProviderRoutingPolicy) OrderRank(channel *model.Channel) int {
+	if p == nil {
+		return 0
+	}
+	if len(p.Order) == 0 || channel == nil {
+		return len(p.Order)
+	}
+	for i, selector := range p.Order {
+		if channelMatchesProviderSelector(channel, selector) {
+			return i
+		}
+	}
+	return len(p.Order)
+}
+
+func channelMatchesAnyProviderSelector(channel *model.Channel, selectors []string) bool {
+	for _, selector := range selectors {
+		if channelMatchesProviderSelector(channel, selector) {
+			return true
+		}
+	}
+	return false
+}
+
+func channelMatchesProviderSelector(channel *model.Channel, selector string) bool {
+	normalized := normalizeProviderSelector(selector)
+	if normalized == "" || channel == nil {
+		return false
+	}
+	candidates := []string{
+		normalizeProviderSelector(constant.GetChannelTypeName(channel.Type)),
+		normalizeProviderSelector(channel.Name),
+		normalizeProviderSelector(channel.GetTag()),
+		normalizeProviderSelector(channel.GetBaseURL()),
+		normalizeProviderSelector(channel.GetBaseURLHost()),
+		normalizeProviderSelector(channel.IdString()),
+	}
+	for _, candidate := range candidates {
+		if candidate == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeProviderSelector(selector string) string {
+	selector = strings.TrimSpace(strings.ToLower(selector))
+	selector = strings.TrimPrefix(selector, "provider:")
+	selector = strings.TrimPrefix(selector, "type:")
+	selector = strings.TrimPrefix(selector, "channel:")
+	selector = strings.TrimPrefix(selector, "tag:")
+	selector = strings.TrimPrefix(selector, "id:")
+	selector = strings.TrimPrefix(selector, "#")
+	selector = strings.TrimSuffix(selector, "/")
+	return selector
+}
+
+func ExcludeChannelForRetry(param *RetryParam, channelID int) {
+	if param == nil || channelID <= 0 {
+		return
+	}
+	if param.ExcludedChannelIds == nil {
+		param.ExcludedChannelIds = make(map[int]bool)
+	}
+	param.ExcludedChannelIds[channelID] = true
 }

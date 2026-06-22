@@ -441,6 +441,10 @@ func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
+	queryOptions, ok := parseTopUpQueryOptions(c)
+	if !ok {
+		return
+	}
 
 	var (
 		topups []*model.TopUp
@@ -448,9 +452,9 @@ func GetUserTopUps(c *gin.Context) {
 		err    error
 	)
 	if keyword != "" {
-		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo)
+		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo, queryOptions)
 	} else {
-		topups, total, err = model.GetUserTopUps(userId, pageInfo)
+		topups, total, err = model.GetUserTopUps(userId, pageInfo, queryOptions)
 	}
 	if err != nil {
 		common.ApiError(c, err)
@@ -466,6 +470,10 @@ func GetUserTopUps(c *gin.Context) {
 func GetAllTopUps(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
+	queryOptions, ok := parseTopUpQueryOptions(c)
+	if !ok {
+		return
+	}
 
 	var (
 		topups []*model.TopUp
@@ -473,9 +481,9 @@ func GetAllTopUps(c *gin.Context) {
 		err    error
 	)
 	if keyword != "" {
-		topups, total, err = model.SearchAllTopUps(keyword, pageInfo)
+		topups, total, err = model.SearchAllTopUps(keyword, pageInfo, queryOptions)
 	} else {
-		topups, total, err = model.GetAllTopUps(pageInfo)
+		topups, total, err = model.GetAllTopUps(pageInfo, queryOptions)
 	}
 	if err != nil {
 		common.ApiError(c, err)
@@ -485,6 +493,30 @@ func GetAllTopUps(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(topups)
 	common.ApiSuccess(c, pageInfo)
+}
+
+func parseTopUpQueryOptions(c *gin.Context) (model.TopUpQueryOptions, bool) {
+	var options model.TopUpQueryOptions
+	var err error
+	if raw := c.Query("start_time"); raw != "" {
+		options.StartTime, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || options.StartTime < 0 {
+			common.ApiErrorMsg(c, "start_time 参数错误")
+			return options, false
+		}
+	}
+	if raw := c.Query("end_time"); raw != "" {
+		options.EndTime, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || options.EndTime < 0 {
+			common.ApiErrorMsg(c, "end_time 参数错误")
+			return options, false
+		}
+	}
+	if options.StartTime > 0 && options.EndTime > 0 && options.StartTime > options.EndTime {
+		common.ApiErrorMsg(c, "start_time 不能晚于 end_time")
+		return options, false
+	}
+	return options, true
 }
 
 type AdminCompleteTopupRequest struct {

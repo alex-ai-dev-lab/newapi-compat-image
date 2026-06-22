@@ -121,6 +121,7 @@ fi
 
 exec "$@"
 EOF
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -134,6 +134,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Default: https://api.replicate.com',
     },
   },
+  58: {
+    id: 58,
+    name: CHANNEL_TYPES[58],
+    icon: 'openai',
+    defaultBaseUrl: 'http://mock.local',
+    hints: {
+      key: 'Any non-empty value',
+      models: 'mock-ok,mock-error',
+      other: '{"mock_status_code":200,"mock_content":"mock response"}',
+    },
+  },
 }
 
 /**

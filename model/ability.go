@@ -3,10 +3,12 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -108,6 +110,10 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 }
 
 func GetChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+	return GetChannelExcludingWithPolicy(group, model, retry, excluded, nil)
+}
+
+func GetChannelExcludingWithPolicy(group string, model string, retry int, excluded map[int]bool, policy ChannelRoutingPolicy) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -139,6 +145,8 @@ func GetChannelExcluding(group string, model string, retry int, excluded map[int
 		}
 		abilities = filtered
 	}
+	abilities = filterRandomSelectableAbilities(abilities)
+	abilities = filterProviderRoutingAbilities(abilities, policy)
 	if len(excluded) > 0 && len(abilities) > 0 {
 		targetPriority := abilityPriority(abilities[0])
 		filtered := abilities[:0]
@@ -149,6 +157,7 @@ func GetChannelExcluding(group string, model string, retry int, excluded map[int
 		}
 		abilities = filtered
 	}
+	abilities = keepBestProviderRoutingAbilityOrderRank(abilities, policy)
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
@@ -171,6 +180,101 @@ func GetChannelExcluding(group string, model string, retry int, excluded map[int
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterRandomSelectableAbilities(abilities []Ability) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+	channelIDs := make([]int, 0, len(abilities))
+	for _, ability := range abilities {
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var selectableIDs []int
+	if err := DB.Model(&Channel{}).
+		Where("id IN ? AND type <> ?", channelIDs, constant.ChannelTypeMock).
+		Pluck("id", &selectableIDs).Error; err != nil {
+		common.SysError(fmt.Sprintf("failed to filter random selectable channels: %v", err))
+		return abilities
+	}
+	selectable := make(map[int]struct{}, len(selectableIDs))
+	for _, id := range selectableIDs {
+		selectable[id] = struct{}{}
+	}
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		if _, ok := selectable[ability.ChannelId]; ok {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
+}
+
+func filterProviderRoutingAbilities(abilities []Ability, policy ChannelRoutingPolicy) []Ability {
+	if len(abilities) == 0 || policy == nil || policy.Empty() {
+		return abilities
+	}
+	channelIDs := make([]int, 0, len(abilities))
+	for _, ability := range abilities {
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var channels []Channel
+	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		common.SysError(fmt.Sprintf("failed to filter provider routing channels: %v", err))
+		return abilities
+	}
+	matches := make(map[int]struct{}, len(channels))
+	order := make(map[int]int, len(channels))
+	for i := range channels {
+		ch := &channels[i]
+		if policy.Matches(ch) {
+			matches[ch.Id] = struct{}{}
+			order[ch.Id] = policy.OrderRank(ch)
+		}
+	}
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		if _, ok := matches[ability.ChannelId]; ok {
+			filtered = append(filtered, ability)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return order[filtered[i].ChannelId] < order[filtered[j].ChannelId]
+	})
+	return filtered
+}
+
+func keepBestProviderRoutingAbilityOrderRank(abilities []Ability, policy ChannelRoutingPolicy) []Ability {
+	if len(abilities) < 2 || policy == nil || policy.Empty() {
+		return abilities
+	}
+	channelIDs := make([]int, 0, len(abilities))
+	for _, ability := range abilities {
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var channels []Channel
+	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		common.SysError(fmt.Sprintf("failed to apply provider routing order: %v", err))
+		return abilities
+	}
+	order := make(map[int]int, len(channels))
+	for i := range channels {
+		ch := &channels[i]
+		order[ch.Id] = policy.OrderRank(ch)
+	}
+	bestRank := order[abilities[0].ChannelId]
+	for _, ability := range abilities[1:] {
+		if rank := order[ability.ChannelId]; rank < bestRank {
+			bestRank = rank
+		}
+	}
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		if order[ability.ChannelId] == bestRank {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 func abilityPriority(ability Ability) int64 {

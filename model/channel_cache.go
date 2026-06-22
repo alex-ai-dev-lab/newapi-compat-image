@@ -99,9 +99,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 }
 
 func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, excluded map[int]bool) (*Channel, error) {
+	return GetRandomSatisfiedChannelExcludingWithPolicy(group, model, retry, excluded, nil)
+}
+
+func GetRandomSatisfiedChannelExcludingWithPolicy(group string, model string, retry int, excluded map[int]bool, policy ChannelRoutingPolicy) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannelExcluding(group, model, retry, excluded)
+		return GetChannelExcludingWithPolicy(group, model, retry, excluded, policy)
 	}
 
 	channelSyncLock.RLock()
@@ -110,12 +114,16 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, e
 	// First, try to find channels with the exact model name.
 	channels := group2model2channels[group][model]
 	channels = filterExcludedChannelIDs(channels, excluded)
+	channels = filterRandomSelectableChannelIDs(channels)
+	channels = filterProviderRoutingChannelIDs(channels, policy)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = group2model2channels[group][normalizedModel]
 		channels = filterExcludedChannelIDs(channels, excluded)
+		channels = filterRandomSelectableChannelIDs(channels)
+		channels = filterProviderRoutingChannelIDs(channels, policy)
 	}
 
 	if len(channels) == 0 {
@@ -165,9 +173,16 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, e
 			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
 		}
 	}
+	sortChannelsByProviderRoutingOrder(targetChannels, policy)
+	targetChannels = keepBestProviderRoutingOrderRank(targetChannels, policy)
 
 	if len(targetChannels) == 0 {
 		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
+	}
+
+	sumWeight = 0
+	for _, channel := range targetChannels {
+		sumWeight += channel.GetWeight()
 	}
 
 	// smoothing factor and adjustment
@@ -208,6 +223,36 @@ func filterExcludedChannelIDs(channels []int, excluded map[int]bool) []int {
 	filtered := make([]int, 0, len(channels))
 	for _, channelID := range channels {
 		if excluded[channelID] {
+			continue
+		}
+		filtered = append(filtered, channelID)
+	}
+	return filtered
+}
+
+func filterRandomSelectableChannelIDs(channels []int) []int {
+	if len(channels) == 0 {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		channel, ok := channelsIDM[channelID]
+		if !ok || channel.Type == constant.ChannelTypeMock {
+			continue
+		}
+		filtered = append(filtered, channelID)
+	}
+	return filtered
+}
+
+func filterProviderRoutingChannelIDs(channels []int, policy ChannelRoutingPolicy) []int {
+	if len(channels) == 0 || policy == nil || policy.Empty() {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		channel, ok := channelsIDM[channelID]
+		if !ok || !policy.Matches(channel) {
 			continue
 		}
 		filtered = append(filtered, channelID)
