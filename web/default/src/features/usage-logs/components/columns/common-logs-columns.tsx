@@ -501,6 +501,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   copyText={sensitiveVisible ? tokenName : undefined}
                   size='sm'
                   showDot={false}
+                  truncateLabel={false}
                   className='border-border/60 bg-muted/30 text-foreground h-7 max-w-[260px] gap-1.5 overflow-hidden border px-2.5 py-0 [font-family:var(--font-body)]'
                 />
               </TooltipTrigger>

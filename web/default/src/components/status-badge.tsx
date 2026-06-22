@@ -116,6 +116,7 @@ export interface StatusBadgeProps extends Omit<
   copyable?: boolean
   copyText?: string
   autoColor?: string
+  truncateLabel?: boolean
 }
 
 export function StatusBadge({
@@ -129,6 +130,7 @@ export function StatusBadge({
   copyable = true,
   copyText,
   autoColor,
+  truncateLabel = true,
   className,
   onClick,
   ...props
@@ -148,7 +150,10 @@ export function StatusBadge({
   }
 
   const content =
-    children ?? (label ? <span className='truncate'>{label}</span> : null)
+    children ??
+    (label ? (
+      <span className={truncateLabel ? 'truncate' : undefined}>{label}</span>
+    ) : null)
 
   return (
     <span
