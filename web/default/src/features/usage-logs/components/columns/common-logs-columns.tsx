@@ -491,7 +491,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       if (groupRatioText) metaParts.push(groupRatioText)
 
       return (
-        <div className='flex max-w-[172px] flex-col gap-0.5'>
+        <div className='flex max-w-[260px] flex-col gap-0.5'>
           <TooltipProvider delay={300}>
             <Tooltip>
               <TooltipTrigger render={<div className='max-w-full' />}>
@@ -501,7 +501,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   copyText={sensitiveVisible ? tokenName : undefined}
                   size='sm'
                   showDot={false}
-                  className='border-border/60 bg-muted/30 text-foreground h-7 max-w-[172px] gap-1.5 overflow-hidden border px-2.5 py-0 [font-family:var(--font-body)]'
+                  className='border-border/60 bg-muted/30 text-foreground h-7 max-w-[260px] gap-1.5 overflow-hidden border px-2.5 py-0 [font-family:var(--font-body)]'
                 />
               </TooltipTrigger>
               {sensitiveVisible && tokenName.length > 16 && (
@@ -520,8 +520,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       )
     },
     meta: { label: t('Token') },
-    size: 164,
-    maxSize: 180,
+    size: 240,
+    maxSize: 280,
   })
 
   columns.push(
@@ -537,7 +537,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const modelInfo = formatModelName(log)
 
         return (
-          <div className='flex w-fit max-w-[172px] flex-col gap-0.5'>
+          <div className='flex w-fit max-w-[260px] flex-col gap-0.5'>
             <ModelBadge
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
@@ -546,8 +546,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
       },
       meta: { label: t('Model'), mobileTitle: true },
-      size: 164,
-      maxSize: 180,
+      size: 240,
+      maxSize: 280,
     },
 
     {
