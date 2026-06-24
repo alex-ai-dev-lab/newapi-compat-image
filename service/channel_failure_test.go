@@ -43,3 +43,15 @@ func TestTLSVerificationErrorIsNotChannelFailure(t *testing.T) {
 		t.Fatal("TLS verification errors should not be treated as channel failures")
 	}
 }
+
+func TestUnsupportedUserParameterIsNotModelScopedChannelFailure(t *testing.T) {
+	err := types.NewErrorWithStatusCode(
+		errors.New("unsupported parameter: temperature"),
+		types.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+	)
+
+	if IsModelScopedChannelFailureError(err) {
+		t.Fatal("4xx user request errors should not disable a channel-model")
+	}
+}

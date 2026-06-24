@@ -253,6 +253,14 @@ export interface ChannelModelStatusResponse {
   data?: ChannelModelStatus[]
 }
 
+export const ChannelModelStatusEnum = {
+  Enabled: 1,
+  ManualDisabled: 2,
+  AutoDisabled: 3,
+} as const
+
+export type ChannelModelStatusAction = 'enable' | 'disable' | 'delete'
+
 // ============================================================================
 // API Request Parameters
 // ============================================================================

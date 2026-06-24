@@ -316,7 +316,7 @@ export async function manageChannelModelStatus(
   data: {
     group: string
     model: string
-    action: 'enable' | 'disable' | 'clear' | 'delete'
+    action: 'enable' | 'disable' | 'delete'
     reason?: string
   }
 ): Promise<{ success: boolean; message?: string }> {

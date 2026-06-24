@@ -26,6 +26,7 @@ func InitChannelCache() {
 	newChannelId2channel := make(map[int]*Channel)
 	var channels []*Channel
 	DB.Find(&channels)
+	ReloadChannelModelStatusCache()
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 	}

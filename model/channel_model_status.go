@@ -1,11 +1,14 @@
 package model
 
 import (
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ChannelModelStatus struct {
@@ -31,6 +34,30 @@ type ChannelModelStatusView struct {
 	Configured bool `json:"configured"`
 }
 
+type ChannelModelFailureUpdate struct {
+	ChannelId           int
+	Group               string
+	ModelName           string
+	LastError           string
+	LastStatusCode      int
+	LastRequestId       string
+	LastEndpoint        string
+	AutoDisableEligible bool
+	ForceDisabled       bool
+	FailureThreshold    int
+	CooldownSeconds     int64
+}
+
+type ChannelModelSuccessUpdate struct {
+	ChannelId     int
+	Group         string
+	ModelName     string
+	LastRequestId string
+	LastEndpoint  string
+}
+
+var channelModelStatusCache sync.Map
+
 func normalizeChannelModelStatusGroup(group string) string {
 	group = strings.TrimSpace(group)
 	if group == "" || strings.EqualFold(group, "auto") {
@@ -47,13 +74,85 @@ func channelModelStatusKey(group, modelName string) string {
 	return normalizeChannelModelStatusGroup(group) + "\x00" + normalizeChannelModelStatusName(modelName)
 }
 
+func channelModelStatusCacheKey(channelID int, group, modelName string) string {
+	return strconv.Itoa(channelID) + "\x00" + channelModelStatusKey(group, modelName)
+}
+
+func normalizeChannelModelStatusRecord(record ChannelModelStatus) ChannelModelStatus {
+	record.Group = normalizeChannelModelStatusGroup(record.Group)
+	record.ModelName = normalizeChannelModelStatusName(record.ModelName)
+	if record.Status == common.ChannelStatusUnknown {
+		record.Status = common.ChannelStatusEnabled
+	}
+	return record
+}
+
+func cacheStoreChannelModelStatus(record ChannelModelStatus) {
+	record = normalizeChannelModelStatusRecord(record)
+	if record.ChannelId <= 0 || record.ModelName == "" {
+		return
+	}
+	channelModelStatusCache.Store(channelModelStatusCacheKey(record.ChannelId, record.Group, record.ModelName), record)
+}
+
+func cacheDeleteChannelModelStatus(channelID int, group, modelName string) {
+	channelModelStatusCache.Delete(channelModelStatusCacheKey(channelID, group, modelName))
+}
+
+func ReloadChannelModelStatusCache() {
+	var records []ChannelModelStatus
+	if DB != nil {
+		_ = DB.Find(&records).Error
+	}
+	next := sync.Map{}
+	for _, record := range records {
+		record = normalizeChannelModelStatusRecord(record)
+		if record.ChannelId <= 0 || record.ModelName == "" {
+			continue
+		}
+		next.Store(channelModelStatusCacheKey(record.ChannelId, record.Group, record.ModelName), record)
+	}
+	channelModelStatusCache = next
+}
+
+func HasChannelModelStatusCached(channelID int, group, modelName string) bool {
+	if !common.MemoryCacheEnabled {
+		return false
+	}
+	_, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+	return ok
+}
+
+func isChannelModelStatusDisabled(record ChannelModelStatus, now int64) bool {
+	switch record.Status {
+	case common.ChannelStatusManuallyDisabled:
+		return true
+	case common.ChannelStatusAutoDisabled:
+		return record.DisabledUntil <= 0 || now < record.DisabledUntil
+	default:
+		return false
+	}
+}
+
 func IsChannelModelDisabledForGroup(channelID int, group, modelName string) bool {
-	if DB == nil || channelID <= 0 {
+	if channelID <= 0 {
 		return false
 	}
 	group = normalizeChannelModelStatusGroup(group)
 	modelName = normalizeChannelModelStatusName(modelName)
 	if modelName == "" {
+		return false
+	}
+	now := common.GetTimestamp()
+	if common.MemoryCacheEnabled {
+		value, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+		if !ok {
+			return false
+		}
+		record, ok := value.(ChannelModelStatus)
+		return ok && isChannelModelStatusDisabled(record, now)
+	}
+	if DB == nil {
 		return false
 	}
 	var status ChannelModelStatus
@@ -61,11 +160,11 @@ func IsChannelModelDisabledForGroup(channelID int, group, modelName string) bool
 	if err != nil {
 		return false
 	}
-	return status.Status == common.ChannelStatusAutoDisabled || status.Status == common.ChannelStatusManuallyDisabled
+	return isChannelModelStatusDisabled(status, now)
 }
 
 func FilterChannelIDsByModelStatus(channelIDs []int, group, modelName string) []int {
-	if DB == nil || len(channelIDs) == 0 {
+	if len(channelIDs) == 0 {
 		return channelIDs
 	}
 	group = normalizeChannelModelStatusGroup(group)
@@ -73,16 +172,33 @@ func FilterChannelIDsByModelStatus(channelIDs []int, group, modelName string) []
 	if modelName == "" {
 		return channelIDs
 	}
-	var disabledIDs []int
-	err := DB.Model(&ChannelModelStatus{}).
-		Where("channel_id IN ? AND "+commonGroupCol+" = ? AND model_name = ? AND status IN ?", channelIDs, group, modelName, []int{common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled}).
-		Pluck("channel_id", &disabledIDs).Error
-	if err != nil || len(disabledIDs) == 0 {
-		return channelIDs
+	now := common.GetTimestamp()
+	disabled := make(map[int]struct{})
+	if common.MemoryCacheEnabled {
+		for _, channelID := range channelIDs {
+			value, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+			if !ok {
+				continue
+			}
+			record, ok := value.(ChannelModelStatus)
+			if ok && isChannelModelStatusDisabled(record, now) {
+				disabled[channelID] = struct{}{}
+			}
+		}
+	} else if DB != nil {
+		var records []ChannelModelStatus
+		err := DB.Where("channel_id IN ? AND "+commonGroupCol+" = ? AND model_name = ? AND status IN ?", channelIDs, group, modelName, []int{common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled}).Find(&records).Error
+		if err != nil {
+			return channelIDs
+		}
+		for _, record := range records {
+			if isChannelModelStatusDisabled(record, now) {
+				disabled[record.ChannelId] = struct{}{}
+			}
+		}
 	}
-	disabled := make(map[int]struct{}, len(disabledIDs))
-	for _, id := range disabledIDs {
-		disabled[id] = struct{}{}
+	if len(disabled) == 0 {
+		return channelIDs
 	}
 	filtered := make([]int, 0, len(channelIDs))
 	for _, id := range channelIDs {
@@ -104,8 +220,7 @@ func ListChannelModelStatuses(channel *Channel) ([]ChannelModelStatusView, error
 	}
 	byKey := make(map[string]ChannelModelStatus, len(records))
 	for _, record := range records {
-		record.Group = normalizeChannelModelStatusGroup(record.Group)
-		record.ModelName = normalizeChannelModelStatusName(record.ModelName)
+		record = normalizeChannelModelStatusRecord(record)
 		byKey[channelModelStatusKey(record.Group, record.ModelName)] = record
 	}
 
@@ -139,6 +254,7 @@ func ListChannelModelStatuses(channel *Channel) ([]ChannelModelStatusView, error
 		}
 	}
 	for _, record := range records {
+		record = normalizeChannelModelStatusRecord(record)
 		key := channelModelStatusKey(record.Group, record.ModelName)
 		if _, ok := seen[key]; ok {
 			continue
@@ -151,40 +267,127 @@ func ListChannelModelStatuses(channel *Channel) ([]ChannelModelStatusView, error
 	return views, nil
 }
 
-func SaveChannelModelStatus(status *ChannelModelStatus) error {
-	if status == nil {
-		return nil
-	}
-	now := common.GetTimestamp()
-	status.Group = normalizeChannelModelStatusGroup(status.Group)
-	status.ModelName = normalizeChannelModelStatusName(status.ModelName)
-	if status.ModelName == "" || status.ChannelId <= 0 {
-		return nil
-	}
-	existing := ChannelModelStatus{}
-	err := DB.Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", status.ChannelId, status.Group, status.ModelName).First(&existing).Error
-	if err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return err
-		}
-		if status.CreatedTime == 0 {
-			status.CreatedTime = now
-		}
-		status.UpdatedTime = now
-		return DB.Create(status).Error
-	}
-	status.CreatedTime = existing.CreatedTime
-	status.UpdatedTime = now
-	return DB.Save(status).Error
-}
-
 func GetChannelModelStatus(channelID int, group, modelName string) (*ChannelModelStatus, error) {
 	status := &ChannelModelStatus{}
 	err := DB.Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", channelID, normalizeChannelModelStatusGroup(group), normalizeChannelModelStatusName(modelName)).First(status).Error
 	if err != nil {
 		return nil, err
 	}
+	*status = normalizeChannelModelStatusRecord(*status)
 	return status, nil
+}
+
+func UpsertChannelModelFailure(update ChannelModelFailureUpdate) error {
+	update.Group = normalizeChannelModelStatusGroup(update.Group)
+	update.ModelName = normalizeChannelModelStatusName(update.ModelName)
+	if update.ChannelId <= 0 || update.ModelName == "" {
+		return nil
+	}
+	if update.FailureThreshold < 1 {
+		update.FailureThreshold = 1
+	}
+	now := common.GetTimestamp()
+	disabledUntil := int64(0)
+	if update.CooldownSeconds > 0 {
+		disabledUntil = now + update.CooldownSeconds
+	}
+	initialStatus := common.ChannelStatusEnabled
+	initialDisabledAt := int64(0)
+	initialDisabledBy := ""
+	if update.ForceDisabled || (update.AutoDisableEligible && update.FailureThreshold <= 1) {
+		initialStatus = common.ChannelStatusAutoDisabled
+		initialDisabledAt = now
+		initialDisabledBy = "auto"
+	}
+	record := ChannelModelStatus{
+		ChannelId:      update.ChannelId,
+		Group:          update.Group,
+		ModelName:      update.ModelName,
+		Status:         initialStatus,
+		FailureCount:   1,
+		LastError:      strings.TrimSpace(update.LastError),
+		LastStatusCode: update.LastStatusCode,
+		LastRequestId:  strings.TrimSpace(update.LastRequestId),
+		LastEndpoint:   strings.TrimSpace(update.LastEndpoint),
+		DisabledUntil:  disabledUntil,
+		LastDisabledAt: initialDisabledAt,
+		LastDisabledBy: initialDisabledBy,
+		CreatedTime:    now,
+		UpdatedTime:    now,
+	}
+	disableCondition := "CASE WHEN ? THEN ? WHEN ? AND failure_count + 1 >= ? THEN ? ELSE status END"
+	disabledUntilExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE disabled_until END"
+	disabledAtExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_at END"
+	disabledByExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_by END"
+	assignments := map[string]interface{}{
+		"failure_count":    gorm.Expr("failure_count + 1"),
+		"last_error":       record.LastError,
+		"last_status_code": record.LastStatusCode,
+		"last_request_id":  record.LastRequestId,
+		"last_endpoint":    record.LastEndpoint,
+		"updated_time":     now,
+		"status":           gorm.Expr(disableCondition, update.ForceDisabled, common.ChannelStatusAutoDisabled, update.AutoDisableEligible, update.FailureThreshold, common.ChannelStatusAutoDisabled),
+		"disabled_until":   gorm.Expr(disabledUntilExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, disabledUntil),
+		"last_disabled_at": gorm.Expr(disabledAtExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, now),
+		"last_disabled_by": gorm.Expr(disabledByExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, "auto"),
+	}
+	err := DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "channel_id"},
+			{Name: "group"},
+			{Name: "model_name"},
+		},
+		DoUpdates: clause.Assignments(assignments),
+	}).Create(&record).Error
+	if err != nil {
+		return err
+	}
+	if refreshed, refreshErr := GetChannelModelStatus(update.ChannelId, update.Group, update.ModelName); refreshErr == nil {
+		cacheStoreChannelModelStatus(*refreshed)
+	}
+	return nil
+}
+
+func RecordChannelModelSuccess(update ChannelModelSuccessUpdate) error {
+	update.Group = normalizeChannelModelStatusGroup(update.Group)
+	update.ModelName = normalizeChannelModelStatusName(update.ModelName)
+	if update.ChannelId <= 0 || update.ModelName == "" {
+		return nil
+	}
+	now := common.GetTimestamp()
+	updates := map[string]interface{}{
+		"success_count":   gorm.Expr("success_count + 1"),
+		"failure_count":   0,
+		"last_request_id": strings.TrimSpace(update.LastRequestId),
+		"last_endpoint":   strings.TrimSpace(update.LastEndpoint),
+		"updated_time":    now,
+		"status":          gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", common.ChannelStatusAutoDisabled, common.ChannelStatusEnabled),
+		"last_error":      gorm.Expr("CASE WHEN status = ? THEN ? ELSE last_error END", common.ChannelStatusAutoDisabled, ""),
+		"last_status_code": gorm.Expr(
+			"CASE WHEN status = ? THEN ? ELSE last_status_code END",
+			common.ChannelStatusAutoDisabled,
+			0,
+		),
+		"disabled_until": gorm.Expr("CASE WHEN status = ? THEN ? ELSE disabled_until END", common.ChannelStatusAutoDisabled, 0),
+		"last_disabled_by": gorm.Expr(
+			"CASE WHEN status = ? THEN ? ELSE last_disabled_by END",
+			common.ChannelStatusAutoDisabled,
+			"",
+		),
+	}
+	tx := DB.Model(&ChannelModelStatus{}).
+		Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", update.ChannelId, update.Group, update.ModelName).
+		Updates(updates)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return nil
+	}
+	if refreshed, refreshErr := GetChannelModelStatus(update.ChannelId, update.Group, update.ModelName); refreshErr == nil {
+		cacheStoreChannelModelStatus(*refreshed)
+	}
+	return nil
 }
 
 func UpdateChannelModelStatus(channelID int, group, modelName string, status int, reason string, disabledBy string) error {
@@ -193,35 +396,66 @@ func UpdateChannelModelStatus(channelID int, group, modelName string, status int
 	if channelID <= 0 || modelName == "" {
 		return nil
 	}
-	record, err := GetChannelModelStatus(channelID, group, modelName)
-	if err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return err
-		}
-		now := common.GetTimestamp()
-		record = &ChannelModelStatus{
-			ChannelId:   channelID,
-			Group:       group,
-			ModelName:   modelName,
-			Status:      common.ChannelStatusEnabled,
-			CreatedTime: now,
-			UpdatedTime: now,
-		}
-	}
 	now := common.GetTimestamp()
-	record.Status = status
-	record.LastError = strings.TrimSpace(reason)
-	record.UpdatedTime = now
+	disabledAt := int64(0)
+	disabledUntil := int64(0)
+	disabledBy = strings.TrimSpace(disabledBy)
 	if status == common.ChannelStatusAutoDisabled || status == common.ChannelStatusManuallyDisabled {
-		record.LastDisabledAt = now
-		record.LastDisabledBy = strings.TrimSpace(disabledBy)
-	} else {
-		record.DisabledUntil = 0
-		record.LastDisabledBy = ""
+		disabledAt = now
+		if disabledBy == "" {
+			disabledBy = "manual"
+		}
 	}
-	return SaveChannelModelStatus(record)
+	record := ChannelModelStatus{
+		ChannelId:      channelID,
+		Group:          group,
+		ModelName:      modelName,
+		Status:         status,
+		LastError:      strings.TrimSpace(reason),
+		DisabledUntil:  disabledUntil,
+		LastDisabledAt: disabledAt,
+		LastDisabledBy: disabledBy,
+		CreatedTime:    now,
+		UpdatedTime:    now,
+	}
+	assignments := map[string]interface{}{
+		"status":           status,
+		"last_error":       record.LastError,
+		"disabled_until":   disabledUntil,
+		"last_disabled_at": disabledAt,
+		"last_disabled_by": disabledBy,
+		"updated_time":     now,
+	}
+	if status == common.ChannelStatusEnabled {
+		assignments["failure_count"] = 0
+		assignments["last_status_code"] = 0
+		assignments["last_error"] = ""
+		assignments["last_disabled_at"] = int64(0)
+		assignments["last_disabled_by"] = ""
+	}
+	err := DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "channel_id"},
+			{Name: "group"},
+			{Name: "model_name"},
+		},
+		DoUpdates: clause.Assignments(assignments),
+	}).Create(&record).Error
+	if err != nil {
+		return err
+	}
+	if refreshed, refreshErr := GetChannelModelStatus(channelID, group, modelName); refreshErr == nil {
+		cacheStoreChannelModelStatus(*refreshed)
+	}
+	return nil
 }
 
 func ClearChannelModelStatus(channelID int, group, modelName string) error {
-	return DB.Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", channelID, normalizeChannelModelStatusGroup(group), normalizeChannelModelStatusName(modelName)).Delete(&ChannelModelStatus{}).Error
+	group = normalizeChannelModelStatusGroup(group)
+	modelName = normalizeChannelModelStatusName(modelName)
+	err := DB.Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", channelID, group, modelName).Delete(&ChannelModelStatus{}).Error
+	if err == nil {
+		cacheDeleteChannelModelStatus(channelID, group, modelName)
+	}
+	return err
 }

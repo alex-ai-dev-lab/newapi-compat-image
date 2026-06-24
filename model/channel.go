@@ -721,17 +721,23 @@ func (channel *Channel) UpdateBalance(balance float64) {
 }
 
 func (channel *Channel) Delete() error {
-	var err error
-	err = DB.Delete(channel).Error
-	if err != nil {
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if err := tx.Delete(channel).Error; err != nil {
+		tx.Rollback()
 		return err
 	}
-	err = channel.DeleteAbilities()
-	if err != nil {
+	if err := tx.Where("channel_id = ?", channel.Id).Delete(&Ability{}).Error; err != nil {
+		tx.Rollback()
 		return err
 	}
-	err = DB.Where("channel_id = ?", channel.Id).Delete(&ChannelModelStatus{}).Error
-	return err
+	if err := tx.Where("channel_id = ?", channel.Id).Delete(&ChannelModelStatus{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
 }
 
 var channelStatusLock sync.Mutex

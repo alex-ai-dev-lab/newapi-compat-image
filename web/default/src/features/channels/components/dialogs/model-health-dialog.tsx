@@ -21,6 +21,7 @@ import { Loader2, Power, PowerOff, RefreshCw, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   Dialog,
   DialogContent,
@@ -43,7 +44,11 @@ import {
   manageChannelModelStatus,
 } from '../../api'
 import { formatTimestamp } from '../../lib'
-import type { ChannelModelStatus } from '../../types'
+import {
+  ChannelModelStatusEnum,
+  type ChannelModelStatus,
+  type ChannelModelStatusAction,
+} from '../../types'
 import { useChannels } from '../channels-provider'
 
 type ModelHealthDialogProps = {
@@ -53,15 +58,20 @@ type ModelHealthDialogProps = {
 
 function statusConfig(status: number) {
   switch (status) {
-    case 1:
-      return { label: 'Enabled', variant: 'success' as const }
-    case 2:
-      return { label: 'Manual Disabled', variant: 'warning' as const }
-    case 3:
-      return { label: 'Auto Disabled', variant: 'danger' as const }
+    case ChannelModelStatusEnum.Enabled:
+      return { labelKey: 'Enabled', variant: 'success' as const }
+    case ChannelModelStatusEnum.ManualDisabled:
+      return { labelKey: 'Manual Disabled', variant: 'warning' as const }
+    case ChannelModelStatusEnum.AutoDisabled:
+      return { labelKey: 'Auto Disabled', variant: 'danger' as const }
     default:
-      return { label: 'Unknown', variant: 'neutral' as const }
+      return { labelKey: 'Unknown', variant: 'neutral' as const }
   }
+}
+
+type PendingAction = {
+  row: ChannelModelStatus
+  action: ChannelModelStatusAction
 }
 
 export function ModelHealthDialog({
@@ -73,7 +83,8 @@ export function ModelHealthDialog({
   const [rows, setRows] = useState<ChannelModelStatus[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set())
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
 
   const loadStatuses = useCallback(async () => {
     if (!currentRow) return
@@ -115,11 +126,11 @@ export function ModelHealthDialog({
 
   const runAction = async (
     row: ChannelModelStatus,
-    action: 'enable' | 'disable' | 'delete'
+    action: ChannelModelStatusAction
   ) => {
     if (!currentRow) return
     const key = `${row.group}:${row.model_name}:${action}`
-    setBusyKey(key)
+    setBusyKeys((prev) => new Set(prev).add(key))
     try {
       const response = await manageChannelModelStatus(currentRow.id, {
         group: row.group,
@@ -137,15 +148,39 @@ export function ModelHealthDialog({
         error instanceof Error ? error.message : t('Operation failed')
       )
     } finally {
-      setBusyKey(null)
+      setBusyKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
     }
   }
+
+  const confirmPendingAction = async () => {
+    if (!pendingAction) return
+    const action = pendingAction
+    setPendingAction(null)
+    await runAction(action.row, action.action)
+  }
+
+  const actionDescription = pendingAction
+    ? pendingAction.action === 'disable'
+      ? t('Disable model {{model}} for group {{group}} on this channel?', {
+          model: pendingAction.row.model_name,
+          group: pendingAction.row.group,
+        })
+      : t('Clear model health record for {{model}} in group {{group}}?', {
+          model: pendingAction.row.model_name,
+          group: pendingAction.row.group,
+        })
+    : ''
 
   if (!currentRow) return null
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[90vh] max-w-6xl flex-col'>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className='flex max-h-[90vh] max-w-6xl flex-col'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             {t('Model Health')}
@@ -211,7 +246,8 @@ export function ModelHealthDialog({
                   {filteredRows.map((row) => {
                     const config = statusConfig(row.status)
                     const rowKey = `${row.group}:${row.model_name}`
-                    const disabled = row.status !== 1
+                    const disabled =
+                      row.status !== ChannelModelStatusEnum.Enabled
                     return (
                       <TableRow key={rowKey}>
                         <TableCell>
@@ -225,17 +261,20 @@ export function ModelHealthDialog({
                           {row.model_name}
                           {row.configured === false && (
                             <StatusBadge
-                              label={t('Removed')}
+                            label={t('Removed')}
                               variant='warning'
                               size='sm'
                               copyable={false}
                               className='ml-2'
+                              title={t(
+                                'This group/model is no longer configured on the current channel.'
+                              )}
                             />
                           )}
                         </TableCell>
                         <TableCell>
                           <StatusBadge
-                            label={t(config.label)}
+                            label={t(config.labelKey)}
                             variant={config.variant}
                             copyable={false}
                           />
@@ -257,10 +296,10 @@ export function ModelHealthDialog({
                                 variant='ghost'
                                 size='icon-sm'
                                 onClick={() => runAction(row, 'enable')}
-                                disabled={busyKey === `${rowKey}:enable`}
+                                disabled={busyKeys.has(`${rowKey}:enable`)}
                                 aria-label={t('Enable')}
                               >
-                                {busyKey === `${rowKey}:enable` ? (
+                                {busyKeys.has(`${rowKey}:enable`) ? (
                                   <Loader2 className='size-4 animate-spin' />
                                 ) : (
                                   <Power className='size-4' />
@@ -270,12 +309,14 @@ export function ModelHealthDialog({
                               <Button
                                 variant='ghost'
                                 size='icon-sm'
-                                onClick={() => runAction(row, 'disable')}
-                                disabled={busyKey === `${rowKey}:disable`}
+                                onClick={() =>
+                                  setPendingAction({ row, action: 'disable' })
+                                }
+                                disabled={busyKeys.has(`${rowKey}:disable`)}
                                 aria-label={t('Disable')}
                                 className='text-destructive hover:text-destructive'
                               >
-                                {busyKey === `${rowKey}:disable` ? (
+                                {busyKeys.has(`${rowKey}:disable`) ? (
                                   <Loader2 className='size-4 animate-spin' />
                                 ) : (
                                   <PowerOff className='size-4' />
@@ -285,11 +326,13 @@ export function ModelHealthDialog({
                             <Button
                               variant='ghost'
                               size='icon-sm'
-                              onClick={() => runAction(row, 'delete')}
-                              disabled={busyKey === `${rowKey}:delete`}
+                              onClick={() =>
+                                setPendingAction({ row, action: 'delete' })
+                              }
+                              disabled={busyKeys.has(`${rowKey}:delete`)}
                               aria-label={t('Clear')}
                             >
-                              {busyKey === `${rowKey}:delete` ? (
+                              {busyKeys.has(`${rowKey}:delete`) ? (
                                 <Loader2 className='size-4 animate-spin' />
                               ) : (
                                 <RotateCcw className='size-4' />
@@ -305,7 +348,23 @@ export function ModelHealthDialog({
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={pendingAction !== null}
+        onOpenChange={(nextOpen) => !nextOpen && setPendingAction(null)}
+        title={
+          pendingAction?.action === 'disable'
+            ? t('Disable Model')
+            : t('Clear Model Health')
+        }
+        desc={actionDescription}
+        confirmText={
+          pendingAction?.action === 'disable' ? t('Disable') : t('Clear')
+        }
+        destructive
+        handleConfirm={confirmPendingAction}
+      />
+    </>
   )
 }
