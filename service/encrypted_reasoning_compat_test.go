@@ -77,7 +77,7 @@ func TestShouldFallbackEncryptedReasoningError(t *testing.T) {
 		types.NewOpenAIError(errors.New("invalid_encrypted_content"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest),
 	))
 	assert.True(t, ShouldFallbackEncryptedReasoningError(
-		types.NewOpenAIError(errors.New("encrypted content could not be verified"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
+		types.NewOpenAIError(errors.New("The encrypted content QVhO...eQ== could not be verified. Reason: Encrypted content could not be decrypted or parsed."), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
 	))
 	assert.True(t, ShouldFallbackEncryptedReasoningError(
 		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
@@ -91,7 +91,16 @@ func TestIsInvalidEncryptedReasoningError(t *testing.T) {
 	assert.True(t, IsInvalidEncryptedReasoningError(
 		types.NewOpenAIError(errors.New("Encrypted content could not be decrypted or parsed"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
 	))
+	assert.True(t, IsInvalidEncryptedReasoningError(
+		types.NewOpenAIError(errors.New("The encrypted content QVhO...eQ== could not be verified. Reason: Encrypted content could not be decrypted or parsed."), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
+	))
 	assert.False(t, IsInvalidEncryptedReasoningError(
 		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
+	))
+	assert.False(t, IsInvalidEncryptedReasoningError(
+		types.NewOpenAIError(errors.New("signature could not be verified"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
+	))
+	assert.False(t, ShouldFallbackEncryptedReasoningError(
+		types.NewOpenAIError(errors.New("signature could not be verified"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
 	))
 }

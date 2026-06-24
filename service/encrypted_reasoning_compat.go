@@ -79,6 +79,9 @@ func ShouldFallbackEncryptedReasoningError(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
+	if IsInvalidEncryptedReasoningError(err) {
+		return true
+	}
 	setting := operation_setting.GetEncryptedReasoningFallbackSetting()
 	if setting != nil && strings.TrimSpace(setting.FallbackStatusCodes) != "" {
 		ranges, parseErr := operation_setting.ParseHTTPStatusCodeRanges(setting.FallbackStatusCodes)
@@ -102,10 +105,16 @@ func IsInvalidEncryptedReasoningError(err *types.NewAPIError) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	code := strings.ToLower(string(err.GetErrorCode()))
-	return strings.Contains(msg, "invalid_encrypted_content") ||
-		strings.Contains(code, "invalid_encrypted_content") ||
-		strings.Contains(msg, "encrypted content could not be decrypted or parsed") ||
-		strings.Contains(msg, "could not be decrypted")
+	if strings.Contains(code, "invalid_encrypted_content") ||
+		strings.Contains(msg, "invalid_encrypted_content") {
+		return true
+	}
+	if !strings.Contains(msg, "encrypted content") {
+		return false
+	}
+	return strings.Contains(msg, "could not be verified") ||
+		strings.Contains(msg, "could not be decrypted") ||
+		strings.Contains(msg, "could not be parsed")
 }
 
 func shouldMatchEncryptedReasoningStatusCode(ranges []operation_setting.StatusCodeRange, code int) bool {

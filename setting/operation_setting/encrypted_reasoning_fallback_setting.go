@@ -23,7 +23,6 @@ var encryptedReasoningFallbackSetting = EncryptedReasoningFallbackSetting{
 	StreamingPreFirstChunkRetry: true,
 	FallbackErrorText: []string{
 		"invalid_encrypted_content",
-		"encrypted content could not be verified",
 		"encrypted content could not be decrypted or parsed",
 		"could not be decrypted",
 		"quota",
