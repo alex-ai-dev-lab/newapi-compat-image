@@ -77,6 +77,9 @@ func TestShouldFallbackEncryptedReasoningError(t *testing.T) {
 		types.NewOpenAIError(errors.New("invalid_encrypted_content"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest),
 	))
 	assert.True(t, ShouldFallbackEncryptedReasoningError(
+		types.NewOpenAIError(errors.New("encrypted content could not be verified"), types.ErrorCodeBadResponseBody, http.StatusBadRequest),
+	))
+	assert.True(t, ShouldFallbackEncryptedReasoningError(
 		types.NewOpenAIError(errors.New("quota exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
 	))
 	assert.False(t, ShouldFallbackEncryptedReasoningError(
