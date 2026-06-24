@@ -1046,7 +1046,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	if (constant.ErrorLogEnabled || antiPoisonRisk || service.IsChannelFailureError(err)) && types.IsRecordErrorLog(err) {
+	if (constant.ErrorLogEnabled || antiPoisonRisk || service.IsChannelFailureError(err) || service.IsModelScopedChannelFailureError(err)) && types.IsRecordErrorLog(err) {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")

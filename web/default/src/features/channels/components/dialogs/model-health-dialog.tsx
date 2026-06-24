@@ -56,7 +56,10 @@ type ModelHealthDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
-function statusConfig(status: number) {
+function statusConfig(status: number, probing?: boolean) {
+  if (probing) {
+    return { labelKey: 'Recovering', variant: 'warning' as const }
+  }
   switch (status) {
     case ChannelModelStatusEnum.Enabled:
       return { labelKey: 'Enabled', variant: 'success' as const }
@@ -244,7 +247,7 @@ export function ModelHealthDialog({
                 </TableHeader>
                 <TableBody>
                   {filteredRows.map((row) => {
-                    const config = statusConfig(row.status)
+                    const config = statusConfig(row.status, row.probing)
                     const rowKey = `${row.group}:${row.model_name}`
                     const disabled =
                       row.status !== ChannelModelStatusEnum.Enabled
@@ -261,7 +264,7 @@ export function ModelHealthDialog({
                           {row.model_name}
                           {row.configured === false && (
                             <StatusBadge
-                            label={t('Removed')}
+                              label={t('Removed')}
                               variant='warning'
                               size='sm'
                               copyable={false}

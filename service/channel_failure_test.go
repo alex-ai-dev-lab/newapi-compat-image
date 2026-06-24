@@ -55,3 +55,27 @@ func TestUnsupportedUserParameterIsNotModelScopedChannelFailure(t *testing.T) {
 		t.Fatal("4xx user request errors should not disable a channel-model")
 	}
 }
+
+func TestModelNotFound404IsModelScopedChannelFailure(t *testing.T) {
+	err := types.NewErrorWithStatusCode(
+		errors.New("model not found: claude-opus-4-6"),
+		types.ErrorCodeInvalidRequest,
+		http.StatusNotFound,
+	)
+
+	if !IsModelScopedChannelFailureError(err) {
+		t.Fatal("404 model not found should disable the channel-model")
+	}
+}
+
+func TestNotImplemented501IsModelScopedChannelFailure(t *testing.T) {
+	err := types.NewErrorWithStatusCode(
+		errors.New("not implemented"),
+		types.ErrorCodeChannelModelMappedError,
+		http.StatusNotImplemented,
+	)
+
+	if !IsModelScopedChannelFailureError(err) {
+		t.Fatal("501 not implemented should disable the channel-model")
+	}
+}

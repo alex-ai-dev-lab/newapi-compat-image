@@ -245,6 +245,7 @@ export interface ChannelModelStatus {
   created_time?: number
   updated_time?: number
   configured?: boolean
+  probing?: boolean
 }
 
 export interface ChannelModelStatusResponse {

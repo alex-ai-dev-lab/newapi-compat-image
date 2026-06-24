@@ -111,41 +111,50 @@ func IsModelScopedChannelFailureError(err *types.NewAPIError) bool {
 	if err == nil || IsTLSVerificationError(err) {
 		return false
 	}
+	msg := strings.ToLower(err.Error())
 	if err.StatusCode >= http.StatusBadRequest && err.StatusCode < http.StatusInternalServerError {
-		return false
+		return containsAnyModelFailureKeyword(msg, modelUnavailableKeywords)
 	}
 	if err.StatusCode != 0 &&
 		err.StatusCode != http.StatusInternalServerError &&
 		err.StatusCode != http.StatusBadGateway &&
 		err.StatusCode != http.StatusServiceUnavailable &&
 		err.StatusCode != http.StatusGatewayTimeout &&
+		err.StatusCode != http.StatusNotImplemented &&
 		!types.IsChannelError(err) {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
-	for _, keyword := range modelScopedChannelFailureKeywords {
-		if strings.Contains(msg, keyword) {
-			return true
-		}
-	}
-	return false
+	return containsAnyModelFailureKeyword(msg, modelUnavailableKeywords) ||
+		containsAnyModelFailureKeyword(msg, modelScopedChannelFailureKeywords)
 }
 
-var modelScopedChannelFailureKeywords = []string{
+var modelUnavailableKeywords = []string{
 	"model not found",
 	"model_not_found",
 	"unknown model",
+	"does not support this model",
+	"model is not supported",
 	"not implemented",
+	"模型不存在",
+	"未实现",
+}
+
+var modelScopedChannelFailureKeywords = []string{
 	"not support",
 	"not supported",
 	"unsupported",
 	"no available account",
 	"no available channel",
-	"does not support this model",
-	"model is not supported",
-	"模型不存在",
 	"不支持",
-	"未实现",
+}
+
+func containsAnyModelFailureKeyword(msg string, keywords []string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func IsChannelFailureError(err *types.NewAPIError) bool {

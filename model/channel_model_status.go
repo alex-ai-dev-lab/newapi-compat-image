@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -32,6 +33,7 @@ type ChannelModelStatus struct {
 type ChannelModelStatusView struct {
 	ChannelModelStatus
 	Configured bool `json:"configured"`
+	Probing    bool `json:"probing"`
 }
 
 type ChannelModelFailureUpdate struct {
@@ -56,7 +58,18 @@ type ChannelModelSuccessUpdate struct {
 	LastEndpoint  string
 }
 
-var channelModelStatusCache sync.Map
+var channelModelStatusCache atomic.Pointer[sync.Map]
+
+func channelModelStatusCacheMap() *sync.Map {
+	if cache := channelModelStatusCache.Load(); cache != nil {
+		return cache
+	}
+	fresh := &sync.Map{}
+	if channelModelStatusCache.CompareAndSwap(nil, fresh) {
+		return fresh
+	}
+	return channelModelStatusCache.Load()
+}
 
 func normalizeChannelModelStatusGroup(group string) string {
 	group = strings.TrimSpace(group)
@@ -92,11 +105,11 @@ func cacheStoreChannelModelStatus(record ChannelModelStatus) {
 	if record.ChannelId <= 0 || record.ModelName == "" {
 		return
 	}
-	channelModelStatusCache.Store(channelModelStatusCacheKey(record.ChannelId, record.Group, record.ModelName), record)
+	channelModelStatusCacheMap().Store(channelModelStatusCacheKey(record.ChannelId, record.Group, record.ModelName), record)
 }
 
 func cacheDeleteChannelModelStatus(channelID int, group, modelName string) {
-	channelModelStatusCache.Delete(channelModelStatusCacheKey(channelID, group, modelName))
+	channelModelStatusCacheMap().Delete(channelModelStatusCacheKey(channelID, group, modelName))
 }
 
 func ReloadChannelModelStatusCache() {
@@ -104,7 +117,7 @@ func ReloadChannelModelStatusCache() {
 	if DB != nil {
 		_ = DB.Find(&records).Error
 	}
-	next := sync.Map{}
+	next := &sync.Map{}
 	for _, record := range records {
 		record = normalizeChannelModelStatusRecord(record)
 		if record.ChannelId <= 0 || record.ModelName == "" {
@@ -112,14 +125,14 @@ func ReloadChannelModelStatusCache() {
 		}
 		next.Store(channelModelStatusCacheKey(record.ChannelId, record.Group, record.ModelName), record)
 	}
-	channelModelStatusCache = next
+	channelModelStatusCache.Store(next)
 }
 
 func HasChannelModelStatusCached(channelID int, group, modelName string) bool {
 	if !common.MemoryCacheEnabled {
 		return false
 	}
-	_, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+	_, ok := channelModelStatusCacheMap().Load(channelModelStatusCacheKey(channelID, group, modelName))
 	return ok
 }
 
@@ -145,7 +158,7 @@ func IsChannelModelDisabledForGroup(channelID int, group, modelName string) bool
 	}
 	now := common.GetTimestamp()
 	if common.MemoryCacheEnabled {
-		value, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+		value, ok := channelModelStatusCacheMap().Load(channelModelStatusCacheKey(channelID, group, modelName))
 		if !ok {
 			return false
 		}
@@ -176,7 +189,7 @@ func FilterChannelIDsByModelStatus(channelIDs []int, group, modelName string) []
 	disabled := make(map[int]struct{})
 	if common.MemoryCacheEnabled {
 		for _, channelID := range channelIDs {
-			value, ok := channelModelStatusCache.Load(channelModelStatusCacheKey(channelID, group, modelName))
+			value, ok := channelModelStatusCacheMap().Load(channelModelStatusCacheKey(channelID, group, modelName))
 			if !ok {
 				continue
 			}
@@ -250,6 +263,7 @@ func ListChannelModelStatuses(channel *Channel) ([]ChannelModelStatusView, error
 			views = append(views, ChannelModelStatusView{
 				ChannelModelStatus: record,
 				Configured:         true,
+				Probing:            isChannelModelStatusProbing(record, now),
 			})
 		}
 	}
@@ -262,9 +276,16 @@ func ListChannelModelStatuses(channel *Channel) ([]ChannelModelStatusView, error
 		views = append(views, ChannelModelStatusView{
 			ChannelModelStatus: record,
 			Configured:         false,
+			Probing:            isChannelModelStatusProbing(record, now),
 		})
 	}
 	return views, nil
+}
+
+func isChannelModelStatusProbing(record ChannelModelStatus, now int64) bool {
+	return record.Status == common.ChannelStatusAutoDisabled &&
+		record.DisabledUntil > 0 &&
+		now >= record.DisabledUntil
 }
 
 func GetChannelModelStatus(channelID int, group, modelName string) (*ChannelModelStatus, error) {
@@ -315,10 +336,10 @@ func UpsertChannelModelFailure(update ChannelModelFailureUpdate) error {
 		CreatedTime:    now,
 		UpdatedTime:    now,
 	}
-	disableCondition := "CASE WHEN ? THEN ? WHEN ? AND failure_count + 1 >= ? THEN ? ELSE status END"
-	disabledUntilExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE disabled_until END"
-	disabledAtExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_at END"
-	disabledByExpr := "CASE WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_by END"
+	disableCondition := "CASE WHEN status = ? THEN status WHEN ? THEN ? WHEN ? AND failure_count + 1 >= ? THEN ? ELSE status END"
+	disabledUntilExpr := "CASE WHEN status = ? THEN disabled_until WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE disabled_until END"
+	disabledAtExpr := "CASE WHEN status = ? THEN last_disabled_at WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_at END"
+	disabledByExpr := "CASE WHEN status = ? THEN last_disabled_by WHEN ? OR (? AND failure_count + 1 >= ?) THEN ? ELSE last_disabled_by END"
 	assignments := map[string]interface{}{
 		"failure_count":    gorm.Expr("failure_count + 1"),
 		"last_error":       record.LastError,
@@ -326,10 +347,10 @@ func UpsertChannelModelFailure(update ChannelModelFailureUpdate) error {
 		"last_request_id":  record.LastRequestId,
 		"last_endpoint":    record.LastEndpoint,
 		"updated_time":     now,
-		"status":           gorm.Expr(disableCondition, update.ForceDisabled, common.ChannelStatusAutoDisabled, update.AutoDisableEligible, update.FailureThreshold, common.ChannelStatusAutoDisabled),
-		"disabled_until":   gorm.Expr(disabledUntilExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, disabledUntil),
-		"last_disabled_at": gorm.Expr(disabledAtExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, now),
-		"last_disabled_by": gorm.Expr(disabledByExpr, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, "auto"),
+		"status":           gorm.Expr(disableCondition, common.ChannelStatusManuallyDisabled, update.ForceDisabled, common.ChannelStatusAutoDisabled, update.AutoDisableEligible, update.FailureThreshold, common.ChannelStatusAutoDisabled),
+		"disabled_until":   gorm.Expr(disabledUntilExpr, common.ChannelStatusManuallyDisabled, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, disabledUntil),
+		"last_disabled_at": gorm.Expr(disabledAtExpr, common.ChannelStatusManuallyDisabled, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, now),
+		"last_disabled_by": gorm.Expr(disabledByExpr, common.ChannelStatusManuallyDisabled, update.ForceDisabled, update.AutoDisableEligible, update.FailureThreshold, "auto"),
 	}
 	err := DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
