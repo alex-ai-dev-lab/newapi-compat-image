@@ -274,6 +274,74 @@ func ClearChannelAntiPoisonRisk(c *gin.Context) {
 	})
 }
 
+type ChannelModelStatusManageRequest struct {
+	Group  string `json:"group"`
+	Model  string `json:"model"`
+	Action string `json:"action"`
+	Reason string `json:"reason"`
+}
+
+func GetChannelModelStatuses(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	channel, err := model.GetChannelById(id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	statuses, err := model.ListChannelModelStatuses(channel)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, statuses)
+}
+
+func ManageChannelModelStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	req := ChannelModelStatusManageRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		common.ApiErrorMsg(c, "model is required")
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "enable", "clear":
+		if err := model.UpdateChannelModelStatus(id, req.Group, req.Model, common.ChannelStatusEnabled, "", "manual"); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case "disable":
+		reason := strings.TrimSpace(req.Reason)
+		if reason == "" {
+			reason = "manual disabled"
+		}
+		if err := model.UpdateChannelModelStatus(id, req.Group, req.Model, common.ChannelStatusManuallyDisabled, reason, "manual"); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case "delete":
+		if err := model.ClearChannelModelStatus(id, req.Group, req.Model); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	default:
+		common.ApiErrorMsg(c, "unsupported action")
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
 func SearchChannels(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")

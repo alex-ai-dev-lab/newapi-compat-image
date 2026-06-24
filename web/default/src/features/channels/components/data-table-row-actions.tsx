@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Loader2,
   ShieldCheck,
+  Activity,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -141,6 +142,11 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleManageKeys = () => {
     setCurrentRow(channel)
     setOpen('multi-key-manage')
+  }
+
+  const handleModelHealth = () => {
+    setCurrentRow(channel)
+    setOpen('model-health')
   }
 
   const handleToggleStatus = async (
@@ -251,6 +257,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Query Balance')}
             <DropdownMenuShortcut>
               <DollarSign size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={handleModelHealth}>
+            {t('Model Health')}
+            <DropdownMenuShortcut>
+              <Activity size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 

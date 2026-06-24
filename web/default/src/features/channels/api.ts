@@ -24,6 +24,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelModelStatusResponse,
   ChannelTestResponse,
   CopyChannelParams,
   CopyChannelResponse,
@@ -298,6 +299,30 @@ export async function clearChannelAntiPoisonRisk(
   const res = await api.post(
     `/api/channel/${id}/anti_poison/clear_risk`,
     {},
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function getChannelModelStatuses(
+  id: number
+): Promise<ChannelModelStatusResponse> {
+  const res = await api.get(`/api/channel/${id}/model_status`)
+  return res.data
+}
+
+export async function manageChannelModelStatus(
+  id: number,
+  data: {
+    group: string
+    model: string
+    action: 'enable' | 'disable' | 'clear' | 'delete'
+    reason?: string
+  }
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post(
+    `/api/channel/${id}/model_status`,
+    data,
     channelActionConfig()
   )
   return res.data

@@ -114,6 +114,7 @@ func GetRandomSatisfiedChannelExcludingWithPolicy(group string, model string, re
 	// First, try to find channels with the exact model name.
 	channels := group2model2channels[group][model]
 	channels = filterExcludedChannelIDs(channels, excluded)
+	channels = FilterChannelIDsByModelStatus(channels, group, model)
 	channels = filterRandomSelectableChannelIDs(channels)
 	channels = filterProviderRoutingChannelIDs(channels, policy)
 
@@ -122,6 +123,7 @@ func GetRandomSatisfiedChannelExcludingWithPolicy(group string, model string, re
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = group2model2channels[group][normalizedModel]
 		channels = filterExcludedChannelIDs(channels, excluded)
+		channels = FilterChannelIDsByModelStatus(channels, group, normalizedModel)
 		channels = filterRandomSelectableChannelIDs(channels)
 		channels = filterProviderRoutingChannelIDs(channels, policy)
 	}

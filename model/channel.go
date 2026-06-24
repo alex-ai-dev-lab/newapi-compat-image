@@ -575,6 +575,10 @@ func BatchDeleteChannels(ids []int) error {
 			tx.Rollback()
 			return err
 		}
+		if err := tx.Where("channel_id in (?)", chunk).Delete(&ChannelModelStatus{}).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 	return tx.Commit().Error
 }
@@ -723,6 +727,10 @@ func (channel *Channel) Delete() error {
 		return err
 	}
 	err = channel.DeleteAbilities()
+	if err != nil {
+		return err
+	}
+	err = DB.Where("channel_id = ?", channel.Id).Delete(&ChannelModelStatus{}).Error
 	return err
 }
 

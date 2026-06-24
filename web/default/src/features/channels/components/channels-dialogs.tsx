@@ -23,6 +23,7 @@ import { CopyChannelDialog } from './dialogs/copy-channel-dialog'
 import { EditTagDialog } from './dialogs/edit-tag-dialog'
 import { FetchModelsDialog } from './dialogs/fetch-models-dialog'
 import { MultiKeyManageDialog } from './dialogs/multi-key-manage-dialog'
+import { ModelHealthDialog } from './dialogs/model-health-dialog'
 import { OllamaModelsDialog } from './dialogs/ollama-models-dialog'
 import { TagBatchEditDialog } from './dialogs/tag-batch-edit-dialog'
 import { UpstreamUpdateDialog } from './dialogs/upstream-update-dialog'
@@ -73,6 +74,12 @@ export function ChannelsDialogs() {
       {/* Multi-Key Management Dialog */}
       <MultiKeyManageDialog
         open={open === 'multi-key-manage'}
+        onOpenChange={(v) => !v && setOpen(null)}
+      />
+
+      {/* Model Health Management Dialog */}
+      <ModelHealthDialog
+        open={open === 'model-health'}
         onOpenChange={(v) => !v && setOpen(null)}
       />
 

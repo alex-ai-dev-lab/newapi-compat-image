@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,13 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 		err = relay.TextHelper(c, info)
 	}
 	return err
+}
+
+func relayModeName(mode int) string {
+	if mode == 0 {
+		return ""
+	}
+	return strconv.Itoa(mode)
 }
 
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -296,6 +304,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				relayInfo.LastError = nil
 				clearCompatChannelFailure(channel.Id, relayInfo)
 				service.ClearRouterCooldown(channel.Id, relayInfo)
+				service.RecordChannelModelSuccess(channel.Id, relayInfo.UsingGroup, relayInfo.OriginModelName, relayModeName(relayInfo.RelayMode), relayInfo.RequestId)
 				firstByteLatency := relayInfo.FirstResponseTime.Sub(relayInfo.StartTime)
 				if firstByteLatency < 0 {
 					firstByteLatency = 0
@@ -307,8 +316,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
 			relayInfo.LastError = newAPIError
 			service.RecordRouterCooldownFailure(channel.Id, relayInfo, newAPIError)
+			service.RecordChannelModelFailure(service.ChannelModelFailureParams{
+				ChannelId: channel.Id,
+				Group:     relayInfo.UsingGroup,
+				ModelName: relayInfo.OriginModelName,
+				Endpoint:  relayModeName(relayInfo.RelayMode),
+				RequestId: relayInfo.RequestId,
+				Error:     newAPIError,
+				AutoBan:   channel.GetAutoBan(),
+			})
 
 			processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			if service.IsChannelFailureError(newAPIError) {
+				service.ExcludeChannelForRetry(retryParam, channel.Id)
+			}
 			if service.IsAntiPoisonValidationError(newAPIError) {
 				if retryParam.ExcludedChannelIds == nil {
 					retryParam.ExcludedChannelIds = make(map[int]bool)
@@ -599,7 +620,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) && !service.ShouldFallbackEncryptedReasoningError(openaiErr) {
+	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) &&
+		!service.ShouldFallbackEncryptedReasoningError(openaiErr) &&
+		!service.IsChannelFailureError(openaiErr) {
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
@@ -832,6 +855,9 @@ func shouldCompatRetryByError(openaiErr *types.NewAPIError) bool {
 	if service.ShouldFallbackEncryptedReasoningError(openaiErr) {
 		return true
 	}
+	if service.IsImmediateChannelDisableError(openaiErr) {
+		return true
+	}
 	switch openaiErr.StatusCode {
 	case http.StatusTooManyRequests, http.StatusPaymentRequired,
 		http.StatusRequestTimeout, http.StatusInternalServerError,
@@ -881,6 +907,9 @@ func shouldCompatExcludeChannelForRetry(openaiErr *types.NewAPIError) bool {
 	if service.ShouldFallbackEncryptedReasoningError(openaiErr) {
 		return true
 	}
+	if service.IsImmediateChannelDisableError(openaiErr) {
+		return true
+	}
 	if shouldCompatDisableChannel(openaiErr) {
 		return true
 	}
@@ -901,6 +930,9 @@ func shouldCompatDisableChannel(openaiErr *types.NewAPIError) bool {
 	}
 	if service.IsInvalidEncryptedReasoningError(openaiErr) {
 		return false
+	}
+	if service.IsImmediateChannelDisableError(openaiErr) {
+		return true
 	}
 	switch openaiErr.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusPaymentRequired:
@@ -1014,7 +1046,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	if (constant.ErrorLogEnabled || antiPoisonRisk) && types.IsRecordErrorLog(err) {
+	if (constant.ErrorLogEnabled || antiPoisonRisk || service.IsChannelFailureError(err)) && types.IsRecordErrorLog(err) {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")
@@ -1032,6 +1064,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_id"] = channelId
 		other["channel_name"] = c.GetString("channel_name")
 		other["channel_type"] = c.GetInt("channel_type")
+		if service.IsModelScopedChannelFailureError(err) {
+			other["failure_scope"] = "channel_model"
+			other["channel_model_status"] = "auto_disabled"
+		} else if service.IsChannelFailureError(err) {
+			other["failure_scope"] = "channel"
+		}
 		if antiPoisonRisk {
 			other["anti_poison_risk"] = true
 			other["admin_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)

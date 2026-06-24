@@ -145,6 +145,7 @@ func GetChannelExcludingWithPolicy(group string, model string, retry int, exclud
 		}
 		abilities = filtered
 	}
+	abilities = filterChannelModelStatusAbilities(abilities)
 	abilities = filterRandomSelectableAbilities(abilities)
 	abilities = filterProviderRoutingAbilities(abilities, policy)
 	if len(excluded) > 0 && len(abilities) > 0 {
@@ -180,6 +181,43 @@ func GetChannelExcludingWithPolicy(group string, model string, retry int, exclud
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterChannelModelStatusAbilities(abilities []Ability) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+	channelIDsByGroupModel := make(map[string][]int)
+	for _, ability := range abilities {
+		key := channelModelStatusKey(ability.Group, ability.Model)
+		channelIDsByGroupModel[key] = append(channelIDsByGroupModel[key], ability.ChannelId)
+	}
+	disabled := make(map[string]struct{})
+	for key, channelIDs := range channelIDsByGroupModel {
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		filtered := FilterChannelIDsByModelStatus(channelIDs, parts[0], parts[1])
+		allowed := make(map[int]struct{}, len(filtered))
+		for _, id := range filtered {
+			allowed[id] = struct{}{}
+		}
+		for _, id := range channelIDs {
+			if _, ok := allowed[id]; !ok {
+				disabled[fmt.Sprintf("%s\x00%d", key, id)] = struct{}{}
+			}
+		}
+	}
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		key := fmt.Sprintf("%s\x00%d", channelModelStatusKey(ability.Group, ability.Model), ability.ChannelId)
+		if _, ok := disabled[key]; ok {
+			continue
+		}
+		filtered = append(filtered, ability)
+	}
+	return filtered
 }
 
 func filterRandomSelectableAbilities(abilities []Ability) []Ability {

@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -88,6 +89,12 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if types.IsSkipRetryError(err) {
 		return false
 	}
+	if IsModelScopedChannelFailureError(err) {
+		return false
+	}
+	if IsImmediateChannelDisableError(err) && !IsModelScopedChannelFailureError(err) {
+		return true
+	}
 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
 		return true
 	}
@@ -98,6 +105,117 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	lowerMessage := strings.ToLower(err.Error())
 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
 	return search
+}
+
+func IsModelScopedChannelFailureError(err *types.NewAPIError) bool {
+	if err == nil || IsTLSVerificationError(err) {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	keywords := []string{
+		"model not found",
+		"model_not_found",
+		"unknown model",
+		"not implemented",
+		"not support",
+		"not supported",
+		"unsupported",
+		"no available account",
+		"no available channel",
+		"does not support this model",
+		"model is not supported",
+		"模型不存在",
+		"不支持",
+		"未实现",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsChannelFailureError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	if IsTLSVerificationError(err) {
+		return false
+	}
+	if types.IsChannelError(err) {
+		return true
+	}
+	if err.GetErrorCode() == types.ErrorCodeDoRequestFailed ||
+		err.GetErrorCode() == types.ErrorCodeChannelResponseTimeExceeded {
+		return true
+	}
+	if err.StatusCode == http.StatusRequestTimeout ||
+		err.StatusCode == http.StatusTooManyRequests ||
+		err.StatusCode == http.StatusBadGateway ||
+		err.StatusCode == http.StatusServiceUnavailable ||
+		err.StatusCode == http.StatusGatewayTimeout {
+		return true
+	}
+	if err.StatusCode == http.StatusInternalServerError {
+		return isChannelFailureMessage(err)
+	}
+	return false
+}
+
+func IsImmediateChannelDisableError(err *types.NewAPIError) bool {
+	if err == nil || IsTLSVerificationError(err) {
+		return false
+	}
+	if IsModelScopedChannelFailureError(err) {
+		return false
+	}
+	if types.IsChannelError(err) {
+		return true
+	}
+	if err.StatusCode == http.StatusInternalServerError {
+		return isDeterministicChannelFailureMessage(err)
+	}
+	return false
+}
+
+func isChannelFailureMessage(err *types.NewAPIError) bool {
+	msg := strings.ToLower(err.Error())
+	keywords := []string{
+		"not implemented",
+		"not support",
+		"not supported",
+		"unsupported",
+		"no available account",
+		"no available channel",
+		"bad gateway",
+		"gateway timeout",
+		"upstream",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDeterministicChannelFailureMessage(err *types.NewAPIError) bool {
+	msg := strings.ToLower(err.Error())
+	keywords := []string{
+		"not implemented",
+		"not support",
+		"not supported",
+		"unsupported",
+		"no available account",
+		"no available channel",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 var tlsVerificationErrorKeywords = []string{

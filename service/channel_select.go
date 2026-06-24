@@ -99,6 +99,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		if preferredErr == nil && preferred != nil &&
 			preferred.Status == common.ChannelStatusEnabled &&
 			model.IsChannelEnabledForGroupModel(param.TokenGroup, param.ModelName, preferred.Id) &&
+			!model.IsChannelModelDisabledForGroup(preferred.Id, param.TokenGroup, param.ModelName) &&
 			ChannelMatchesProviderRoutingPolicy(preferred, param.ProviderRoutingPolicy) &&
 			channelMatchesRetryRequirements(param, preferred) {
 			param.LastSelectedChannelId = preferred.Id
@@ -117,7 +118,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				ChannelMatchesProviderRoutingPolicy(preferred, param.ProviderRoutingPolicy) &&
 				channelMatchesRetryRequirements(param, preferred) {
 				for _, autoGroup := range autoGroups {
-					if model.IsChannelEnabledForGroupModel(autoGroup, param.ModelName, preferred.Id) {
+					if model.IsChannelEnabledForGroupModel(autoGroup, param.ModelName, preferred.Id) &&
+						!model.IsChannelModelDisabledForGroup(preferred.Id, autoGroup, param.ModelName) {
 						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
 						param.LastSelectedChannelId = preferred.Id
 						return preferred, autoGroup, nil

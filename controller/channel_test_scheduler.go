@@ -159,9 +159,22 @@ func testSingleChannelWithRetries(channel *model.Channel, testUserID int, retryC
 
 		if lastResult.newAPIError == nil {
 			succeeded = true
+			service.RecordChannelModelSuccess(channel.Id,
+				common.GetContextKeyString(lastResult.context, constant.ContextKeyUsingGroup),
+				common.GetContextKeyString(lastResult.context, constant.ContextKeyOriginalModel),
+				"",
+				common.GetContextKeyString(lastResult.context, common.RequestIdKey))
 			channel.UpdateResponseTime(elapsed)
 			break
 		}
+		service.RecordChannelModelFailure(service.ChannelModelFailureParams{
+			ChannelId: channel.Id,
+			Group:     common.GetContextKeyString(lastResult.context, constant.ContextKeyUsingGroup),
+			ModelName: common.GetContextKeyString(lastResult.context, constant.ContextKeyOriginalModel),
+			RequestId: common.GetContextKeyString(lastResult.context, common.RequestIdKey),
+			Error:     lastResult.newAPIError,
+			AutoBan:   channel.GetAutoBan(),
+		})
 		// Only meaningful disable-worthy errors justify another retry attempt.
 		if attempt < retryCount-1 {
 			time.Sleep(500 * time.Millisecond)

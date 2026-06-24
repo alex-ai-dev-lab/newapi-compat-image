@@ -228,6 +228,31 @@ export interface MultiKeyStatusResponse {
   }
 }
 
+export interface ChannelModelStatus {
+  channel_id: number
+  group: string
+  model_name: string
+  status: number
+  failure_count: number
+  success_count: number
+  last_error?: string
+  last_status_code?: number
+  last_request_id?: string
+  last_endpoint?: string
+  disabled_until?: number
+  last_disabled_at?: number
+  last_disabled_by?: string
+  created_time?: number
+  updated_time?: number
+  configured?: boolean
+}
+
+export interface ChannelModelStatusResponse {
+  success: boolean
+  message?: string
+  data?: ChannelModelStatus[]
+}
+
 // ============================================================================
 // API Request Parameters
 // ============================================================================
