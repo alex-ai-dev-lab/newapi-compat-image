@@ -288,6 +288,45 @@ func isChannelModelStatusProbing(record ChannelModelStatus, now int64) bool {
 		now >= record.DisabledUntil
 }
 
+func EnableAutoDisabledChannelModelStatuses(channelID int) (int64, error) {
+	if channelID <= 0 || DB == nil {
+		return 0, nil
+	}
+	now := common.GetTimestamp()
+	result := DB.Model(&ChannelModelStatus{}).
+		Where("channel_id = ? AND status = ?", channelID, common.ChannelStatusAutoDisabled).
+		Updates(map[string]interface{}{
+			"status":           common.ChannelStatusEnabled,
+			"failure_count":    0,
+			"last_error":       "",
+			"last_status_code": 0,
+			"disabled_until":   0,
+			"last_disabled_at": 0,
+			"last_disabled_by": "",
+			"updated_time":     now,
+		})
+	if result.Error != nil {
+		return result.RowsAffected, result.Error
+	}
+	if result.RowsAffected > 0 {
+		ReloadChannelModelStatusCache()
+	}
+	return result.RowsAffected, nil
+}
+
+func OnChannelEnabled(channelID int) {
+	if channelID <= 0 {
+		return
+	}
+	rowsAffected, err := EnableAutoDisabledChannelModelStatuses(channelID)
+	if err != nil {
+		common.SysError("reset channel-model auto-disable failed: channel_id=" + strconv.Itoa(channelID) + ", error=" + err.Error())
+	} else if rowsAffected > 0 {
+		common.SysLog("reset channel-model auto-disable after channel enabled: channel_id=" + strconv.Itoa(channelID) + ", rows=" + strconv.FormatInt(rowsAffected, 10))
+	}
+	CacheUpdateChannelStatus(channelID, common.ChannelStatusEnabled)
+}
+
 func GetChannelModelStatus(channelID int, group, modelName string) (*ChannelModelStatus, error) {
 	status := &ChannelModelStatus{}
 	err := DB.Where("channel_id = ? AND "+commonGroupCol+" = ? AND model_name = ?", channelID, normalizeChannelModelStatusGroup(group), normalizeChannelModelStatusName(modelName)).First(status).Error

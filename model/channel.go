@@ -652,6 +652,10 @@ func (channel *Channel) Insert() error {
 }
 
 func (channel *Channel) Update() error {
+	previousStatus := channel.Status
+	if existing, err := GetChannelById(channel.Id, false); err == nil {
+		previousStatus = existing.Status
+	}
 	// If this is a multi-key channel, recalculate MultiKeySize based on the current key list to avoid inconsistency after editing keys
 	if channel.ChannelInfo.IsMultiKey {
 		var keyStr string
@@ -697,7 +701,14 @@ func (channel *Channel) Update() error {
 	}
 	DB.Model(channel).First(channel, "id = ?", channel.Id)
 	err = channel.UpdateAbilities(nil)
-	return err
+	if err != nil {
+		return err
+	}
+	if previousStatus != common.ChannelStatusEnabled && channel.Status == common.ChannelStatusEnabled {
+		CacheUpdateChannel(channel)
+		OnChannelEnabled(channel.Id)
+	}
+	return nil
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
@@ -873,14 +884,7 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	}
 
 	shouldUpdateAbilities := false
-	defer func() {
-		if shouldUpdateAbilities {
-			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
-			}
-		}
-	}()
+	enabledTransition := false
 	channel, err := GetChannelById(channelId, true)
 	if err != nil {
 		return false
@@ -889,14 +893,14 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			return false
 		}
 
+		previousStatus := channel.Status
 		if channel.ChannelInfo.IsMultiKey {
-			beforeStatus := channel.Status
 			// Protect map writes with the same per-channel lock used by readers
 			pollingLock := GetChannelPollingLock(channelId)
 			pollingLock.Lock()
 			handlerMultiKeyUpdate(channel, usingKey, status, reason)
 			pollingLock.Unlock()
-			if beforeStatus != channel.Status {
+			if previousStatus != channel.Status {
 				shouldUpdateAbilities = true
 			}
 		} else {
@@ -907,11 +911,21 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			channel.Status = status
 			shouldUpdateAbilities = true
 		}
+		enabledTransition = previousStatus != common.ChannelStatusEnabled && channel.Status == common.ChannelStatusEnabled
 		err = channel.SaveWithoutKey()
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
 		}
+	}
+	if shouldUpdateAbilities {
+		err := UpdateAbilityStatus(channelId, channel.Status == common.ChannelStatusEnabled)
+		if err != nil {
+			common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+		}
+	}
+	if enabledTransition {
+		OnChannelEnabled(channelId)
 	}
 	return true
 }
@@ -1038,16 +1052,29 @@ func ClearChannelAntiPoisonRisk(channelId int, enable bool) error {
 		}
 	}
 	CacheUpdateChannel(channel)
+	if enable {
+		OnChannelEnabled(channelId)
+	}
 	return nil
 }
 
 func EnableChannelByTag(tag string) error {
+	var channelIDs []int
+	if err := DB.Model(&Channel{}).Where("tag = ?", tag).Pluck("id", &channelIDs).Error; err != nil {
+		return err
+	}
 	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusEnabled).Error
 	if err != nil {
 		return err
 	}
 	err = UpdateAbilityStatusByTag(tag, true)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, channelID := range channelIDs {
+		OnChannelEnabled(channelID)
+	}
+	return nil
 }
 
 func DisableChannelByTag(tag string) error {

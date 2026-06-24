@@ -301,7 +301,8 @@ func CacheUpdateChannelStatus(id int, status int) {
 	}
 	channelSyncLock.Lock()
 	defer channelSyncLock.Unlock()
-	if channel, ok := channelsIDM[id]; ok {
+	channel, ok := channelsIDM[id]
+	if ok {
 		channel.Status = status
 	}
 	if status != common.ChannelStatusEnabled {
@@ -316,6 +317,50 @@ func CacheUpdateChannelStatus(id int, status int) {
 					}
 				}
 			}
+		}
+		return
+	}
+	if !ok {
+		return
+	}
+	if group2model2channels == nil {
+		group2model2channels = make(map[string]map[string][]int)
+	}
+	for _, group := range channel.GetGroups() {
+		if group == "" {
+			continue
+		}
+		if group2model2channels[group] == nil {
+			group2model2channels[group] = make(map[string][]int)
+		}
+		for _, modelName := range channel.GetModels() {
+			modelName = strings.TrimSpace(modelName)
+			if modelName == "" {
+				continue
+			}
+			channels := group2model2channels[group][modelName]
+			alreadyPresent := false
+			for _, channelID := range channels {
+				if channelID == id {
+					alreadyPresent = true
+					break
+				}
+			}
+			if !alreadyPresent {
+				channels = append(channels, id)
+			}
+			sort.Slice(channels, func(i, j int) bool {
+				left, leftOK := channelsIDM[channels[i]]
+				right, rightOK := channelsIDM[channels[j]]
+				if !leftOK || left == nil {
+					return false
+				}
+				if !rightOK || right == nil {
+					return true
+				}
+				return left.GetPriority() > right.GetPriority()
+			})
+			group2model2channels[group][modelName] = channels
 		}
 	}
 }
