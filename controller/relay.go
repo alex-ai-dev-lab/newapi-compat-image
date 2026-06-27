@@ -104,6 +104,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 			// Compat hook: OnClientResponseError (normalizes error for client)
 			newAPIError = compat.Hooks().OnClientResponseError(c, relayInfo, newAPIError)
+			recordUnhandledRelayErrorLog(c, newAPIError)
 
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
@@ -349,6 +350,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if !finalShouldRetry {
 				break
 			}
+			excludeChannelAfterRetryDecision(c, retryParam, channel, newAPIError, finalShouldRetry)
 
 			// Legacy compat retry functions (will be moved into hooks in next commits)
 			disableChannelForCompatRetry(c, channel, relayInfo, newAPIError, remainingRetries)
@@ -389,6 +391,8 @@ var upgrader = websocket.Upgrader{
 		return true // 允许跨域
 	},
 }
+
+const contextKeyErrorLogged constant.ContextKey = "error_logged"
 
 func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
@@ -711,6 +715,23 @@ func markChannelExcludedForCompatRetry(retryParam *service.RetryParam, channel *
 		retryParam.ExcludedChannelIds = make(map[int]bool)
 	}
 	retryParam.ExcludedChannelIds[channel.Id] = true
+}
+
+func excludeChannelAfterRetryDecision(c *gin.Context, retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError, shouldRetry bool) {
+	if !shouldExcludeChannelAfterRetryDecision(c, channel, openaiErr, shouldRetry) {
+		return
+	}
+	service.ExcludeChannelForRetry(retryParam, channel.Id)
+}
+
+func shouldExcludeChannelAfterRetryDecision(c *gin.Context, channel *model.Channel, openaiErr *types.NewAPIError, shouldRetry bool) bool {
+	if !shouldRetry || channel == nil || openaiErr == nil {
+		return false
+	}
+	if channel.ChannelInfo.IsMultiKey || common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
+		return false
+	}
+	return true
 }
 
 func getProviderRoutingPolicy(c *gin.Context) *service.ProviderRoutingPolicy {
@@ -1046,65 +1067,96 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	if (constant.ErrorLogEnabled || antiPoisonRisk || service.IsChannelFailureError(err) || service.IsModelScopedChannelFailureError(err)) && types.IsRecordErrorLog(err) {
-		// 保存错误日志到mysql中
-		userId := c.GetInt("id")
-		tokenName := c.GetString("token_name")
-		modelName := c.GetString("original_model")
-		tokenId := c.GetInt("token_id")
-		userGroup := c.GetString("group")
-		channelId := c.GetInt("channel_id")
-		other := make(map[string]interface{})
-		if c.Request != nil && c.Request.URL != nil {
-			other["request_path"] = c.Request.URL.Path
-		}
-		other["error_type"] = err.GetErrorType()
-		other["error_code"] = err.GetErrorCode()
-		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
-		if service.IsModelScopedChannelFailureError(err) {
-			other["failure_scope"] = "channel_model"
-			other["channel_model_status"] = "auto_disabled"
-		} else if service.IsChannelFailureError(err) {
-			other["failure_scope"] = "channel"
-		}
-		if antiPoisonRisk {
-			other["anti_poison_risk"] = true
-			other["admin_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
-			other["risk_reason"] = err.MaskSensitiveErrorWithStatusCode()
-			if antiPoisonEvidencePath != "" {
-				other["anti_poison_evidence_path"] = antiPoisonEvidencePath
-			}
-		}
-		adminInfo := make(map[string]interface{})
-		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
-		if antiPoisonRisk {
-			adminInfo["anti_poison_risk"] = true
-			adminInfo["risk_channel"] = channelError.ChannelId
-			adminInfo["risk_level"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskLevel)
-			adminInfo["risk_signal"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskSignal)
-			adminInfo["risk_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
-			if antiPoisonEvidencePath != "" {
-				adminInfo["anti_poison_evidence_path"] = antiPoisonEvidencePath
-			}
-		}
-		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
-		if isMultiKey {
-			adminInfo["is_multi_key"] = true
-			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-		}
-		service.AppendChannelAffinityAdminInfo(c, adminInfo)
-		other["admin_info"] = adminInfo
-		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
-		if startTime.IsZero() {
-			startTime = time.Now()
-		}
-		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	if shouldRecordRelayErrorLog(c, err, antiPoisonRisk) {
+		recordRelayErrorLog(c, channelError.ChannelId, err, antiPoisonRisk, antiPoisonEvidencePath)
 	}
 
+}
+
+func recordUnhandledRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
+	if !shouldRecordRelayErrorLog(c, err, false) {
+		return
+	}
+	common.SetContextKey(c, contextKeyErrorLogged, true)
+	copiedContext := c.Copy()
+	channelId := c.GetInt("channel_id")
+	gopool.Go(func() {
+		recordRelayErrorLog(copiedContext, channelId, err, false, "")
+	})
+}
+
+func shouldRecordRelayErrorLog(c *gin.Context, err *types.NewAPIError, antiPoisonRisk bool) bool {
+	if c == nil || err == nil || !types.IsRecordErrorLog(err) {
+		return false
+	}
+	if common.GetContextKeyBool(c, contextKeyErrorLogged) {
+		return false
+	}
+	return constant.ErrorLogEnabled || antiPoisonRisk || service.IsChannelFailureError(err) || service.IsModelScopedChannelFailureError(err)
+}
+
+func recordRelayErrorLog(c *gin.Context, riskChannelId int, err *types.NewAPIError, antiPoisonRisk bool, antiPoisonEvidencePath string) {
+	if c == nil || err == nil {
+		return
+	}
+	common.SetContextKey(c, contextKeyErrorLogged, true)
+	userId := c.GetInt("id")
+	tokenName := c.GetString("token_name")
+	modelName := c.GetString("original_model")
+	tokenId := c.GetInt("token_id")
+	userGroup := c.GetString("group")
+	channelId := c.GetInt("channel_id")
+	other := make(map[string]interface{})
+	if c.Request != nil && c.Request.URL != nil {
+		other["request_path"] = c.Request.URL.Path
+	}
+	other["error_type"] = err.GetErrorType()
+	other["error_code"] = err.GetErrorCode()
+	other["status_code"] = err.StatusCode
+	other["channel_id"] = channelId
+	other["channel_name"] = c.GetString("channel_name")
+	other["channel_type"] = c.GetInt("channel_type")
+	if service.IsModelScopedChannelFailureError(err) {
+		other["failure_scope"] = "channel_model"
+		other["channel_model_status"] = "auto_disabled"
+	} else if service.IsChannelFailureError(err) {
+		other["failure_scope"] = "channel"
+	} else if channelId <= 0 {
+		other["failure_scope"] = "preflight"
+	}
+	if antiPoisonRisk {
+		other["anti_poison_risk"] = true
+		other["admin_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
+		other["risk_reason"] = err.MaskSensitiveErrorWithStatusCode()
+		if antiPoisonEvidencePath != "" {
+			other["anti_poison_evidence_path"] = antiPoisonEvidencePath
+		}
+	}
+	adminInfo := make(map[string]interface{})
+	adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+	if antiPoisonRisk {
+		adminInfo["anti_poison_risk"] = true
+		adminInfo["risk_channel"] = riskChannelId
+		adminInfo["risk_level"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskLevel)
+		adminInfo["risk_signal"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonRiskSignal)
+		adminInfo["risk_action"] = common.GetContextKeyString(c, constant.ContextKeyAntiPoisonActionTaken)
+		if antiPoisonEvidencePath != "" {
+			adminInfo["anti_poison_evidence_path"] = antiPoisonEvidencePath
+		}
+	}
+	isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
+	if isMultiKey {
+		adminInfo["is_multi_key"] = true
+		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
+	}
+	service.AppendChannelAffinityAdminInfo(c, adminInfo)
+	other["admin_info"] = adminInfo
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	useTimeSeconds := int(time.Since(startTime).Seconds())
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 }
 
 func antipoisonRiskLevelFromError(err *types.NewAPIError) string {

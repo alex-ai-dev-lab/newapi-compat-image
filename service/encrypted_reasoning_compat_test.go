@@ -37,7 +37,9 @@ func TestScrubEncryptedReasoningRequest(t *testing.T) {
 		PreviousResponseID: "resp_123",
 		Input: common.StringToByteSlice(`[
 			{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
-			{"type":"reasoning","encrypted_content":"secret","summary":[]},
+			{"type":"reasoning","id":"rs_1","encrypted_content":"secret","summary":[]},
+			{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}","reasoning":"rs_1"},
+			{"type":"function_call_output","call_id":"call_1","output":"stale","reasoning_id":"rs_1"},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"visible","encrypted_content":"nested-secret"}]},
 			{"type":"function_call_output","call_id":"call_1","output":"ok"}
 		]`),
@@ -47,13 +49,15 @@ func TestScrubEncryptedReasoningRequest(t *testing.T) {
 
 	require.True(t, result.Changed)
 	assert.Equal(t, 1, result.RemovedIncludeEntries)
-	assert.Equal(t, 1, result.RemovedReasoningItems)
+	assert.Equal(t, 3, result.RemovedReasoningItems)
 	assert.Equal(t, 1, result.RemovedEncryptedFields)
 	assert.True(t, result.RemovedPreviousResponse)
 	assert.Empty(t, req.PreviousResponseID)
 	assert.JSONEq(t, `["message.output_text"]`, string(req.Include))
 	assert.False(t, gjson.GetBytes(req.Input, `#(type=="reasoning")`).Exists())
-	assert.False(t, gjson.GetBytes(req.Input, `2.content.0.encrypted_content`).Exists())
+	assert.False(t, gjson.GetBytes(req.Input, `#(type=="function_call")`).Exists())
+	assert.False(t, gjson.GetBytes(req.Input, `#(reasoning_id=="rs_1")`).Exists())
+	assert.False(t, gjson.GetBytes(req.Input, `1.content.0.encrypted_content`).Exists())
 	assert.Equal(t, "hi", gjson.GetBytes(req.Input, `0.content.0.text`).String())
 	assert.Equal(t, "visible", gjson.GetBytes(req.Input, `1.content.0.text`).String())
 	assert.Equal(t, "ok", gjson.GetBytes(req.Input, `2.output`).String())

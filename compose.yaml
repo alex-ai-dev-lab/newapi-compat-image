@@ -1,6 +1,6 @@
 services:
   new-api:
-    image: ${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/newapi-compat-image:latest}
+    image: ${NEWAPI_IMAGE:-ghcr.io/alex-ai-dev-lab/renewapi:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-newapi}-new-api
     restart: unless-stopped
     init: true

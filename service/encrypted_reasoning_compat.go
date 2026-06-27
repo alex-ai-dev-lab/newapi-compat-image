@@ -206,7 +206,8 @@ func scrubEncryptedReasoningJSON(raw json.RawMessage) (json.RawMessage, int, int
 	if err := common.Unmarshal(raw, &v); err != nil {
 		return raw, 0, 0, false
 	}
-	next, removedFields, removedItems, changed := scrubEncryptedReasoningValue(v)
+	removedReasoningIDs := make(map[string]struct{})
+	next, removedFields, removedItems, changed := scrubEncryptedReasoningValue(v, removedReasoningIDs)
 	if !changed {
 		return raw, 0, 0, false
 	}
@@ -259,7 +260,7 @@ func hasReasoningItemValue(v any) bool {
 	return false
 }
 
-func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
+func scrubEncryptedReasoningValue(v any, removedReasoningIDs map[string]struct{}) (any, int, int, bool) {
 	switch t := v.(type) {
 	case []any:
 		next := make([]any, 0, len(t))
@@ -269,12 +270,18 @@ func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
 		for _, item := range t {
 			if m, ok := item.(map[string]any); ok {
 				if typ, _ := m["type"].(string); typ == "reasoning" {
+					trackReasoningID(m, removedReasoningIDs)
+					removedItems++
+					changed = true
+					continue
+				}
+				if isFunctionCallLinkedToRemovedReasoning(m, removedReasoningIDs) {
 					removedItems++
 					changed = true
 					continue
 				}
 			}
-			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(item)
+			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(item, removedReasoningIDs)
 			removedFields += fields
 			removedItems += items
 			changed = changed || itemChanged
@@ -292,7 +299,7 @@ func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
 				changed = true
 				continue
 			}
-			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(value)
+			cleaned, fields, items, itemChanged := scrubEncryptedReasoningValue(value, removedReasoningIDs)
 			removedFields += fields
 			removedItems += items
 			changed = changed || itemChanged
@@ -302,4 +309,57 @@ func scrubEncryptedReasoningValue(v any) (any, int, int, bool) {
 	default:
 		return v, 0, 0, false
 	}
+}
+
+func trackReasoningID(item map[string]any, removedReasoningIDs map[string]struct{}) {
+	if removedReasoningIDs == nil {
+		return
+	}
+	for _, key := range []string{"id", "item_id"} {
+		if id, ok := item[key].(string); ok && strings.TrimSpace(id) != "" {
+			removedReasoningIDs[id] = struct{}{}
+		}
+	}
+}
+
+func isFunctionCallLinkedToRemovedReasoning(item map[string]any, removedReasoningIDs map[string]struct{}) bool {
+	if len(removedReasoningIDs) == 0 {
+		return false
+	}
+	typ, _ := item["type"].(string)
+	if typ != "function_call" && typ != "function_call_output" {
+		return false
+	}
+	for _, key := range []string{"reasoning", "reasoning_id", "reasoning_item_id", "required_reasoning", "required_reasoning_id"} {
+		if valueReferencesRemovedReasoning(item[key], removedReasoningIDs) {
+			return true
+		}
+	}
+	for _, key := range []string{"reasoning_ids", "reasoning_item_ids", "required_reasoning_ids"} {
+		if valueReferencesRemovedReasoning(item[key], removedReasoningIDs) {
+			return true
+		}
+	}
+	return false
+}
+
+func valueReferencesRemovedReasoning(value any, removedReasoningIDs map[string]struct{}) bool {
+	switch t := value.(type) {
+	case string:
+		_, ok := removedReasoningIDs[t]
+		return ok
+	case []any:
+		for _, item := range t {
+			if valueReferencesRemovedReasoning(item, removedReasoningIDs) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, key := range []string{"id", "item_id", "reasoning_id"} {
+			if valueReferencesRemovedReasoning(t[key], removedReasoningIDs) {
+				return true
+			}
+		}
+	}
+	return false
 }
