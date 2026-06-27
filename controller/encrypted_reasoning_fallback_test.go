@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -65,10 +66,10 @@ func TestShouldExcludeChannelAfterRetryDecision_SingleKeyRetryable404(t *testing
 	)
 	channel := &model.Channel{Id: 42}
 
-	assert.True(t, shouldExcludeChannelAfterRetryDecision(c, channel, err, true))
+	assert.True(t, shouldExcludeChannelAfterRetryDecision(c, &service.RetryParam{}, channel, err, true))
 }
 
-func TestShouldExcludeChannelAfterRetryDecision_KeepsMultiKeyRotation(t *testing.T) {
+func TestShouldExcludeChannelAfterRetryDecision_ExcludesMultiKeyChannelScopedError(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)
 	err := types.NewOpenAIError(
@@ -78,8 +79,43 @@ func TestShouldExcludeChannelAfterRetryDecision_KeepsMultiKeyRotation(t *testing
 	)
 	channel := &model.Channel{Id: 42}
 	channel.ChannelInfo.IsMultiKey = true
+	channel.Key = "sk-1\nsk-2"
 
-	assert.False(t, shouldExcludeChannelAfterRetryDecision(c, channel, err, true))
+	assert.True(t, shouldExcludeChannelAfterRetryDecision(c, &service.RetryParam{}, channel, err, true))
+}
+
+func TestShouldExcludeChannelAfterRetryDecision_KeepsMultiKeyKeyScopedErrorWithUntriedKey(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)
+	common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, 0)
+	err := types.NewOpenAIError(
+		errors.New("rate limit exceeded"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusTooManyRequests,
+	)
+	channel := &model.Channel{Id: 42, Key: "sk-1\nsk-2"}
+	channel.ChannelInfo.IsMultiKey = true
+	retryParam := &service.RetryParam{}
+	service.RecordTriedMultiKeyIndex(retryParam, channel.Id, 0)
+
+	assert.False(t, shouldExcludeChannelAfterRetryDecision(c, retryParam, channel, err, true))
+}
+
+func TestShouldExcludeChannelAfterRetryDecision_ExcludesMultiKeyKeyScopedErrorWhenExhausted(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)
+	err := types.NewOpenAIError(
+		errors.New("rate limit exceeded"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusTooManyRequests,
+	)
+	channel := &model.Channel{Id: 42, Key: "sk-1\nsk-2"}
+	channel.ChannelInfo.IsMultiKey = true
+	retryParam := &service.RetryParam{}
+	service.RecordTriedMultiKeyIndex(retryParam, channel.Id, 0)
+	service.RecordTriedMultiKeyIndex(retryParam, channel.Id, 1)
+
+	assert.True(t, shouldExcludeChannelAfterRetryDecision(c, retryParam, channel, err, true))
 }
 
 func TestShouldRecordRelayErrorLogRespectsNoRecordAndDedup(t *testing.T) {

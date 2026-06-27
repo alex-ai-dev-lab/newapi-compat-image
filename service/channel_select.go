@@ -20,6 +20,7 @@ type RetryParam struct {
 	Retry                         *int
 	resetNextTry                  bool
 	ExcludedChannelIds            map[int]bool
+	TriedMultiKeyIndexes          map[int]map[int]bool
 	PreferredChannelId            int
 	RequireClaudeThinkingSupport  bool
 	RequireOpenAIResponsesSupport bool
@@ -354,4 +355,38 @@ func ExcludeChannelForRetry(param *RetryParam, channelID int) {
 		param.ExcludedChannelIds = make(map[int]bool)
 	}
 	param.ExcludedChannelIds[channelID] = true
+}
+
+func RecordTriedMultiKeyIndex(param *RetryParam, channelID int, keyIndex int) {
+	if param == nil || channelID <= 0 || keyIndex < 0 {
+		return
+	}
+	if param.TriedMultiKeyIndexes == nil {
+		param.TriedMultiKeyIndexes = make(map[int]map[int]bool)
+	}
+	if param.TriedMultiKeyIndexes[channelID] == nil {
+		param.TriedMultiKeyIndexes[channelID] = make(map[int]bool)
+	}
+	param.TriedMultiKeyIndexes[channelID][keyIndex] = true
+}
+
+func HasUntriedEnabledMultiKey(param *RetryParam, channel *model.Channel) bool {
+	if param == nil || channel == nil || !channel.ChannelInfo.IsMultiKey {
+		return false
+	}
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return false
+	}
+	tried := param.TriedMultiKeyIndexes[channel.Id]
+	for i := range keys {
+		if tried != nil && tried[i] {
+			continue
+		}
+		if status, ok := channel.ChannelInfo.MultiKeyStatusList[i]; ok && status != common.ChannelStatusEnabled {
+			continue
+		}
+		return true
+	}
+	return false
 }

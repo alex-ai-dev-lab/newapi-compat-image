@@ -255,6 +255,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 
 			addUsedChannel(c, channel.Id)
+			recordTriedMultiKeyIndex(c, retryParam, channel)
 
 			// Compat hook: BeforeChannelCall (scrubs body for thinking/reasoning)
 			if hookErr := compat.Hooks().BeforeChannelCall(c, relayInfo, channel, retryParam); hookErr != nil {
@@ -717,21 +718,58 @@ func markChannelExcludedForCompatRetry(retryParam *service.RetryParam, channel *
 	retryParam.ExcludedChannelIds[channel.Id] = true
 }
 
+func recordTriedMultiKeyIndex(c *gin.Context, retryParam *service.RetryParam, channel *model.Channel) {
+	if c == nil || retryParam == nil || channel == nil || !channel.ChannelInfo.IsMultiKey {
+		return
+	}
+	service.RecordTriedMultiKeyIndex(retryParam, channel.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex))
+}
+
 func excludeChannelAfterRetryDecision(c *gin.Context, retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError, shouldRetry bool) {
-	if !shouldExcludeChannelAfterRetryDecision(c, channel, openaiErr, shouldRetry) {
+	if !shouldExcludeChannelAfterRetryDecision(c, retryParam, channel, openaiErr, shouldRetry) {
 		return
 	}
 	service.ExcludeChannelForRetry(retryParam, channel.Id)
 }
 
-func shouldExcludeChannelAfterRetryDecision(c *gin.Context, channel *model.Channel, openaiErr *types.NewAPIError, shouldRetry bool) bool {
+func shouldExcludeChannelAfterRetryDecision(c *gin.Context, retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError, shouldRetry bool) bool {
 	if !shouldRetry || channel == nil || openaiErr == nil {
 		return false
 	}
 	if channel.ChannelInfo.IsMultiKey || common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
-		return false
+		return !shouldKeepMultiKeyChannelForRetry(retryParam, channel, openaiErr)
 	}
 	return true
+}
+
+func shouldKeepMultiKeyChannelForRetry(retryParam *service.RetryParam, channel *model.Channel, openaiErr *types.NewAPIError) bool {
+	if channel == nil || openaiErr == nil || !channel.ChannelInfo.IsMultiKey {
+		return false
+	}
+	if !isKeyScopedRetryError(openaiErr) {
+		return false
+	}
+	return service.HasUntriedEnabledMultiKey(retryParam, channel)
+}
+
+func isKeyScopedRetryError(openaiErr *types.NewAPIError) bool {
+	if openaiErr == nil {
+		return false
+	}
+	if service.IsInvalidEncryptedReasoningError(openaiErr) {
+		return false
+	}
+	if service.IsImmediateChannelDisableError(openaiErr) {
+		return true
+	}
+	switch openaiErr.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusPaymentRequired:
+		return true
+	default:
+		return openaiErr.GetErrorCode() == types.ErrorCodeChannelInvalidKey ||
+			openaiErr.GetErrorCode() == types.ErrorCodeChannelNoAvailableKey ||
+			isQuotaOrRateLimitError(openaiErr)
+	}
 }
 
 func getProviderRoutingPolicy(c *gin.Context) *service.ProviderRoutingPolicy {
