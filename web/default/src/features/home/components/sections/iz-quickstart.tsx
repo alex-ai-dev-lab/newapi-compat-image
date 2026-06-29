@@ -17,14 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Check, Copy } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { AnimateInView } from '@/components/animate-in-view'
 
 type Lang = 'curl' | 'python' | 'node'
 
 const baseUrlAtRender = () =>
-  typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
+  typeof window !== 'undefined'
+    ? window.location.origin
+    : 'https://your.gateway'
+
+const LANGS = ['curl', 'python', 'node'] as const
 
 export function IzQuickstart() {
   const { t } = useTranslation()
@@ -89,6 +93,8 @@ for await (const chunk of stream) {
     }
   }
 
+  const activePanelId = `iz-code-panel-${lang}`
+
   return (
     <section className='iz-block iz-block-alt' id='integrate'>
       <div className='iz-wrap'>
@@ -107,48 +113,61 @@ for await (const chunk of stream) {
 
           <AnimateInView animation='fade-up' delay={120}>
             <div className='iz-code'>
-            <div className='iz-code-bar'>
-              <div className='iz-code-tabs' role='tablist'>
-                {(['curl', 'python', 'node'] as Lang[]).map((l) => (
-                  <button
-                    key={l}
-                    role='tab'
-                    aria-selected={lang === l}
-                    onClick={() => setLang(l)}
-                    className={`iz-code-tab ${lang === l ? 'is-active' : ''}`}
-                    type='button'
-                  >
-                    {l === 'curl' ? 'cURL' : l === 'python' ? 'Python' : 'Node.js'}
-                  </button>
-                ))}
+              <div className='iz-code-bar'>
+                <div className='iz-code-tabs' role='tablist'>
+                  {LANGS.map((l) => (
+                    <button
+                      key={l}
+                      id={`iz-code-tab-${l}`}
+                      role='tab'
+                      aria-controls={`iz-code-panel-${l}`}
+                      aria-selected={lang === l}
+                      tabIndex={lang === l ? 0 : -1}
+                      onClick={() => setLang(l)}
+                      className={`iz-code-tab ${lang === l ? 'is-active' : ''}`}
+                      type='button'
+                    >
+                      {l === 'curl'
+                        ? 'cURL'
+                        : l === 'python'
+                          ? 'Python'
+                          : 'Node.js'}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type='button'
+                  onClick={handleCopy}
+                  className='iz-code-copy'
+                  aria-label='Copy snippet'
+                >
+                  {copied ? (
+                    <>
+                      <Check className='size-3.5' /> {t('copied')}
+                    </>
+                  ) : (
+                    <>
+                      <Copy className='size-3.5' /> {t('copy')}
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                type='button'
-                onClick={handleCopy}
-                className='iz-code-copy'
-                aria-label='Copy snippet'
+              <pre
+                id={activePanelId}
+                className='iz-code-body'
+                role='tabpanel'
+                aria-labelledby={`iz-code-tab-${lang}`}
+                tabIndex={0}
               >
-                {copied ? (
-                  <>
-                    <Check className='size-3.5' /> {t('copied')}
-                  </>
-                ) : (
-                  <>
-                    <Copy className='size-3.5' /> {t('copy')}
-                  </>
-                )}
-              </button>
+                <code>{snippets[lang]}</code>
+              </pre>
+              <div className='iz-code-foot'>
+                <span className='iz-code-foot-dot' aria-hidden />
+                <span className='iz-code-foot-txt'>
+                  {t('Streaming, tool calls and image APIs work the same way.')}
+                </span>
+              </div>
             </div>
-            <pre className='iz-code-body'>
-              <code>{snippets[lang]}</code>
-            </pre>
-            <div className='iz-code-foot'>
-              <span className='iz-code-foot-dot' />
-              <span className='iz-code-foot-txt'>
-                {t('Streaming, tool calls and image APIs work the same way.')}
-              </span>
-            </div>
-          </div>
           </AnimateInView>
         </div>
       </div>

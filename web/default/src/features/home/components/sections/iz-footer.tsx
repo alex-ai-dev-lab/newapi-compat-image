@@ -34,13 +34,13 @@ const COLUMNS = [
       ['Docs', 'https://router.108848.xyz:1445/'],
       ['API reference', '#protocols'],
       ['Status page', '#live'],
-      ['Changelog', '#top'],
+      ['Changelog', 'https://github.com/alex-ai-dev-lab/renewapi/releases'],
     ],
   },
   {
     title: 'Company',
     links: [
-      ['About', '#faq'],
+      ['About', '/about'],
       ['Terms', '/user-agreement'],
       ['Privacy', '/privacy-policy'],
     ],
@@ -59,7 +59,11 @@ export function IzFooter() {
             <div className='iz-site-brand iz-footer-brand'>
               Interface Zero <span>v1</span>
             </div>
-            <p>{t('A unified, reliable, high-speed AI API gateway. One endpoint, every model.')}</p>
+            <p>
+              {t(
+                'A unified, reliable, high-speed AI API gateway. One endpoint, every model.'
+              )}
+            </p>
           </div>
           {COLUMNS.map((column) => (
             <div className='iz-footer-column' key={column.title}>

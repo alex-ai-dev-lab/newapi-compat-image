@@ -62,6 +62,9 @@ export function IzHeader(props: IzHeaderProps) {
 
   return (
     <>
+      <a href='#main-content' className='iz-skip'>
+        {t('Skip to content')}
+      </a>
       <header className={`iz-site-header ${scrolled ? 'is-scrolled' : ''}`}>
         <div className='iz-wrap'>
           <nav className='iz-site-nav' aria-label={t('Primary')}>
@@ -74,15 +77,25 @@ export function IzHeader(props: IzHeaderProps) {
                   {t(label)}
                 </a>
               ))}
-              <a href='https://router.108848.xyz:1445/' target='_blank' rel='noreferrer'>
+              <a
+                href='https://router.108848.xyz:1445/'
+                target='_blank'
+                rel='noreferrer'
+              >
                 Docs
               </a>
             </div>
             <div className='iz-site-actions'>
-              <Link className='iz-text-link' to={props.isAuthenticated ? '/dashboard' : '/sign-in'}>
+              <Link
+                className='iz-text-link'
+                to={props.isAuthenticated ? '/dashboard' : '/sign-in'}
+              >
                 {t('Console')}
               </Link>
-              <Link className='iz-button iz-button-dark iz-button-sm' to={actionHref}>
+              <Link
+                className='iz-button iz-button-dark iz-button-sm'
+                to={actionHref}
+              >
                 {actionLabel}
               </Link>
               <button
@@ -105,6 +118,7 @@ export function IzHeader(props: IzHeaderProps) {
         id='iz-mobile-menu'
         className={`iz-mobile-menu ${mobileOpen ? 'is-open' : ''}`}
         aria-hidden={!mobileOpen}
+        inert={!mobileOpen}
       >
         <nav className='iz-mobile-menu-inner' aria-label={t('Mobile')}>
           {NAV_LINKS.map(([label, href]) => (

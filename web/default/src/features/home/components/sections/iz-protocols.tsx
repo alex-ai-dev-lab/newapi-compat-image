@@ -93,7 +93,7 @@ export function IzProtocols() {
                 <div className='iz-matrix-desc'>{t(row.capability)}</div>
                 <div className='iz-matrix-provider'>{row.provider}</div>
                 <div className='iz-matrix-status'>
-                  <i />
+                  <span aria-hidden />
                   {t('Operational')}
                 </div>
               </div>

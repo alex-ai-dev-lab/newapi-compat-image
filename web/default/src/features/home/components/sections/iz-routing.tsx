@@ -38,7 +38,9 @@ export function IzRouting() {
             <span className='iz-watermark'>02</span>
             <div className='iz-section-left'>
               <span className='iz-index'>02 - Routing</span>
-              <span className='iz-section-tag'>{t('One contract, many upstreams')}</span>
+              <span className='iz-section-tag'>
+                {t('One contract, many upstreams')}
+              </span>
             </div>
             <div>
               <h2>{t('Your request, intelligently routed.')}</h2>
@@ -60,7 +62,9 @@ export function IzRouting() {
                 role='img'
                 aria-labelledby='iz-routing-title iz-routing-desc'
               >
-                <title id='iz-routing-title'>{t('Interface Zero routing flow')}</title>
+                <title id='iz-routing-title'>
+                  {t('Interface Zero routing flow')}
+                </title>
                 <desc id='iz-routing-desc'>
                   {t(
                     'Your application sends one request to Interface Zero, which routes to OpenAI, Claude, Gemini, or other upstream providers with health checks, failover, and retry controls.'
@@ -76,11 +80,21 @@ export function IzRouting() {
                     markerHeight='6'
                     orient='auto-start-reverse'
                   >
-                    <path d='M 0 0 L 10 5 L 0 10 z' className='iz-routing-arrow' />
+                    <path
+                      d='M 0 0 L 10 5 L 0 10 z'
+                      className='iz-routing-arrow'
+                    />
                   </marker>
                 </defs>
 
-                <rect x='34' y='126' width='190' height='108' rx='8' className='iz-routing-node' />
+                <rect
+                  x='34'
+                  y='126'
+                  width='176'
+                  height='108'
+                  rx='8'
+                  className='iz-routing-node'
+                />
                 <text x='64' y='174' className='iz-routing-node-title'>
                   Your App
                 </text>
@@ -88,33 +102,44 @@ export function IzRouting() {
                   SDK unchanged
                 </text>
 
-                <rect x='392' y='96' width='210' height='168' rx='8' className='iz-routing-gateway' />
-                <text x='426' y='158' className='iz-routing-gateway-title'>
+                <rect
+                  x='420'
+                  y='96'
+                  width='210'
+                  height='168'
+                  rx='8'
+                  className='iz-routing-gateway'
+                />
+                <text x='454' y='158' className='iz-routing-gateway-title'>
                   Interface Zero
                 </text>
-                <text x='426' y='190' className='iz-routing-gateway-sub'>
+                <text x='454' y='190' className='iz-routing-gateway-sub'>
                   one base URL
                 </text>
-                <text x='426' y='224' className='iz-routing-gateway-meta'>
+                <text x='454' y='224' className='iz-routing-gateway-meta'>
                   health · failover · retry
                 </text>
 
                 <path
-                  d='M 224 180 C 286 180, 326 180, 392 180'
+                  d='M 210 180 C 290 180, 350 180, 420 180'
                   className='iz-routing-line iz-routing-line-active'
                   markerEnd='url(#iz-arrow)'
                 />
                 {ROUTING_LABELS.map((label, index) => (
                   <g key={label}>
                     <rect
-                      x={260 + index * 72}
+                      x={216 + index * 70}
                       y='142'
-                      width='64'
+                      width='58'
                       height='22'
                       rx='11'
                       className='iz-routing-chip'
                     />
-                    <text x={292 + index * 72} y='157' className='iz-routing-chip-text'>
+                    <text
+                      x={245 + index * 70}
+                      y='157'
+                      className='iz-routing-chip-text'
+                    >
                       {label}
                     </text>
                   </g>
@@ -123,7 +148,7 @@ export function IzRouting() {
                 {PROVIDERS.map((provider) => (
                   <g key={provider.name}>
                     <path
-                      d={`M 602 180 C 680 180, 674 ${provider.y}, 752 ${provider.y}`}
+                      d={`M 630 180 C 700 180, 700 ${provider.y}, 752 ${provider.y}`}
                       className='iz-routing-line iz-routing-line-active'
                       markerEnd='url(#iz-arrow)'
                     />
@@ -135,10 +160,18 @@ export function IzRouting() {
                       rx='8'
                       className='iz-routing-provider'
                     />
-                    <text x='774' y={provider.y - 4} className='iz-routing-provider-title'>
+                    <text
+                      x='774'
+                      y={provider.y - 4}
+                      className='iz-routing-provider-title'
+                    >
                       {provider.name}
                     </text>
-                    <text x='774' y={provider.y + 16} className='iz-routing-provider-sub'>
+                    <text
+                      x='774'
+                      y={provider.y + 16}
+                      className='iz-routing-provider-sub'
+                    >
                       {provider.detail}
                     </text>
                   </g>

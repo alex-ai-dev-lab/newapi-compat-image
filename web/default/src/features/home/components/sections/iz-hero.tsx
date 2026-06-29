@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -38,7 +38,6 @@ export function IzHero(props: IzHeroProps) {
   const { t } = useTranslation()
   const [endpointIdx, setEndpointIdx] = useState(0)
   const [copied, setCopied] = useState(false)
-  const heroRef = useRef<HTMLElement>(null)
   const baseUrl =
     typeof window !== 'undefined'
       ? `${window.location.origin}/v1`
@@ -53,29 +52,6 @@ export function IzHero(props: IzHeroProps) {
     return () => clearInterval(id)
   }, [])
 
-  useEffect(() => {
-    const el = heroRef.current
-    if (!el) return
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    if (mq.matches) return
-    let raf = 0
-    const onMove = (e: MouseEvent) => {
-      const r = el.getBoundingClientRect()
-      const x = ((e.clientX - r.left) / r.width) * 100
-      const y = ((e.clientY - r.top) / r.height) * 100
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        el.style.setProperty('--iz-mx', `${x}%`)
-        el.style.setProperty('--iz-my', `${y}%`)
-      })
-    }
-    el.addEventListener('mousemove', onMove)
-    return () => {
-      el.removeEventListener('mousemove', onMove)
-      cancelAnimationFrame(raf)
-    }
-  }, [])
-
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(baseUrl)
@@ -87,12 +63,12 @@ export function IzHero(props: IzHeroProps) {
   }
 
   return (
-    <section ref={heroRef} className='iz-hero' id='top'>
+    <section className='iz-hero' id='top'>
       <div className='iz-blueprint' aria-hidden />
       <div className='iz-wrap'>
         <div className='iz-hero-top'>
           <span className='iz-label iz-hero-meta'>
-            <span className='iz-dot' />
+            <span className='iz-dot' aria-hidden />
             {t('Unified AI Gateway')}
           </span>
           <span className='iz-label'>Ref. IZ - 001</span>
@@ -108,7 +84,7 @@ export function IzHero(props: IzHeroProps) {
 
         <div className='iz-hero-cycle'>
           <span className='iz-hero-cycle-tag'>
-            <b>{ENDPOINT_CYCLE[endpointIdx][0]}</b>
+            <b>{t(ENDPOINT_CYCLE[endpointIdx][0])}</b>
             <span key={endpointIdx}>{ENDPOINT_CYCLE[endpointIdx][1]}</span>
           </span>
           <span>{t('now live')}</span>

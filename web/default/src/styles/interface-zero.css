@@ -6,8 +6,8 @@
   src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2');
   unicode-range:
     U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
-    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -17,9 +17,9 @@
   font-display: swap;
   src: url('./fonts/inter-latin-ext-wght-normal.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
-    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
-    U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 .iz-root {
@@ -37,8 +37,31 @@
   z-index: 50;
   border-bottom: 1px solid transparent;
   background: transparent;
-  transition: background-color 300ms ease, border-color 300ms ease,
+  transition:
+    background-color 300ms ease,
+    border-color 300ms ease,
     backdrop-filter 300ms ease;
+}
+
+.iz-skip {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  transform: translateY(-140%);
+  border: 1.5px solid var(--ink);
+  background: var(--white);
+  color: var(--ink);
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform 180ms ease;
+}
+
+.iz-skip:focus {
+  transform: translateY(0);
 }
 
 .iz-site-header.is-scrolled {
@@ -150,7 +173,9 @@
   width: 18px;
   height: 1.5px;
   background: currentColor;
-  transition: transform 300ms ease, opacity 200ms ease;
+  transition:
+    transform 300ms ease,
+    opacity 200ms ease;
 }
 
 .iz-burger.is-active span:nth-child(1) {
@@ -174,12 +199,16 @@
   background: var(--paper);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 300ms ease;
+  visibility: hidden;
+  transition:
+    opacity 300ms ease,
+    visibility 300ms ease;
 }
 
 .iz-mobile-menu.is-open {
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
 }
 
 .iz-mobile-menu-inner {
@@ -215,10 +244,6 @@ body.menu-open {
 .iz-root *::before,
 .iz-root *::after {
   box-sizing: border-box;
-}
-
-.iz-root .opacity-0 {
-  opacity: 1 !important;
 }
 
 .iz-root em {
@@ -259,7 +284,10 @@ body.menu-open {
   color: var(--ink) !important;
   background: transparent !important;
   white-space: nowrap;
-  transition: opacity 220ms ease, background-color 220ms ease, color 220ms ease;
+  transition:
+    opacity 220ms ease,
+    background-color 220ms ease,
+    color 220ms ease;
 }
 
 .iz-button-lg {
@@ -306,7 +334,11 @@ body.menu-open {
   background-image: radial-gradient(var(--wline-soft) 1px, transparent 1.4px);
   background-size: 24px 24px;
   mask-image: radial-gradient(circle at 50% 28%, black, transparent 72%);
-  -webkit-mask-image: radial-gradient(circle at 50% 28%, black, transparent 72%);
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 28%,
+    black,
+    transparent 72%
+  );
 }
 
 .iz-dot {
@@ -542,7 +574,13 @@ body.menu-open {
 .iz-marquee {
   flex: 1;
   overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    black 7%,
+    black 93%,
+    transparent
+  );
   -webkit-mask-image: linear-gradient(
     90deg,
     transparent,
@@ -674,7 +712,9 @@ body.menu-open {
   align-items: baseline;
   padding: 38px 4px;
   border-bottom: 1px solid var(--line-soft);
-  transition: padding-left 300ms ease, background-color 300ms ease;
+  transition:
+    padding-left 300ms ease,
+    background-color 300ms ease;
 }
 
 .iz-principle:hover {
@@ -971,7 +1011,7 @@ body.menu-open {
   font-size: 12px;
 }
 
-.iz-matrix-status i {
+.iz-matrix-status span {
   width: 6px;
   height: 6px;
   background: var(--ink);

@@ -16,9 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { AnimateInView } from '@/components/animate-in-view'
 
@@ -42,17 +42,27 @@ export function IzClosing(props: IzClosingProps) {
           </p>
           <div className='iz-final-actions'>
             {props.isAuthenticated ? (
-              <Button className='iz-button iz-button-light iz-button-lg group' render={<Link to='/dashboard' />}>
+              <Button
+                className='iz-button iz-button-light iz-button-lg group'
+                render={<Link to='/dashboard' />}
+              >
                 {t('Open Dashboard')}
                 <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
               </Button>
             ) : (
               <>
-                <Button className='iz-button iz-button-light iz-button-lg group' render={<Link to='/sign-up' />}>
+                <Button
+                  className='iz-button iz-button-light iz-button-lg group'
+                  render={<Link to='/sign-up' />}
+                >
                   {t('Create your key')}
                   <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
                 </Button>
-                <Button variant='link' className='iz-text-link iz-text-link-light' render={<Link to='/pricing' />}>
+                <Button
+                  variant='link'
+                  className='iz-text-link iz-text-link-light'
+                  render={<a href='#models' />}
+                >
                   {t('Browse models')}
                 </Button>
               </>

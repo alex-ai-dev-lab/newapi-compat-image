@@ -32,6 +32,11 @@ type Telemetry = {
   channels: HealthChannel[]
 }
 
+type TelemetrySamples = {
+  qps: number[]
+  p50: number[]
+}
+
 const FALLBACK_CHANNELS: HealthChannel[] = [
   { name: 'OpenAI', health: 99 },
   { name: 'Claude', health: 98 },
@@ -40,10 +45,16 @@ const FALLBACK_CHANNELS: HealthChannel[] = [
 ]
 
 function getRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {}
 }
 
-function getNumber(source: Record<string, unknown>, keys: string[], fallback: number) {
+function getNumber(
+  source: Record<string, unknown>,
+  keys: string[],
+  fallback: number
+) {
   for (const key of keys) {
     const value = source[key]
     if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -79,7 +90,11 @@ function normalizeStatus(payload: unknown, fallback: Telemetry): Telemetry {
           0,
           Math.min(
             100,
-            getNumber(channel, ['health', 'healthy', 'success_rate', 'successRate'], fallback.channels[index]?.health || 96)
+            getNumber(
+              channel,
+              ['health', 'healthy', 'success_rate', 'successRate'],
+              fallback.channels[index]?.health || 96
+            )
           )
         ),
       }
@@ -87,9 +102,21 @@ function normalizeStatus(payload: unknown, fallback: Telemetry): Telemetry {
     .slice(0, 4)
 
   return {
-    qps: getNumber(data, ['throughput', 'qps', 'requests_per_second', 'requestRate'], fallback.qps),
-    p50: getNumber(data, ['p50', 'p50_latency', 'p50Latency', 'latency'], fallback.p50),
-    successRate: getNumber(data, ['success_rate', 'successRate', 'uptime'], fallback.successRate),
+    qps: getNumber(
+      data,
+      ['throughput', 'qps', 'requests_per_second', 'requestRate'],
+      fallback.qps
+    ),
+    p50: getNumber(
+      data,
+      ['p50', 'p50_latency', 'p50Latency', 'latency'],
+      fallback.p50
+    ),
+    successRate: getNumber(
+      data,
+      ['success_rate', 'successRate', 'uptime'],
+      fallback.successRate
+    ),
     channels: channels.length ? channels : fallback.channels,
   }
 }
@@ -97,26 +124,35 @@ function normalizeStatus(payload: unknown, fallback: Telemetry): Telemetry {
 function nextFallback(previous: Telemetry): Telemetry {
   const now = Date.now() / 1000
   return {
-    qps: Math.max(80, Math.round(180 + Math.sin(now / 4) * 34 + Math.cos(now / 7) * 18)),
+    qps: Math.max(
+      80,
+      Math.round(180 + Math.sin(now / 4) * 34 + Math.cos(now / 7) * 18)
+    ),
     p50: Math.max(120, Math.round(232 + Math.cos(now / 5) * 26)),
     successRate: 99.91,
     channels: previous.channels.map((channel, index) => ({
       ...channel,
-      health: Math.max(90, Math.min(100, Math.round(channel.health + Math.sin(now + index) * 1.5))),
+      health: Math.max(
+        90,
+        Math.min(100, Math.round(channel.health + Math.sin(now + index) * 1.5))
+      ),
     })),
   }
 }
 
 function useTelemetry() {
-  const [telemetry, setTelemetry] = useState<Telemetry>({
+  const initialTelemetry: Telemetry = {
     qps: 184,
     p50: 238,
     successRate: 99.91,
     channels: FALLBACK_CHANNELS,
+  }
+  const [telemetry, setTelemetry] = useState<Telemetry>(initialTelemetry)
+  const telemetryRef = useRef<Telemetry>(initialTelemetry)
+  const [samples, setSamples] = useState<TelemetrySamples>({
+    qps: [122, 148, 136, 168, 176, 158, 192, 206, 188, 214, 226, 204],
+    p50: [246, 230, 251, 218, 226, 205, 240, 222, 234, 211, 202, 238],
   })
-  const [samples, setSamples] = useState<number[]>([
-    122, 148, 136, 168, 176, 158, 192, 206, 188, 214, 226, 204,
-  ])
   const [mode, setMode] = useState<'live' | 'fallback'>('fallback')
 
   useEffect(() => {
@@ -131,19 +167,23 @@ function useTelemetry() {
         if (!response.ok) throw new Error(`status ${response.status}`)
         const payload: unknown = await response.json()
         if (cancelled) return
-        setTelemetry((previous) => {
-          const next = normalizeStatus(payload, previous)
-          setSamples((items) => [...items.slice(-17), next.qps])
-          return next
-        })
+        const next = normalizeStatus(payload, telemetryRef.current)
+        telemetryRef.current = next
+        setTelemetry(next)
+        setSamples((items) => ({
+          qps: [...items.qps.slice(-17), next.qps],
+          p50: [...items.p50.slice(-17), next.p50],
+        }))
         setMode('live')
       } catch {
         if (cancelled) return
-        setTelemetry((previous) => {
-          const next = nextFallback(previous)
-          setSamples((items) => [...items.slice(-17), next.qps])
-          return next
-        })
+        const next = nextFallback(telemetryRef.current)
+        telemetryRef.current = next
+        setTelemetry(next)
+        setSamples((items) => ({
+          qps: [...items.qps.slice(-17), next.qps],
+          p50: [...items.p50.slice(-17), next.p50],
+        }))
         setMode('fallback')
       } finally {
         if (!cancelled) {
@@ -164,6 +204,13 @@ function useTelemetry() {
 
 function QpsCanvas({ samples }: { samples: number[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const samplesRef = useRef(samples)
+
+  useEffect(() => {
+    samplesRef.current = samples
+    const canvas = canvasRef.current
+    canvas?.dispatchEvent(new Event('iz:samples-change'))
+  }, [samples])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -181,10 +228,13 @@ function QpsCanvas({ samples }: { samples: number[] }) {
 
       const styles = getComputedStyle(canvas)
       const ink = styles.getPropertyValue('--ink').trim() || '#0D0D10'
-      const line = styles.getPropertyValue('--line').trim() || 'rgba(13,13,16,.15)'
-      const soft = styles.getPropertyValue('--line-soft').trim() || 'rgba(13,13,16,.07)'
-      const max = Math.max(...samples, 1)
-      const min = Math.min(...samples)
+      const line =
+        styles.getPropertyValue('--line').trim() || 'rgba(13,13,16,.15)'
+      const soft =
+        styles.getPropertyValue('--line-soft').trim() || 'rgba(13,13,16,.07)'
+      const currentSamples = samplesRef.current
+      const max = Math.max(...currentSamples, 1)
+      const min = Math.min(...currentSamples)
       const range = Math.max(1, max - min)
       const pad = 22
       const width = rect.width - pad * 2
@@ -212,15 +262,15 @@ function QpsCanvas({ samples }: { samples: number[] }) {
       ctx.lineJoin = 'round'
       ctx.lineCap = 'round'
       ctx.beginPath()
-      samples.forEach((value, index) => {
-        const x = pad + (width / Math.max(1, samples.length - 1)) * index
+      currentSamples.forEach((value, index) => {
+        const x = pad + (width / Math.max(1, currentSamples.length - 1)) * index
         const y = pad + height - ((value - min) / range) * height
         if (index === 0) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
       })
       ctx.stroke()
 
-      const last = samples[samples.length - 1] || 0
+      const last = currentSamples[currentSamples.length - 1] || 0
       const lastX = pad + width
       const lastY = pad + height - ((last - min) / range) * height
       ctx.fillStyle = ink
@@ -232,19 +282,32 @@ function QpsCanvas({ samples }: { samples: number[] }) {
     draw()
     const observer = new ResizeObserver(draw)
     observer.observe(canvas)
-    return () => observer.disconnect()
-  }, [samples])
+    canvas.addEventListener('iz:samples-change', draw)
+    return () => {
+      observer.disconnect()
+      canvas.removeEventListener('iz:samples-change', draw)
+    }
+  }, [])
 
-  return <canvas ref={canvasRef} className='iz-live-canvas' aria-label='QPS line chart' />
+  return (
+    <canvas
+      ref={canvasRef}
+      className='iz-live-canvas'
+      aria-label='QPS line chart'
+    />
+  )
 }
 
 export function IzLive() {
   const { t } = useTranslation()
   const { telemetry, samples, mode } = useTelemetry()
-  const latency = useMemo(
-    () => [0.64, 0.72, 0.58, 0.83, 0.76, 0.91, 0.68, 0.8],
-    []
-  )
+  const latency = useMemo(() => {
+    const recent = samples.p50.slice(-8)
+    const max = Math.max(...recent, 1)
+    const min = Math.min(...recent)
+    const range = Math.max(1, max - min)
+    return recent.map((value) => 0.28 + ((value - min) / range) * 0.72)
+  }, [samples.p50])
 
   return (
     <section id='live' className='iz-block iz-block-alt iz-live'>
@@ -254,7 +317,9 @@ export function IzLive() {
             <span className='iz-watermark'>03</span>
             <div className='iz-section-left'>
               <span className='iz-index'>03 - Live</span>
-              <span className='iz-section-tag'>{t('The gateway, right now')}</span>
+              <span className='iz-section-tag'>
+                {t('The gateway, right now')}
+              </span>
             </div>
             <div>
               <h2>{t("Numbers don't lie.")}</h2>
@@ -272,9 +337,11 @@ export function IzLive() {
             <article className='iz-live-panel iz-live-chart-panel'>
               <div className='iz-live-panel-head'>
                 <span>{t('Throughput')}</span>
-                <strong>{Math.round(telemetry.qps).toLocaleString('en-US')} QPS</strong>
+                <strong>
+                  {Math.round(telemetry.qps).toLocaleString('en-US')} QPS
+                </strong>
               </div>
-              <QpsCanvas samples={samples} />
+              <QpsCanvas samples={samples.qps} />
               <div className='iz-live-panel-foot'>
                 <span>{t('source')}</span>
                 <b>{mode === 'live' ? '/api/status' : t('fallback stream')}</b>
@@ -286,7 +353,9 @@ export function IzLive() {
             <article className='iz-live-panel'>
               <div className='iz-live-panel-head'>
                 <span>{t('P50 latency')}</span>
-                <strong>{Math.round(telemetry.p50).toLocaleString('en-US')} ms</strong>
+                <strong>
+                  {Math.round(telemetry.p50).toLocaleString('en-US')} ms
+                </strong>
               </div>
               <div className='iz-spark' aria-label={t('P50 latency sparkline')}>
                 {latency.map((height, index) => (
