@@ -101,7 +101,11 @@ export function PublicHeader(props: PublicHeaderProps) {
   const user = auth.user
   const isAuthenticated = !!user
   const displaySiteName = customSiteName || systemName
-  const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const links = props.navLinks
+    ? navLinks
+    : dynamicLinks.length > 0
+      ? dynamicLinks
+      : navLinks
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -115,6 +119,17 @@ export function PublicHeader(props: PublicHeaderProps) {
     return () => {
       document.body.style.overflow = ''
     }
+  }, [mobileOpen])
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [mobileOpen])
 
   useEffect(() => {
@@ -223,6 +238,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             <div className='hidden items-center gap-0.5 sm:flex'>
               {links.map((link, i) => {
                 const isActive = pathname === link.href
+                const isHashLink = link.href.startsWith('#')
                 if (link.external) {
                   return (
                     <a
@@ -235,6 +251,26 @@ export function PublicHeader(props: PublicHeaderProps) {
                       onClick={(event) => handleNavLinkClick(event, link)}
                       className={cn(
                         'text-muted-foreground hover:text-foreground rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
+                        link.disabled && 'pointer-events-none opacity-50'
+                      )}
+                    >
+                      {t(link.title)}
+                    </a>
+                  )
+                }
+                if (isHashLink) {
+                  return (
+                    <a
+                      key={i}
+                      href={link.href}
+                      aria-disabled={link.disabled}
+                      tabIndex={link.disabled ? -1 : undefined}
+                      onClick={(event) => handleNavLinkClick(event, link)}
+                      className={cn(
+                        'rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
+                        isActive
+                          ? 'text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
                         link.disabled && 'pointer-events-none opacity-50'
                       )}
                     >
@@ -315,6 +351,8 @@ export function PublicHeader(props: PublicHeaderProps) {
                 className='size-9'
                 onClick={() => setMobileOpen((v) => !v)}
                 aria-label={t('Toggle navigation menu')}
+                aria-expanded={mobileOpen}
+                aria-controls='public-mobile-navigation'
               >
                 <div className='relative size-4'>
                   <span
@@ -344,6 +382,8 @@ export function PublicHeader(props: PublicHeaderProps) {
 
       {/* Mobile full-screen overlay */}
       <div
+        id='public-mobile-navigation'
+        aria-hidden={!mobileOpen}
         className={cn(
           'bg-background/98 fixed inset-0 z-40 backdrop-blur-2xl transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pointer-events-none sm:hidden',
           mobileOpen
@@ -355,6 +395,7 @@ export function PublicHeader(props: PublicHeaderProps) {
           <nav className='flex flex-col gap-1'>
             {links.map((link, i) => {
               const isActive = pathname === link.href
+              const isHashLink = link.href.startsWith('#')
               const linkClassName = cn(
                 'flex items-center gap-3 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
                 mobileOpen
@@ -373,6 +414,21 @@ export function PublicHeader(props: PublicHeaderProps) {
                     href={link.href}
                     target='_blank'
                     rel='noopener noreferrer'
+                    aria-disabled={link.disabled}
+                    tabIndex={link.disabled ? -1 : undefined}
+                    onClick={(event) => handleNavLinkClick(event, link, true)}
+                    className={linkClassName}
+                    style={transitionStyle}
+                  >
+                    {t(link.title)}
+                  </a>
+                )
+              }
+              if (isHashLink) {
+                return (
+                  <a
+                    key={i}
+                    href={link.href}
                     aria-disabled={link.disabled}
                     tabIndex={link.disabled ? -1 : undefined}
                     onClick={(event) => handleNavLinkClick(event, link, true)}

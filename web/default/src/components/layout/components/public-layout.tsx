@@ -28,6 +28,7 @@ type PublicLayoutProps = {
   showThemeSwitch?: boolean
   showAuthButtons?: boolean
   showNotifications?: boolean
+  showHeader?: boolean
   logo?: React.ReactNode
   siteName?: string
 }
@@ -35,16 +36,24 @@ type PublicLayoutProps = {
 export function PublicLayout(props: PublicLayoutProps) {
   return (
     <div className='bg-background text-foreground relative min-h-svh overflow-x-clip'>
-      <PublicHeader
-        navContent={props.navContent}
-        navLinks={props.navLinks}
-        showThemeSwitch={props.showThemeSwitch}
-        showAuthButtons={props.showAuthButtons}
-        showNotifications={props.showNotifications}
-        logo={props.logo}
-        siteName={props.siteName}
-        {...props.headerProps}
-      />
+      <a
+        href='#main-content'
+        className='bg-foreground text-background fixed top-3 left-3 z-[200] -translate-y-16 px-4 py-2 font-mono text-xs tracking-[0.08em] uppercase transition-transform focus:translate-y-0'
+      >
+        Skip to content
+      </a>
+      {props.showHeader !== false && (
+        <PublicHeader
+          navContent={props.navContent}
+          navLinks={props.navLinks}
+          showThemeSwitch={props.showThemeSwitch}
+          showAuthButtons={props.showAuthButtons}
+          showNotifications={props.showNotifications}
+          logo={props.logo}
+          siteName={props.siteName}
+          {...props.headerProps}
+        />
+      )}
 
       {props.showMainContainer !== false ? (
         <main className='container px-4 py-6 pt-20 md:px-4'>

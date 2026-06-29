@@ -20,19 +20,26 @@ import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { Markdown } from '@/components/ui/markdown'
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
+import { IzHeader } from './components/sections/iz-header'
 import { IzHero } from './components/sections/iz-hero'
+import { IzModels } from './components/sections/iz-models'
 import { IzPillars } from './components/sections/iz-pillars'
-import { IzEndpoints } from './components/sections/iz-endpoints'
+import { IzRouting } from './components/sections/iz-routing'
+import { IzLive } from './components/sections/iz-live'
+import { IzProtocols } from './components/sections/iz-protocols'
 import { IzQuickstart } from './components/sections/iz-quickstart'
+import { IzFaq } from './components/sections/iz-faq'
 import { IzClosing } from './components/sections/iz-closing'
+import { IzFooter } from './components/sections/iz-footer'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
   const { t } = useTranslation()
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
-  const { content, isLoaded, isUrl } = useHomePageContent()
+  const { content, isLoaded, isUrl } = useHomePageContent({
+    showErrorToast: false,
+  })
 
   if (!isLoaded) {
     return (
@@ -65,15 +72,23 @@ export function Home() {
   }
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <div className='iz-root'>
+    <PublicLayout
+      showMainContainer={false}
+      showHeader={false}
+    >
+      <IzHeader isAuthenticated={isAuthenticated} />
+      <main id='main-content' className='iz-root'>
         <IzHero isAuthenticated={isAuthenticated} />
+        <IzModels />
         <IzPillars />
-        <IzEndpoints />
+        <IzRouting />
+        <IzLive />
+        <IzProtocols />
         <IzQuickstart />
+        <IzFaq />
         <IzClosing isAuthenticated={isAuthenticated} />
-      </div>
-      <Footer />
+      </main>
+      <IzFooter />
     </PublicLayout>
   )
 }

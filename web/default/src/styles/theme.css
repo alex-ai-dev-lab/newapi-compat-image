@@ -101,6 +101,24 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 :root {
+  --paper: #f1f1f2;
+  --white: #ffffff;
+  --paper-2: #e7e7e9;
+  --paper-3: #dbdbde;
+  --ink: #0d0d10;
+  --ink-2: #4c4c52;
+  --ink-3: #86868c;
+  --ink-4: #b6b6bb;
+  --line: rgba(13, 13, 16, 0.15);
+  --line-soft: rgba(13, 13, 16, 0.07);
+  --wline: rgba(255, 255, 255, 0.16);
+  --wline-soft: rgba(255, 255, 255, 0.08);
+  --maxw: 1240px;
+  --gutter: 36px;
+  --display: 'Inter', system-ui, -apple-system, sans-serif;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas,
+    'Liberation Mono', 'DejaVu Sans Mono', monospace;
   --radius: 1rem;
   --app-header-height: 3rem;
   /* Static build-channel fallback consumed when JS hasn't booted yet. */

@@ -28,7 +28,9 @@ const STORAGE_KEY = 'home_page_content'
  * Hook to load and manage custom home page content
  * Supports both Markdown/HTML content and iframe URLs
  */
-export function useHomePageContent(): HomePageContentResult {
+export function useHomePageContent(options?: {
+  showErrorToast?: boolean
+}): HomePageContentResult {
   const [content, setContent] = useState<string>('')
   const [isLoaded, setIsLoaded] = useState(false)
 
@@ -60,7 +62,9 @@ export function useHomePageContent(): HomePageContentResult {
         if (!mounted) return
         // eslint-disable-next-line no-console
         console.error('Failed to load home page content:', error)
-        toast.error(i18next.t('Failed to load home page content'))
+        if (options?.showErrorToast !== false) {
+          toast.error(i18next.t('Failed to load home page content'))
+        }
       } finally {
         if (mounted) {
           setIsLoaded(true)
@@ -73,7 +77,7 @@ export function useHomePageContent(): HomePageContentResult {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [options?.showErrorToast])
 
   let isUrl = false
   try {

@@ -30,40 +30,29 @@ export function IzClosing(props: IzClosingProps) {
   const { t } = useTranslation()
 
   return (
-    <section className='iz-closing'>
-      <div className='iz-closing-bg' aria-hidden />
-      <div className='iz-closing-grid' aria-hidden />
-      <div className='iz-closing-inner'>
+    <section className='iz-final'>
+      <div className='iz-blueprint' aria-hidden />
+      <div className='iz-wrap'>
         <AnimateInView animation='fade-up'>
-          <p className='iz-closing-kicker'>
-            <span className='iz-closing-kicker-dot' />
-            {t('Ready when you are')}
-          </p>
-          <h2 className='iz-closing-title'>
-            {t('Replace your base URL. Keep your stack.')}
-          </h2>
-          <p className='iz-closing-sub'>
+          <h2>{t('Swap the Base URL, keep everything else.')}</h2>
+          <p>
             {t(
-              'Issue an API key in under a minute. Bring your own models, your own SDK, your own workflow.'
+              'Issue an API key in under a minute. Bring your own models, your SDK, your workflow.'
             )}
           </p>
-          <div className='iz-closing-cta'>
+          <div className='iz-final-actions'>
             {props.isAuthenticated ? (
-              <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
+              <Button className='iz-button iz-button-light iz-button-lg group' render={<Link to='/dashboard' />}>
                 {t('Open Dashboard')}
                 <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
               </Button>
             ) : (
               <>
-                <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
+                <Button className='iz-button iz-button-light iz-button-lg group' render={<Link to='/sign-up' />}>
                   {t('Create your key')}
                   <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
                 </Button>
-                <Button
-                  variant='outline'
-                  className='iz-btn iz-btn-ghost'
-                  render={<Link to='/pricing' />}
-                >
+                <Button variant='link' className='iz-text-link iz-text-link-light' render={<Link to='/pricing' />}>
                   {t('Browse models')}
                 </Button>
               </>

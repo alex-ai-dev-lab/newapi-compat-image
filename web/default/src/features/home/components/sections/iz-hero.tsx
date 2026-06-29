@@ -23,13 +23,12 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 const ENDPOINT_CYCLE = [
-  '/v1/chat/completions',
-  '/v1/responses',
-  '/v1/messages',
-  '/v1beta/models',
-  '/v1/embeddings',
-  '/v1/images/generations',
-]
+  ['routing', '/v1/chat/completions'],
+  ['routing', '/v1/responses'],
+  ['routing', '/v1/messages'],
+  ['embedding', '/v1/embeddings'],
+  ['rendering', '/v1/images/generations'],
+] as const
 
 interface IzHeroProps {
   isAuthenticated?: boolean
@@ -41,7 +40,9 @@ export function IzHero(props: IzHeroProps) {
   const [copied, setCopied] = useState(false)
   const heroRef = useRef<HTMLElement>(null)
   const baseUrl =
-    typeof window !== 'undefined' ? window.location.origin : 'https://your.gateway'
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/v1`
+      : 'https://router.108848.xyz:1443/v1'
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -86,109 +87,113 @@ export function IzHero(props: IzHeroProps) {
   }
 
   return (
-    <section
-      ref={heroRef}
-      className='iz-hero'
-      style={{ ['--iz-mx' as never]: '50%', ['--iz-my' as never]: '30%' }}
-    >
-      <div className='iz-hero-bg' aria-hidden />
-      <div className='iz-hero-grid' aria-hidden />
-      <div className='iz-hero-spot' aria-hidden />
-      <div className='iz-hero-noise' aria-hidden />
-
-      <div className='iz-hero-inner'>
-        <div className='iz-hero-eyebrow'>
-          <span className='iz-hero-dot' />
-          <span className='iz-hero-eyebrow-txt'>
-            {t('All systems operational')}
+    <section ref={heroRef} className='iz-hero' id='top'>
+      <div className='iz-blueprint' aria-hidden />
+      <div className='iz-wrap'>
+        <div className='iz-hero-top'>
+          <span className='iz-label iz-hero-meta'>
+            <span className='iz-dot' />
+            {t('Unified AI Gateway')}
           </span>
-          <span className='iz-hero-eyebrow-sep' />
-          <span className='iz-hero-eyebrow-tag'>v1 · Unified Gateway</span>
+          <span className='iz-label'>Ref. IZ - 001</span>
         </div>
 
-        <h1 className='iz-hero-title'>
-          <span className='iz-hero-title-line iz-hero-title-line-1'>
-            <span className='iz-hero-title-word'>{t('One')}</span>
-            <span className='iz-hero-title-accent'>{t('endpoint.')}</span>
-          </span>
-          <span className='iz-hero-title-line iz-hero-title-line-2'>
-            <span className='iz-hero-title-word'>{t('Every')}</span>
-            <span className='iz-hero-title-glow'>{t('model.')}</span>
-          </span>
+        <div className='iz-eyebrow'>
+          <span className='iz-eyebrow-line' />
+          {t('One API for all of them')}
+        </div>
+        <h1 className='iz-hero-heading'>
+          {t('One endpoint, for every model.')}
         </h1>
 
-        <p className='iz-hero-sub'>
-          {t(
-            'A unified, stable, and fast AI API gateway. Compatible with OpenAI Chat, Responses, Claude Messages and more — drop in your existing SDK, change only the base URL.'
-          )}
-        </p>
+        <div className='iz-hero-cycle'>
+          <span className='iz-hero-cycle-tag'>
+            <b>{ENDPOINT_CYCLE[endpointIdx][0]}</b>
+            <span key={endpointIdx}>{ENDPOINT_CYCLE[endpointIdx][1]}</span>
+          </span>
+          <span>{t('now live')}</span>
+        </div>
 
-        <div className='iz-hero-base'>
-          <div className='iz-hero-base-frame'>
-            <span className='iz-hero-base-label'>BASE URL</span>
-            <span className='iz-hero-base-url' title={baseUrl}>
-              {baseUrl}
-            </span>
-            <span className='iz-hero-base-mount'>
-              <span className='iz-hero-base-mount-prefix'>+</span>
-              <span key={endpointIdx} className='iz-hero-base-mount-path'>
-                {ENDPOINT_CYCLE[endpointIdx]}
+        <div className='iz-hero-grid'>
+          <div>
+            <p className='iz-hero-sub'>
+              {t(
+                'A unified, reliable, high-speed AI API gateway. Native support for OpenAI Chat, Responses and Claude Messages — keep your existing SDK, just swap one line: the Base URL.'
+              )}
+            </p>
+            <div className='iz-hero-actions'>
+              {props.isAuthenticated ? (
+                <Button
+                  className='iz-button iz-button-light iz-button-lg group'
+                  render={<Link to='/dashboard' />}
+                >
+                  {t('Open Dashboard')}
+                  <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    className='iz-button iz-button-light iz-button-lg group'
+                    render={<Link to='/sign-up' />}
+                  >
+                    {t('Get Started')}
+                    <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
+                  </Button>
+                  <a className='iz-text-link iz-text-link-light' href='#models'>
+                    {t('Browse all models')}
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className='iz-baseurl'>
+            <div className='iz-baseurl-label'>BASE URL</div>
+            <div className='iz-baseurl-row'>
+              <span className='iz-baseurl-value' title={baseUrl}>
+                {baseUrl.replace('/v1', '')}
+                <span>/v1</span>
               </span>
-            </span>
-            <button
-              type='button'
-              onClick={handleCopy}
-              className='iz-hero-base-copy'
-              aria-label='Copy base URL'
-            >
-              {copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
-            </button>
-          </div>
-        </div>
-
-        <div className='iz-hero-cta'>
-          {props.isAuthenticated ? (
-            <Button className='iz-btn iz-btn-primary group' render={<Link to='/dashboard' />}>
-              {t('Open Dashboard')}
-              <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-            </Button>
-          ) : (
-            <>
-              <Button className='iz-btn iz-btn-primary group' render={<Link to='/sign-up' />}>
-                {t('Get Started')}
-                <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-              </Button>
-              <Button
-                variant='outline'
-                className='iz-btn iz-btn-ghost'
-                render={<Link to='/pricing' />}
+              <button
+                type='button'
+                onClick={handleCopy}
+                className='iz-copy-button'
+                aria-label='Copy base URL'
               >
-                {t('View Models')}
-              </Button>
-            </>
-          )}
-        </div>
-
-        <div className='iz-hero-stats'>
-          <div className='iz-hero-stat'>
-            <span className='iz-hero-stat-num'>~240<i>ms</i></span>
-            <span className='iz-hero-stat-lbl'>{t('p50 latency')}</span>
-          </div>
-          <span className='iz-hero-stat-sep' />
-          <div className='iz-hero-stat'>
-            <span className='iz-hero-stat-num'>99.9<i>%</i></span>
-            <span className='iz-hero-stat-lbl'>{t('uptime')}</span>
-          </div>
-          <span className='iz-hero-stat-sep' />
-          <div className='iz-hero-stat'>
-            <span className='iz-hero-stat-num'>50<i>+</i></span>
-            <span className='iz-hero-stat-lbl'>{t('upstream providers')}</span>
+                {copied ? (
+                  <Check className='size-4' />
+                ) : (
+                  <Copy className='size-4' />
+                )}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className='iz-hero-scroll' aria-hidden>
-        <span />
+        <div className='iz-ledger'>
+          <div className='iz-ledger-item'>
+            <div className='iz-ledger-value'>
+              240<small>ms</small>
+            </div>
+            <div className='iz-ledger-key'>{t('P50 Latency')}</div>
+          </div>
+          <div className='iz-ledger-item'>
+            <div className='iz-ledger-value'>
+              99.9<small>%</small>
+            </div>
+            <div className='iz-ledger-key'>{t('Uptime')}</div>
+          </div>
+          <div className='iz-ledger-item'>
+            <div className='iz-ledger-value'>
+              50<small>+</small>
+            </div>
+            <div className='iz-ledger-key'>{t('Upstream Providers')}</div>
+          </div>
+          <div className='iz-ledger-item'>
+            <div className='iz-ledger-value'>6</div>
+            <div className='iz-ledger-key'>{t('Native Protocols')}</div>
+          </div>
+        </div>
       </div>
     </section>
   )

@@ -17,11 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { Zap, ShieldCheck, Activity, Layers } from 'lucide-react'
 import { AnimateInView } from '@/components/animate-in-view'
 
 interface Pillar {
-  icon: React.ReactNode
+  number: string
   title: string
   desc: string
   meta: string
@@ -32,73 +31,74 @@ export function IzPillars() {
 
   const pillars: Pillar[] = [
     {
-      icon: <Zap className='size-4' strokeWidth={1.6} />,
-      title: t('Low latency by design'),
+      number: '01',
+      title: t('Low latency, by design'),
       desc: t(
-        'Anycast edge entry, persistent upstream connections, zero-copy streaming. Built for long-running agent loops.'
+        'Anycast edge ingress, upstream connection reuse and zero-copy streaming — built for long-running agent loops.'
       ),
-      meta: 'p50 · 240ms',
+      meta: 'P50 · 240ms',
     },
     {
-      icon: <ShieldCheck className='size-4' strokeWidth={1.6} />,
-      title: t('Stable under pressure'),
+      number: '02',
+      title: t('Composed under pressure'),
       desc: t(
-        'Per-channel health checks, automatic failover and quota-aware retry — clients see one consistent endpoint.'
+        'Channel-level health checks, automatic failover and quota-aware retries — your client always faces one stable endpoint.'
       ),
-      meta: '99.9% SLO',
+      meta: 'SLO · 99.9%',
     },
     {
-      icon: <Layers className='size-4' strokeWidth={1.6} />,
-      title: t('Drop-in compatible'),
+      number: '03',
+      title: t('Native compatibility'),
       desc: t(
-        'Native OpenAI Chat & Responses, Claude Messages, Gemini and image APIs — keep your SDK, swap only the base URL.'
+        'First-class support for OpenAI Chat & Responses, Claude Messages, Gemini and the Image API — keep the SDK, change the Base URL.'
       ),
-      meta: '6 protocols',
+      meta: '6 Protocols',
     },
     {
-      icon: <Activity className='size-4' strokeWidth={1.6} />,
-      title: t('Full observability'),
+      number: '04',
+      title: t('Observable end to end'),
       desc: t(
-        'Per-request traces, token accounting, model-level usage and cost. Audit anything that flows through the gateway.'
+        'Per-request tracing, token accounting, model-level usage and cost — every byte through the gateway is auditable.'
       ),
       meta: 'Real-time',
     },
   ]
 
   return (
-    <section className='iz-pillars'>
-      <div className='iz-pillars-inner'>
+    <section className='iz-block' id='principles'>
+      <div className='iz-wrap'>
         <AnimateInView animation='fade-up'>
           <header className='iz-section-head'>
-            <span className='iz-section-kicker'>
-              <span className='iz-section-kicker-dot' />
-              {t('Principles')}
-            </span>
-            <h2 className='iz-section-title'>
-              {t('Built for serious, long-running AI workloads.')}
-            </h2>
-            <p className='iz-section-sub'>
-              {t(
-                'A focused set of guarantees: low and predictable latency, resilience under failure, and a single contract across every upstream provider.'
-              )}
-            </p>
+            <span className='iz-watermark'>01</span>
+            <div className='iz-section-left'>
+              <span className='iz-index'>01 - Principles</span>
+              <span className='iz-section-tag'>{t('Built for serious workloads')}</span>
+            </div>
+            <div>
+              <h2>{t('Tuned for AI workloads that run for hours.')}</h2>
+              <p className='iz-section-desc'>
+                {t(
+                  'A small set of deliberate, explicit promises: low and predictable latency, resilience under failure, and one contract across every upstream.'
+                )}
+              </p>
+            </div>
           </header>
         </AnimateInView>
 
-        <div className='iz-pillar-grid'>
+        <div className='iz-principles'>
           {pillars.map((p, i) => (
             <AnimateInView
               key={i}
               animation='fade-up'
               delay={i * 80}
-              className='iz-pillar-cell'
             >
-              <article className='iz-pillar'>
-                <span className='iz-pillar-icon'>{p.icon}</span>
-                <h3 className='iz-pillar-title'>{p.title}</h3>
-                <p className='iz-pillar-desc'>{p.desc}</p>
-                <span className='iz-pillar-meta'>{p.meta}</span>
-                <span className='iz-pillar-glow' aria-hidden />
+              <article className='iz-principle'>
+                <span className='iz-principle-number'>{p.number}</span>
+                <div className='iz-principle-body'>
+                  <h3>{p.title}</h3>
+                  <p>{p.desc}</p>
+                </div>
+                <div className='iz-principle-meta'>{p.meta}</div>
               </article>
             </AnimateInView>
           ))}

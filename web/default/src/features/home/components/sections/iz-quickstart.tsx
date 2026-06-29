@@ -90,31 +90,24 @@ for await (const chunk of stream) {
   }
 
   return (
-    <section className='iz-quickstart'>
-      <div className='iz-quickstart-inner'>
-        <AnimateInView animation='fade-up'>
-          <header className='iz-section-head'>
-            <span className='iz-section-kicker'>
-              <span className='iz-section-kicker-dot' />
-              {t('Quickstart')}
-            </span>
-            <h2 className='iz-section-title'>
-              {t('Three lines of difference. Nothing else to learn.')}
-            </h2>
-            <p className='iz-section-sub'>
-              {t(
-                'Use whichever SDK you already trust. Point the base URL at this gateway, plug in your key, and ship.'
-              )}
-            </p>
-          </header>
-        </AnimateInView>
+    <section className='iz-block iz-block-alt' id='integrate'>
+      <div className='iz-wrap'>
+        <div className='iz-integrate-grid'>
+          <AnimateInView animation='fade-up'>
+            <header className='iz-integrate-head'>
+              <span className='iz-index'>05 - Integrate</span>
+              <h2>{t('Three lines apart, nothing more to learn.')}</h2>
+              <p className='iz-section-desc'>
+                {t(
+                  'Use any SDK you already trust. Point the Base URL at the gateway, drop in your key, and ship. Streaming, tool calls and the Image API work exactly the same.'
+                )}
+              </p>
+            </header>
+          </AnimateInView>
 
-        <AnimateInView animation='fade-up' delay={120}>
-          <div className='iz-code'>
+          <AnimateInView animation='fade-up' delay={120}>
+            <div className='iz-code'>
             <div className='iz-code-bar'>
-              <div className='iz-code-dots' aria-hidden>
-                <span /> <span /> <span />
-              </div>
               <div className='iz-code-tabs' role='tablist'>
                 {(['curl', 'python', 'node'] as Lang[]).map((l) => (
                   <button
@@ -156,7 +149,8 @@ for await (const chunk of stream) {
               </span>
             </div>
           </div>
-        </AnimateInView>
+          </AnimateInView>
+        </div>
       </div>
     </section>
   )
