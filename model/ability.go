@@ -60,51 +60,6 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func getPriority(group string, model string, retry int) (int, error) {
-
-	var priorities []int
-	err := DB.Model(&Ability{}).
-		Select("DISTINCT(priority)").
-		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
-		Order("priority DESC").              // 按优先级降序排序
-		Pluck("priority", &priorities).Error // Pluck用于将查询的结果直接扫描到一个切片中
-
-	if err != nil {
-		// 处理错误
-		return 0, err
-	}
-
-	if len(priorities) == 0 {
-		// 如果没有查询到优先级，则返回错误
-		return 0, errors.New("数据库一致性被破坏")
-	}
-
-	// 确定要使用的优先级
-	var priorityToUse int
-	if retry >= len(priorities) {
-		// 如果重试次数大于优先级数，则使用最小的优先级
-		priorityToUse = priorities[len(priorities)-1]
-	} else {
-		priorityToUse = priorities[retry]
-	}
-	return priorityToUse, nil
-}
-
-func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
-	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
-	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
-	if retry != 0 {
-		priority, err := getPriority(group, model, retry)
-		if err != nil {
-			return nil, err
-		} else {
-			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
-		}
-	}
-
-	return channelQuery, nil
-}
-
 func GetChannel(group string, model string, retry int) (*Channel, error) {
 	return GetChannelExcluding(group, model, retry, nil)
 }
@@ -115,26 +70,12 @@ func GetChannelExcluding(group string, model string, retry int, excluded map[int
 
 func GetChannelExcludingWithPolicy(group string, model string, retry int, excluded map[int]bool, policy ChannelRoutingPolicy) (*Channel, error) {
 	var abilities []Ability
-
-	var err error = nil
-	if len(excluded) > 0 {
-		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
-			Order("priority DESC, weight DESC").
-			Find(&abilities).Error
-	} else {
-		channelQuery, queryErr := getChannelQuery(group, model, retry)
-		if queryErr != nil {
-			return nil, queryErr
-		}
-		if common.UsingSQLite || common.UsingPostgreSQL {
-			err = channelQuery.Order("weight DESC").Find(&abilities).Error
-		} else {
-			err = channelQuery.Order("weight DESC").Find(&abilities).Error
-		}
-	}
-	if err != nil {
+	if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Order("priority DESC, weight DESC").
+		Find(&abilities).Error; err != nil {
 		return nil, err
 	}
+
 	if len(excluded) > 0 {
 		filtered := abilities[:0]
 		for _, ability := range abilities {
@@ -148,39 +89,64 @@ func GetChannelExcludingWithPolicy(group string, model string, retry int, exclud
 	abilities = filterChannelModelStatusAbilities(abilities)
 	abilities = filterRandomSelectableAbilities(abilities)
 	abilities = filterProviderRoutingAbilities(abilities, policy)
-	if len(excluded) > 0 && len(abilities) > 0 {
-		targetPriority := abilityPriority(abilities[0])
-		filtered := abilities[:0]
-		for _, ability := range abilities {
-			if abilityPriority(ability) == targetPriority {
-				filtered = append(filtered, ability)
-			}
-		}
-		abilities = filtered
-	}
-	abilities = keepBestProviderRoutingAbilityOrderRank(abilities, policy)
-	channel := Channel{}
-	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
-		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
-			}
-		}
-	} else {
+	if len(abilities) == 0 {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
+	abilities = selectAbilitiesByRetryPriority(abilities, retry)
+	abilities = keepBestProviderRoutingAbilityOrderRank(abilities, policy)
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	channel := Channel{}
+	weightSum := uint(0)
+	for _, ability_ := range abilities {
+		weightSum += ability_.Weight + 10
+	}
+	weight := common.GetRandomInt(int(weightSum))
+	for _, ability_ := range abilities {
+		weight -= int(ability_.Weight) + 10
+		if weight <= 0 {
+			channel.Id = ability_.ChannelId
+			break
+		}
+	}
+	if channel.Id == 0 {
+		channel.Id = abilities[0].ChannelId
+	}
+	err := DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func selectAbilitiesByRetryPriority(abilities []Ability, retry int) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+	priorities := make([]int64, 0, 4)
+	seen := make(map[int64]struct{}, 4)
+	for _, ability := range abilities {
+		priority := abilityPriority(ability)
+		if _, ok := seen[priority]; ok {
+			continue
+		}
+		seen[priority] = struct{}{}
+		priorities = append(priorities, priority)
+	}
+	idx := retry
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(priorities) {
+		idx = len(priorities) - 1
+	}
+	targetPriority := priorities[idx]
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		if abilityPriority(ability) == targetPriority {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 func filterChannelModelStatusAbilities(abilities []Ability) []Ability {

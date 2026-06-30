@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -29,20 +30,28 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
 
 type testResult struct {
-	context     *gin.Context
-	localErr    error
-	newAPIError *types.NewAPIError
+	context      *gin.Context
+	localErr     error
+	newAPIError  *types.NewAPIError
+	firstByteMs  int64
+	totalMs      int64
+	requestBody  string
+	responseBody string
+	httpStatus   int
+	endpoint     string
 }
 
 const channelTestNoncePrefix = "NEWAPI_TEST_"
@@ -83,6 +92,40 @@ func buildChannelTestHeaders(endpointType string, isStream bool) http.Header {
 	}
 
 	return headers
+}
+
+type firstByteTrackingReader struct {
+	rc      io.ReadCloser
+	once    sync.Once
+	onFirst func()
+}
+
+func (r *firstByteTrackingReader) Read(p []byte) (int, error) {
+	n, err := r.rc.Read(p)
+	if n > 0 {
+		r.once.Do(r.onFirst)
+	}
+	return n, err
+}
+
+func (r *firstByteTrackingReader) Close() error {
+	return r.rc.Close()
+}
+
+func sanitizeTestPayload(b []byte) string {
+	const maxLen = 8 << 10
+	s := strings.TrimSpace(string(b))
+	if len(s) > maxLen {
+		s = s[:maxLen] + "...(truncated)"
+	}
+	return common.MaskSensitiveInfo(s)
+}
+
+func resolveTestMaxTokens(fallback uint) uint {
+	if n := operation_setting.GetChannelTestSetting().MaxTokens; n > 0 {
+		return uint(n)
+	}
+	return fallback
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -175,6 +218,7 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 
 func testChannel(channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
 	tik := time.Now()
+	cfg := operation_setting.GetChannelTestSetting()
 	var unsupportedTestChannelTypes = []int{
 		constant.ChannelTypeMidjourney,
 		constant.ChannelTypeMidjourneyPlus,
@@ -208,7 +252,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		}
 	}
 
+	if strings.TrimSpace(endpointType) == "" {
+		endpointType = strings.TrimSpace(cfg.EndpointType)
+	}
 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+
+	switch strings.ToLower(strings.TrimSpace(cfg.StreamMode)) {
+	case "on":
+		isStream = true
+	case "off":
+		isStream = false
+	}
 
 	if shouldUseStreamForChannelTest(channel, testModel, endpointType) {
 		isStream = true
@@ -261,6 +315,11 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		URL:    &url.URL{Path: requestPath}, // 使用动态路径
 		Body:   nil,
 		Header: buildChannelTestHeaders(endpointType, isStream),
+	}
+	if cfg.TimeoutSeconds > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
 	}
 
 	cache, err := model.GetUserCache(testUserID)
@@ -524,6 +583,11 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
 		}
 	}
+	if effort := strings.TrimSpace(operation_setting.GetChannelTestSetting().ReasoningEffort); effort != "" && effort != "none" {
+		if v, setErr := sjson.SetBytes(jsonData, "reasoning_effort", effort); setErr == nil {
+			jsonData = v
+		}
+	}
 
 	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
 	//if err != nil {
@@ -585,7 +649,19 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 				context:     c,
 				localErr:    err,
 				newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError),
+				requestBody: sanitizeTestPayload(jsonData),
+				httpStatus:  httpResp.StatusCode,
+				endpoint:    endpointType,
 			}
+		}
+	}
+	var firstByteAt time.Time
+	if httpResp != nil && httpResp.Body != nil {
+		httpResp.Body = &firstByteTrackingReader{
+			rc: httpResp.Body,
+			onFirst: func() {
+				firstByteAt = time.Now()
+			},
 		}
 	}
 	usageA, respErr := adaptor.DoResponse(c, httpResp, info)
@@ -646,10 +722,24 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		Other:            other,
 	})
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
+	firstByteMs := int64(0)
+	if !firstByteAt.IsZero() {
+		firstByteMs = firstByteAt.Sub(tik).Milliseconds()
+	}
+	httpStatus := http.StatusOK
+	if httpResp != nil {
+		httpStatus = httpResp.StatusCode
+	}
 	return testResult{
-		context:     c,
-		localErr:    nil,
-		newAPIError: nil,
+		context:      c,
+		localErr:     nil,
+		newAPIError:  nil,
+		firstByteMs:  firstByteMs,
+		totalMs:      time.Since(tik).Milliseconds(),
+		requestBody:  sanitizeTestPayload(jsonData),
+		responseBody: sanitizeTestPayload(respBody),
+		httpStatus:   httpStatus,
+		endpoint:     endpointType,
 	}
 }
 
@@ -954,21 +1044,23 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 }
 
 func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, nonce string) dto.Request {
-	prompt := "hi"
+	cfg := operation_setting.GetChannelTestSetting()
+	prompt := strings.TrimSpace(cfg.Prompt)
+	if prompt == "" {
+		prompt = "hi"
+	}
 	if nonce != "" {
 		prompt = channelTestNoncePrompt(nonce)
 	}
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`)
-	if nonce != "" {
-		if b, err := json.Marshal([]map[string]any{{
-			"role": "user",
-			"content": []map[string]string{{
-				"type": "input_text",
-				"text": prompt,
-			}},
-		}}); err == nil {
-			testResponsesInput = b
-		}
+	if b, err := json.Marshal([]map[string]any{{
+		"role": "user",
+		"content": []map[string]string{{
+			"type": "input_text",
+			"text": prompt,
+		}},
+	}}); err == nil {
+		testResponsesInput = b
 	}
 
 	// 根据端点类型构建不同的测试请求
@@ -1021,13 +1113,13 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 						Content: prompt,
 					},
 				},
-				MaxTokens: lo.ToPtr(uint(16)),
+				MaxTokens: lo.ToPtr(resolveTestMaxTokens(16)),
 			}
 		case constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
 			// 返回 GeneralOpenAIRequest
-			maxTokens := uint(16)
+			maxTokens := resolveTestMaxTokens(16)
 			if constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
-				maxTokens = 3000
+				maxTokens = resolveTestMaxTokens(3000)
 			}
 			req := &dto.GeneralOpenAIRequest{
 				Model:  model,
@@ -1103,15 +1195,15 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	}
 
 	if strings.HasPrefix(model, "o") {
-		testRequest.MaxCompletionTokens = lo.ToPtr(uint(16))
+		testRequest.MaxCompletionTokens = lo.ToPtr(resolveTestMaxTokens(16))
 	} else if strings.Contains(model, "thinking") {
 		if !strings.Contains(model, "claude") {
-			testRequest.MaxTokens = lo.ToPtr(uint(50))
+			testRequest.MaxTokens = lo.ToPtr(resolveTestMaxTokens(50))
 		}
 	} else if strings.Contains(model, "gemini") {
-		testRequest.MaxTokens = lo.ToPtr(uint(3000))
+		testRequest.MaxTokens = lo.ToPtr(resolveTestMaxTokens(3000))
 	} else {
-		testRequest.MaxTokens = lo.ToPtr(uint(16))
+		testRequest.MaxTokens = lo.ToPtr(resolveTestMaxTokens(16))
 	}
 
 	return testRequest
@@ -1146,12 +1238,16 @@ func TestChannel(c *gin.Context) {
 	}
 	tik := time.Now()
 	result := testChannel(channel, testUserID, testModel, endpointType, isStream)
+	resultEndpoint := endpointType
+	if result.endpoint != "" {
+		resultEndpoint = result.endpoint
+	}
 	if result.localErr != nil {
 		service.RecordChannelModelFailure(service.ChannelModelFailureParams{
 			ChannelId: channel.Id,
 			Group:     common.GetContextKeyString(result.context, constant.ContextKeyUsingGroup),
 			ModelName: common.GetContextKeyString(result.context, constant.ContextKeyOriginalModel),
-			Endpoint:  endpointType,
+			Endpoint:  resultEndpoint,
 			RequestId: common.GetContextKeyString(result.context, common.RequestIdKey),
 			Error:     result.newAPIError,
 			AutoBan:   channel.GetAutoBan(),
@@ -1163,6 +1259,18 @@ func TestChannel(c *gin.Context) {
 		}
 		if result.newAPIError != nil {
 			resp["error_code"] = result.newAPIError.GetErrorCode()
+		}
+		if result.httpStatus != 0 {
+			resp["http_status"] = result.httpStatus
+		}
+		if result.endpoint != "" {
+			resp["endpoint_type"] = result.endpoint
+		}
+		if result.requestBody != "" {
+			resp["request"] = result.requestBody
+		}
+		if result.responseBody != "" {
+			resp["response"] = result.responseBody
 		}
 		c.JSON(http.StatusOK, resp)
 		return
@@ -1176,24 +1284,43 @@ func TestChannel(c *gin.Context) {
 			ChannelId: channel.Id,
 			Group:     common.GetContextKeyString(result.context, constant.ContextKeyUsingGroup),
 			ModelName: common.GetContextKeyString(result.context, constant.ContextKeyOriginalModel),
-			Endpoint:  endpointType,
+			Endpoint:  resultEndpoint,
 			RequestId: common.GetContextKeyString(result.context, common.RequestIdKey),
 			Error:     result.newAPIError,
 			AutoBan:   channel.GetAutoBan(),
 		})
-		c.JSON(http.StatusOK, gin.H{
+		resp := gin.H{
 			"success":    false,
 			"message":    result.newAPIError.Error(),
 			"time":       consumedTime,
 			"error_code": result.newAPIError.GetErrorCode(),
-		})
+		}
+		if result.httpStatus != 0 {
+			resp["http_status"] = result.httpStatus
+		}
+		if result.endpoint != "" {
+			resp["endpoint_type"] = result.endpoint
+		}
+		if result.requestBody != "" {
+			resp["request"] = result.requestBody
+		}
+		if result.responseBody != "" {
+			resp["response"] = result.responseBody
+		}
+		c.JSON(http.StatusOK, resp)
 		return
 	}
-	service.RecordChannelModelSuccess(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyUsingGroup), common.GetContextKeyString(result.context, constant.ContextKeyOriginalModel), endpointType, common.GetContextKeyString(result.context, common.RequestIdKey))
+	service.RecordChannelModelSuccess(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyUsingGroup), common.GetContextKeyString(result.context, constant.ContextKeyOriginalModel), resultEndpoint, common.GetContextKeyString(result.context, common.RequestIdKey))
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"time":    consumedTime,
+		"success":         true,
+		"message":         "",
+		"time":            consumedTime,
+		"total_time":      float64(result.totalMs) / 1000.0,
+		"first_byte_time": float64(result.firstByteMs) / 1000.0,
+		"endpoint_type":   result.endpoint,
+		"http_status":     result.httpStatus,
+		"request":         result.requestBody,
+		"response":        result.responseBody,
 	})
 }
 
@@ -1231,8 +1358,7 @@ func testAllChannels(notify bool) error {
 
 		for _, channel := range channels {
 			if channel.Status != common.ChannelStatusEnabled &&
-				channel.Status != common.ChannelStatusAutoDisabled &&
-				channel.Status != common.ChannelStatusManuallyDisabled {
+				channel.Status != common.ChannelStatusAutoDisabled {
 				continue
 			}
 			if !channel.AllowAutoTestAndRecover() {

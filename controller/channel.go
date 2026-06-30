@@ -428,12 +428,12 @@ func SearchChannels(c *gin.Context) {
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("p", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
 	if page < 1 {
 		page = 1
 	}
 	if pageSize <= 0 {
-		pageSize = 20
+		pageSize = 100
 	}
 
 	total := len(channelData)
@@ -1409,7 +1409,7 @@ func ManageMultiKeys(c *gin.Context) {
 			page = 1
 		}
 		if pageSize <= 0 {
-			pageSize = 50 // Default page size
+			pageSize = 100 // Default page size
 		}
 
 		// Statistics for all keys (unchanged by filtering)

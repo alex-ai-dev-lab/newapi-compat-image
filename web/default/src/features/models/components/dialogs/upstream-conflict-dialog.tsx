@@ -135,7 +135,7 @@ export function UpstreamConflictDialog({
   const [search, setSearch] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(100)
   const [pageIndex, setPageIndex] = useState(0)
 
   useEffect(() => {

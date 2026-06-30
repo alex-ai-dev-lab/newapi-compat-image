@@ -248,7 +248,7 @@ export function ChannelSelectorDialog({
     getPaginationRowModel: getPaginationRowModel(),
     initialState: {
       pagination: {
-        pageSize: 10,
+        pageSize: 100,
       },
     },
   })

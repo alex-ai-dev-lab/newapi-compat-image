@@ -29,7 +29,7 @@ import {
   type ExpandedState,
   type Row,
 } from '@tanstack/react-table'
-import { useDebounce, useMediaQuery } from '@/hooks'
+import { useDebounce } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
@@ -78,7 +78,6 @@ function isDisabledChannelRow(channel: Channel) {
 export function ChannelsTable() {
   const { t } = useTranslation()
   const { enableTagMode, idSort } = useChannels()
-  const isMobile = useMediaQuery('(max-width: 640px)')
 
   // Table state
   const [sorting, setSorting] = useState<SortingState>([])
@@ -106,7 +105,7 @@ export function ChannelsTable() {
     navigate: route.useNavigate(),
     pagination: {
       defaultPage: 1,
-      defaultPageSize: isMobile ? 10 : DEFAULT_PAGE_SIZE,
+      defaultPageSize: DEFAULT_PAGE_SIZE,
     },
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [

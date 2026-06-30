@@ -102,6 +102,7 @@ export const SYSTEM_SETTINGS_SECTION_ORDER_DEFAULT: Record<string, string[]> = {
     'email',
     'worker',
     'monitoring',
+    'channel-test',
     'uptime-kuma',
     'behavior',
     'logs',

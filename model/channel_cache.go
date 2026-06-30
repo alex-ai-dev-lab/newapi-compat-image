@@ -309,13 +309,13 @@ func CacheUpdateChannelStatus(id int, status int) {
 		// delete the channel from group2model2channels
 		for group, model2channels := range group2model2channels {
 			for model, channels := range model2channels {
-				for i, channelId := range channels {
-					if channelId == id {
-						// remove the channel from the slice
-						group2model2channels[group][model] = append(channels[:i], channels[i+1:]...)
-						break
+				filtered := make([]int, 0, len(channels))
+				for _, channelId := range channels {
+					if channelId != id {
+						filtered = append(filtered, channelId)
 					}
 				}
+				group2model2channels[group][model] = filtered
 			}
 		}
 		return

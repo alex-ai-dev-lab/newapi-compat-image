@@ -38,7 +38,7 @@ import {
   clearChannelAntiPoisonRisk,
 } from '../api'
 import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
-import type { CopyChannelParams } from '../types'
+import type { ChannelTestResponse, CopyChannelParams } from '../types'
 
 // ============================================================================
 // Query Keys
@@ -241,7 +241,8 @@ export async function handleTestChannel(
     success: boolean,
     responseTime?: number,
     error?: string,
-    errorCode?: string
+    errorCode?: string,
+    response?: ChannelTestResponse
   ) => void
 ): Promise<void> {
   const payload =
@@ -258,15 +259,34 @@ export async function handleTestChannel(
   try {
     const response = await testChannel(id, payload)
     if (response.success) {
+      const responseTime =
+        response.data?.response_time ??
+        (typeof response.total_time === 'number'
+          ? response.total_time * 1000
+          : typeof response.time === 'number'
+            ? response.time * 1000
+            : undefined)
       if (!options?.silent) {
         toast.success(i18next.t(SUCCESS_MESSAGES.TESTED))
       }
-      onTestComplete?.(true, response.data?.response_time)
+      onTestComplete?.(
+        true,
+        responseTime,
+        undefined,
+        undefined,
+        response
+      )
     } else {
       if (!options?.silent) {
         toast.error(response.message || i18next.t(ERROR_MESSAGES.TEST_FAILED))
       }
-      onTestComplete?.(false, undefined, response.message, response.error_code)
+      onTestComplete?.(
+        false,
+        undefined,
+        response.message,
+        response.error_code,
+        response
+      )
     }
   } catch (_error: unknown) {
     const err = _error as { response?: { data?: { message?: string } } }

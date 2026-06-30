@@ -1,0 +1,359 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useMemo, useRef } from 'react'
+import * as z from 'zod'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { SettingsForm } from '../components/settings-form-layout'
+import {
+  SettingsPageActionsPortal,
+  SettingsPageFormActions,
+} from '../components/settings-page-context'
+import { SettingsSection } from '../components/settings-section'
+import { useResetForm } from '../hooks/use-reset-form'
+import { useUpdateOption } from '../hooks/use-update-option'
+import { safeNumberFieldProps } from '../utils/numeric-field'
+
+const endpointTypeOptions = [
+  { value: 'auto', label: 'Auto detect' },
+  { value: 'openai', label: 'OpenAI Chat Completions' },
+  { value: 'openai-response', label: 'OpenAI Responses' },
+  { value: 'openai-response-compact', label: 'OpenAI Response Compaction' },
+  { value: 'anthropic', label: 'Anthropic Messages' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'jina-rerank', label: 'Jina Rerank' },
+  { value: 'image-generation', label: 'Image Generation' },
+  { value: 'embeddings', label: 'Embeddings' },
+] as const
+
+const reasoningEffortOptions = [
+  { value: 'default', label: 'Provider default' },
+  { value: 'none', label: 'None' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+] as const
+
+const streamModeOptions = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+] as const
+
+const channelTestSchema = z.object({
+  prompt: z.string(),
+  max_tokens: z.coerce
+    .number()
+    .int()
+    .min(0, 'MaxTokens must be 0 or greater'),
+  reasoning_effort: z.string(),
+  endpoint_type: z.string(),
+  stream_mode: z.enum(['auto', 'on', 'off']),
+  timeout_seconds: z.coerce
+    .number()
+    .int()
+    .min(0, 'Timeout must be 0 or greater'),
+})
+
+type ChannelTestFormValues = z.output<typeof channelTestSchema>
+type ChannelTestFormInput = z.input<typeof channelTestSchema>
+
+const defaultChannelTestSetting: ChannelTestFormValues = {
+  prompt: 'hi',
+  max_tokens: 16,
+  reasoning_effort: '',
+  endpoint_type: '',
+  stream_mode: 'auto',
+  timeout_seconds: 0,
+}
+
+type ChannelTestSettingsSectionProps = {
+  defaultValue: string
+}
+
+function parseChannelTestSetting(value: string): ChannelTestFormValues {
+  if (!value) {
+    return defaultChannelTestSetting
+  }
+
+  try {
+    return channelTestSchema.parse({
+      ...defaultChannelTestSetting,
+      ...(JSON.parse(value) as Partial<ChannelTestFormValues>),
+    })
+  } catch {
+    return defaultChannelTestSetting
+  }
+}
+
+function normalizeChannelTestSetting(
+  values: ChannelTestFormValues
+): ChannelTestFormValues {
+  return {
+    prompt: values.prompt.trim() || 'hi',
+    max_tokens: values.max_tokens,
+    reasoning_effort: values.reasoning_effort.trim(),
+    endpoint_type: values.endpoint_type.trim(),
+    stream_mode: values.stream_mode,
+    timeout_seconds: values.timeout_seconds,
+  }
+}
+
+export function ChannelTestSettingsSection({
+  defaultValue,
+}: ChannelTestSettingsSectionProps) {
+  const { t } = useTranslation()
+  const updateOption = useUpdateOption()
+  const formDefaults = useMemo(
+    () => parseChannelTestSetting(defaultValue),
+    [defaultValue]
+  )
+  const baselineRef = useRef<ChannelTestFormValues>(formDefaults)
+
+  const form = useForm<
+    ChannelTestFormInput,
+    unknown,
+    ChannelTestFormValues
+  >({
+    resolver: zodResolver(channelTestSchema),
+    defaultValues: formDefaults,
+  })
+
+  useResetForm(form, formDefaults)
+
+  const onSubmit = async (values: ChannelTestFormValues) => {
+    const normalized = normalizeChannelTestSetting(values)
+    if (JSON.stringify(normalized) === JSON.stringify(baselineRef.current)) {
+      toast.info(t('No changes to save'))
+      return
+    }
+
+    await updateOption.mutateAsync({
+      key: 'ChannelTestSetting',
+      value: JSON.stringify(normalized),
+    })
+    baselineRef.current = normalized
+  }
+
+  const handleResetDefaults = () => {
+    form.reset(defaultChannelTestSetting)
+  }
+
+  return (
+    <SettingsSection title={t('Channel test probe request')}>
+      <Form {...form}>
+        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+          <SettingsPageActionsPortal>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              onClick={handleResetDefaults}
+            >
+              {t('Reset defaults')}
+            </Button>
+          </SettingsPageActionsPortal>
+          <SettingsPageFormActions
+            onSave={form.handleSubmit(onSubmit)}
+            isSaving={updateOption.isPending}
+            saveLabel='Save channel test settings'
+          />
+
+          <FormField
+            control={form.control}
+            name='prompt'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Probe prompt')}</FormLabel>
+                <FormControl>
+                  <Textarea className='min-h-24' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t('Nonce anti-poison checks override this prompt when needed')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='max_tokens'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('MaxTokens')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Set 0 to use the model-specific default')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='timeout_seconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Timeout seconds')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Set 0 to use the global relay timeout')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-3'>
+            <FormField
+              control={form.control}
+              name='reasoning_effort'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Reasoning effort')}</FormLabel>
+                  <Select
+                    value={field.value || 'default'}
+                    onValueChange={(value) =>
+                      field.onChange(value === 'default' ? '' : (value ?? ''))
+                    }
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('Provider default')} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {reasoningEffortOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {t(option.label)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='endpoint_type'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Endpoint type')}</FormLabel>
+                  <Select
+                    value={field.value || 'auto'}
+                    onValueChange={(value) =>
+                      field.onChange(value === 'auto' ? '' : (value ?? ''))
+                    }
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('Auto detect')} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {endpointTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {t(option.label)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='stream_mode'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Stream mode')}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('Auto')} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {streamModeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {t(option.label)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </SettingsForm>
+      </Form>
+    </SettingsSection>
+  )
+}

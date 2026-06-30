@@ -140,12 +140,8 @@ var modelUnavailableKeywords = []string{
 }
 
 var modelScopedChannelFailureKeywords = []string{
-	"not support",
-	"not supported",
-	"unsupported",
 	"no available account",
 	"no available channel",
-	"不支持",
 }
 
 func containsAnyModelFailureKeyword(msg string, keywords []string) bool {

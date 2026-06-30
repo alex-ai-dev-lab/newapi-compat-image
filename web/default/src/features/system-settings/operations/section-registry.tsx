@@ -26,6 +26,7 @@ import { PerformanceSection } from '../maintenance/performance-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { ChannelTestSettingsSection } from './channel-test-settings-section'
 
 const OPERATIONS_SECTIONS = [
   {
@@ -78,6 +79,15 @@ const OPERATIONS_SECTIONS = [
           'monitor_setting.auto_test_channel_minutes':
             settings['monitor_setting.auto_test_channel_minutes'],
         }}
+      />
+    ),
+  },
+  {
+    id: 'channel-test',
+    titleKey: 'Channel Test',
+    build: (settings: OperationsSettings) => (
+      <ChannelTestSettingsSection
+        defaultValue={settings.ChannelTestSetting}
       />
     ),
   },

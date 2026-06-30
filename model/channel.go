@@ -877,6 +877,10 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		} else {
 			// 如果缓存渠道存在，且状态已是目标状态，直接返回
 			if channelCache.Status == status {
+				err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
+				if err != nil {
+					common.SysLog(fmt.Sprintf("failed to reconcile ability status: channel_id=%d, error=%v", channelId, err))
+				}
 				return false
 			}
 			CacheUpdateChannelStatus(channelId, status)
@@ -890,6 +894,10 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		return false
 	} else {
 		if channel.Status == status {
+			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
+			if err != nil {
+				common.SysLog(fmt.Sprintf("failed to reconcile ability status: channel_id=%d, error=%v", channelId, err))
+			}
 			return false
 		}
 

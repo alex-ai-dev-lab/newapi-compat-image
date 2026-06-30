@@ -187,7 +187,7 @@ export function UpstreamRatioSyncTable({
     getPaginationRowModel: getPaginationRowModel(),
     getRowId: (row) => row.key,
     initialState: {
-      pagination: { pageSize: 10 },
+      pagination: { pageSize: 100 },
     },
   })
 

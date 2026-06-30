@@ -163,9 +163,22 @@ export interface ChannelTestResponse {
   success: boolean
   message?: string
   error_code?: string
+  time?: number
+  total_time?: number
+  first_byte_time?: number
+  endpoint_type?: string
+  http_status?: number
+  request?: string
+  response?: string
   data?: {
     response_time?: number
     error?: string
+    total_time?: number
+    first_byte_time?: number
+    endpoint_type?: string
+    http_status?: number
+    request?: string
+    response?: string
   }
 }
 

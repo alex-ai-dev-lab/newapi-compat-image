@@ -89,6 +89,7 @@ import {
   handleClearAntiPoisonRisk,
   handleTestChannel,
 } from '../../lib'
+import type { ChannelTestResponse } from '../../types'
 import { useChannels } from '../channels-provider'
 
 type ChannelTestDialogProps = {
@@ -105,6 +106,12 @@ type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 type TestResult = {
   status: TestStatus
   responseTime?: number
+  firstByteTime?: number
+  totalTime?: number
+  httpStatus?: number
+  endpointType?: string
+  request?: string
+  response?: string
   error?: string
   errorCode?: string
 }
@@ -149,6 +156,7 @@ type FailureDetailsState = {
   model: string
   summary: string
   details: string
+  result?: TestResult
 }
 
 type ChannelRiskMeta = {
@@ -218,12 +226,56 @@ function getTestTableColumnClass(columnId: string) {
     case 'model':
       return 'w-auto whitespace-nowrap'
     case 'status':
-      return 'w-70 min-w-70 max-w-70 whitespace-normal'
+      return 'w-[22rem] min-w-[22rem] max-w-[22rem] whitespace-normal'
     case 'actions':
       return 'bg-popover sticky right-0 z-20 w-24 min-w-24 border-l shadow-[-8px_0_8px_-8px_rgb(0_0_0_/_0.2)] whitespace-nowrap sm:w-28 sm:min-w-28'
     default:
       return undefined
   }
+}
+
+function secondsToMs(value?: number) {
+  return typeof value === 'number' ? value * 1000 : undefined
+}
+
+function buildTestResultFromResponse(
+  success: boolean,
+  responseTime?: number,
+  error?: string,
+  errorCode?: string,
+  response?: ChannelTestResponse
+): TestResult {
+  const firstByteTime = secondsToMs(
+    response?.first_byte_time ?? response?.data?.first_byte_time
+  )
+  const totalTime =
+    secondsToMs(response?.total_time ?? response?.data?.total_time) ??
+    responseTime
+
+  return {
+    status: success ? 'success' : 'error',
+    responseTime: totalTime ?? responseTime,
+    firstByteTime,
+    totalTime,
+    httpStatus: response?.http_status ?? response?.data?.http_status,
+    endpointType: response?.endpoint_type ?? response?.data?.endpoint_type,
+    request: response?.request ?? response?.data?.request,
+    response: response?.response ?? response?.data?.response,
+    error,
+    errorCode,
+  }
+}
+
+function hasTestDetails(result: TestResult) {
+  return Boolean(
+    result.request ||
+      result.response ||
+      result.error ||
+      result.httpStatus ||
+      result.endpointType ||
+      typeof result.firstByteTime === 'number' ||
+      typeof result.totalTime === 'number'
+  )
 }
 
 function parseChannelRiskMeta(otherInfo: string | null | undefined) {
@@ -261,7 +313,7 @@ export function ChannelTestDialog({
   const [isClearingRisk, setIsClearingRisk] = useState(false)
   const [pagination, setPagination] = useState({
     pageIndex: 0,
-    pageSize: 10,
+    pageSize: 100,
   })
 
   const resetState = useCallback(() => {
@@ -274,7 +326,7 @@ export function ChannelTestDialog({
     setIsBatchTesting(false)
     setFailureDetails(null)
     setRiskCleared(false)
-    setPagination({ pageIndex: 0, pageSize: 10 })
+    setPagination({ pageIndex: 0, pageSize: 100 })
   }, [])
 
   useEffect(() => {
@@ -355,13 +407,14 @@ export function ChannelTestDialog({
             stream: isStreamTest || undefined,
             silent,
           },
-          (success, responseTime, error, errorCode) => {
-            finalResult = {
-              status: success ? 'success' : 'error',
+          (success, responseTime, error, errorCode, response) => {
+            finalResult = buildTestResultFromResponse(
+              success,
               responseTime,
               error,
               errorCode,
-            }
+              response
+            )
             updateTestResult(model, finalResult)
           }
         )
@@ -703,7 +756,7 @@ export function ChannelTestDialog({
                       <colgroup>
                         <col className='w-10 min-w-10' />
                         <col className='w-auto' />
-                        <col className='w-70' />
+                        <col className='w-[22rem]' />
                         <col className='w-24 sm:w-28' />
                       </colgroup>
                       <TableHeader>
@@ -826,13 +879,45 @@ function TestStatusCell({
 
   if (result.status === 'success') {
     return (
-      <div className='flex min-w-0 flex-col gap-1 text-xs'>
+      <div className='flex min-w-0 flex-col gap-1.5 text-xs'>
         <StatusBadge label={t('Success')} variant='success' copyable={false} />
-        {typeof result.responseTime === 'number' && (
-          <span className='text-muted-foreground truncate'>
-            {formatResponseTime(result.responseTime, t)}
-          </span>
-        )}
+        <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
+          {typeof result.firstByteTime === 'number' && (
+            <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5'>
+              {t('First byte')} {formatResponseTime(result.firstByteTime, t)}
+            </span>
+          )}
+          {typeof result.totalTime === 'number' && (
+            <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5'>
+              {t('Total')} {formatResponseTime(result.totalTime, t)}
+            </span>
+          )}
+          {typeof result.totalTime !== 'number' &&
+            typeof result.responseTime === 'number' && (
+              <span className='text-muted-foreground truncate'>
+                {formatResponseTime(result.responseTime, t)}
+              </span>
+            )}
+          {hasTestDetails(result) && (
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-7 w-fit px-2 text-xs'
+              aria-haspopup='dialog'
+              onClick={() =>
+                onOpenDetails({
+                  model,
+                  summary: t('Channel test succeeded'),
+                  details: result.response || result.request || '',
+                  result,
+                })
+              }
+            >
+              <Info className='mr-1 h-3 w-3 shrink-0' />
+              {t('Details')}
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
@@ -888,13 +973,20 @@ function FailureStatusContent({
             {t('Go to Settings')}
           </Button>
         )}
-        {details && (
+        {(details || hasTestDetails(result)) && (
           <Button
             variant='ghost'
             size='sm'
             className='h-7 w-fit px-2 text-xs'
             aria-haspopup='dialog'
-            onClick={() => onOpenDetails({ model, summary, details })}
+            onClick={() =>
+              onOpenDetails({
+                model,
+                summary,
+                details: details ?? result.response ?? result.error ?? '',
+                result,
+              })
+            }
           >
             <Info className='mr-1 h-3 w-3 shrink-0' />
             {t('Details')}
@@ -943,12 +1035,76 @@ function FailureDetailsSheet({
               </section>
               <section className='space-y-1'>
                 <div className='text-muted-foreground text-xs font-medium'>
-                  {t('Failed')}
+                  {details.result?.status === 'success'
+                    ? t('Succeeded')
+                    : t('Failed')}
                 </div>
                 <p className='text-muted-foreground text-sm leading-relaxed wrap-break-word'>
                   {details.summary}
                 </p>
               </section>
+              {details.result && (
+                <section className='grid gap-2 text-xs sm:grid-cols-2'>
+                  {details.result.endpointType && (
+                    <div className='rounded-md border p-2'>
+                      <div className='text-muted-foreground font-medium'>
+                        {t('Endpoint')}
+                      </div>
+                      <div className='mt-1 break-all'>
+                        {details.result.endpointType}
+                      </div>
+                    </div>
+                  )}
+                  {typeof details.result.httpStatus === 'number' && (
+                    <div className='rounded-md border p-2'>
+                      <div className='text-muted-foreground font-medium'>
+                        {t('HTTP status')}
+                      </div>
+                      <div className='mt-1'>{details.result.httpStatus}</div>
+                    </div>
+                  )}
+                  {typeof details.result.firstByteTime === 'number' && (
+                    <div className='rounded-md border p-2'>
+                      <div className='text-muted-foreground font-medium'>
+                        {t('First byte')}
+                      </div>
+                      <div className='mt-1'>
+                        {formatResponseTime(details.result.firstByteTime, t)}
+                      </div>
+                    </div>
+                  )}
+                  {typeof details.result.totalTime === 'number' && (
+                    <div className='rounded-md border p-2'>
+                      <div className='text-muted-foreground font-medium'>
+                        {t('Total')}
+                      </div>
+                      <div className='mt-1'>
+                        {formatResponseTime(details.result.totalTime, t)}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+              {details.result?.request && (
+                <section className='space-y-2'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Request')}
+                  </div>
+                  <pre className='bg-muted/30 text-muted-foreground m-0 max-w-full overflow-auto rounded-md border p-3 text-xs leading-relaxed whitespace-pre-wrap'>
+                    {details.result.request}
+                  </pre>
+                </section>
+              )}
+              {details.result?.response && (
+                <section className='space-y-2'>
+                  <div className='text-muted-foreground text-xs font-medium'>
+                    {t('Response')}
+                  </div>
+                  <pre className='bg-muted/30 text-muted-foreground m-0 max-w-full overflow-auto rounded-md border p-3 text-xs leading-relaxed whitespace-pre-wrap'>
+                    {details.result.response}
+                  </pre>
+                </section>
+              )}
               <section className='space-y-2'>
                 <div className='text-muted-foreground text-xs font-medium'>
                   {t('Details')}
