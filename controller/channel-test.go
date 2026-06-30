@@ -262,10 +262,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		isStream = true
 	case "off":
 		isStream = false
-	}
-
-	if shouldUseStreamForChannelTest(channel, testModel, endpointType) {
-		isStream = true
+	default:
+		// Auto mode: detect streaming from the endpoint/model. An explicit on/off
+		// from settings must win and must not be overridden by auto-detection.
+		if shouldUseStreamForChannelTest(channel, testModel, endpointType) {
+			isStream = true
+		}
 	}
 
 	requestPath := "/v1/chat/completions"
@@ -583,9 +585,31 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
 		}
 	}
-	if effort := strings.TrimSpace(operation_setting.GetChannelTestSetting().ReasoningEffort); effort != "" && effort != "none" {
-		if v, setErr := sjson.SetBytes(jsonData, "reasoning_effort", effort); setErr == nil {
-			jsonData = v
+	if effort := strings.TrimSpace(cfg.ReasoningEffort); effort != "" && effort != "none" {
+		// Scope reasoning effort by relay format: chat completions use the
+		// top-level reasoning_effort field, while the Responses API nests it under
+		// reasoning.effort. Other formats (embedding/rerank/image) reject the
+		// field, so they are intentionally left untouched.
+		switch relayFormat {
+		case types.RelayFormatOpenAI:
+			if v, setErr := sjson.SetBytes(jsonData, "reasoning_effort", effort); setErr == nil {
+				jsonData = v
+			}
+		case types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
+			if v, setErr := sjson.SetBytes(jsonData, "reasoning.effort", effort); setErr == nil {
+				jsonData = v
+			}
+		}
+	}
+	// The Responses/Codex request body is built from a raw Input payload that
+	// ignores the struct-level max tokens, so honor an explicitly configured
+	// positive MaxTokens here. It is left unset by default (0) to avoid starving
+	// reasoning models on these endpoints.
+	if relayFormat == types.RelayFormatOpenAIResponses || relayFormat == types.RelayFormatOpenAIResponsesCompaction {
+		if n := cfg.MaxTokens; n > 0 {
+			if v, setErr := sjson.SetBytes(jsonData, "max_output_tokens", n); setErr == nil {
+				jsonData = v
+			}
 		}
 	}
 
@@ -1052,13 +1076,16 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	if nonce != "" {
 		prompt = channelTestNoncePrompt(nonce)
 	}
+	// Build the Responses/Codex input from the same prompt (which already carries
+	// the anti-poison nonce when enabled) instead of a hardcoded "hi", so these
+	// endpoints honor the configured probe prompt and pass nonce validation.
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`)
 	if b, err := json.Marshal([]map[string]any{{
 		"role": "user",
-		"content": []map[string]string{{
+		"content": []map[string]any
 			"type": "input_text",
 			"text": prompt,
-		}},
+		,
 	}}); err == nil {
 		testResponsesInput = b
 	}
