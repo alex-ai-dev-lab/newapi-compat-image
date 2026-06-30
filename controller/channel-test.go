@@ -1082,10 +1082,10 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`)
 	if b, err := json.Marshal([]map[string]any{{
 		"role": "user",
-		"content": []map[string]any
+		"content": []map[string]any{{
 			"type": "input_text",
 			"text": prompt,
-		,
+		}},
 	}}); err == nil {
 		testResponsesInput = b
 	}
