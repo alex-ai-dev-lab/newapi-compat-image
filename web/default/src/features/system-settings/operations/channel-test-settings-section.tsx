@@ -64,9 +64,12 @@ const endpointTypeOptions = [
   { value: 'embeddings', label: 'Embeddings' },
 ] as const
 
+// Note: there is no portable API value that explicitly disables reasoning, and
+// the backend treats an empty effort as "use provider default". A separate
+// "none" option would behave identically to "Provider default", so it is
+// intentionally omitted to avoid a no-op choice.
 const reasoningEffortOptions = [
   { value: 'default', label: 'Provider default' },
-  { value: 'none', label: 'None' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -98,7 +101,7 @@ type ChannelTestFormInput = z.input<typeof channelTestSchema>
 
 const defaultChannelTestSetting: ChannelTestFormValues = {
   prompt: 'hi',
-  max_tokens: 16,
+  max_tokens: 0,
   reasoning_effort: '',
   endpoint_type: '',
   stream_mode: 'auto',
