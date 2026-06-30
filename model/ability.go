@@ -85,6 +85,11 @@ func GetChannelExcludingWithPolicy(group string, model string, retry int, exclud
 			filtered = append(filtered, ability)
 		}
 		abilities = filtered
+		// Mirror the in-memory cache path (GetRandomSatisfiedChannelExcludingWithPolicy):
+		// once we are explicitly excluding channels (e.g. retrying after a failure),
+		// restart priority selection from the highest remaining priority bucket
+		// instead of stepping down to a lower-priority bucket by retry index.
+		retry = 0
 	}
 	abilities = filterChannelModelStatusAbilities(abilities)
 	abilities = filterRandomSelectableAbilities(abilities)
