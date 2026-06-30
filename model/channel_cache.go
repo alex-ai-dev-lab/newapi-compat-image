@@ -295,6 +295,26 @@ func CacheGetChannelInfo(id int) (*ChannelInfo, error) {
 	return &c.ChannelInfo, nil
 }
 
+// CacheGetAllChannels returns a snapshot slice of all cached channels (including
+// disabled ones). It lets background loops such as the auto-test scheduler reuse
+// the already-synced in-memory cache instead of issuing a full DB load (with
+// keys) on every scan. Returns nil when the memory cache is disabled so callers
+// can fall back to a direct DB query.
+func CacheGetAllChannels() []*Channel {
+	if !common.MemoryCacheEnabled {
+		return nil
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	channels := make([]*Channel, 0, len(channelsIDM))
+	for _, channel := range channelsIDM {
+		if channel != nil {
+			channels = append(channels, channel)
+		}
+	}
+	return channels
+}
+
 func CacheUpdateChannelStatus(id int, status int) {
 	if !common.MemoryCacheEnabled {
 		return
@@ -306,16 +326,41 @@ func CacheUpdateChannelStatus(id int, status int) {
 		channel.Status = status
 	}
 	if status != common.ChannelStatusEnabled {
-		// delete the channel from group2model2channels
-		for group, model2channels := range group2model2channels {
-			for model, channels := range model2channels {
+		// Remove the channel from its own group/model buckets instead of rebuilding
+		// every bucket in the cache. Fall back to a full scan only when the channel
+		// metadata is unknown.
+		if !ok || channel == nil {
+			for group, model2channels := range group2model2channels {
+				for modelName, channels := range model2channels {
+					filtered := make([]int, 0, len(channels))
+					for _, channelId := range channels {
+						if channelId != id {
+							filtered = append(filtered, channelId)
+						}
+					}
+					group2model2channels[group][modelName] = filtered
+				}
+			}
+			return
+		}
+		for _, group := range channel.GetGroups() {
+			model2channels, exists := group2model2channels[group]
+			if !exists {
+				continue
+			}
+			for _, modelName := range channel.GetModels() {
+				modelName = strings.TrimSpace(modelName)
+				channels, exists := model2channels[modelName]
+				if !exists {
+					continue
+				}
 				filtered := make([]int, 0, len(channels))
 				for _, channelId := range channels {
 					if channelId != id {
 						filtered = append(filtered, channelId)
 					}
 				}
-				group2model2channels[group][model] = filtered
+				model2channels[modelName] = filtered
 			}
 		}
 		return

@@ -67,6 +67,23 @@ func (t *channelTestTracker) failCount(channelID int) int {
 	return t.channelFailCount[channelID]
 }
 
+// cleanup drops tracking entries for channels that no longer exist so the
+// in-memory maps don't grow unbounded as channels are deleted over time.
+func (t *channelTestTracker) cleanup(activeIDs map[int]bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id := range t.channelLastTest {
+		if !activeIDs[id] {
+			delete(t.channelLastTest, id)
+		}
+	}
+	for id := range t.channelFailCount {
+		if !activeIDs[id] {
+			delete(t.channelFailCount, id)
+		}
+	}
+}
+
 // GetChannelTestConfig resolves the effective test config for a channel.
 // Channel-level settings override global defaults.
 func getEffectiveTestConfig(channel *model.Channel) (interval time.Duration, retryCount int, retryThreshold int, timeWindowStart string, timeWindowEnd string, timezone string) {
@@ -176,6 +193,11 @@ func testSingleChannelWithRetries(channel *model.Channel, testUserID int, retryC
 			AutoBan:   channel.GetAutoBan(),
 		})
 		// Only meaningful disable-worthy errors justify another retry attempt.
+		// Deterministic errors (e.g. model price misconfig) won't change between
+		// attempts, so stop early instead of wasting retries.
+		if !service.IsAntiPoisonValidationError(lastResult.newAPIError) && !service.ShouldDisableChannel(lastResult.newAPIError) {
+			break
+		}
 		if attempt < retryCount-1 {
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -228,11 +250,27 @@ func runIndependentChannelTest() {
 		return
 	}
 
-	channels, err := model.GetAllChannels(0, 0, true, false)
-	if err != nil {
-		common.SysLog("auto-test: failed to get channels: " + err.Error())
-		return
+	// Reuse the in-memory channel cache when available to avoid a full DB load
+	// (including keys) on every 30s scan. Fall back to a direct query when the
+	// memory cache is disabled or empty.
+	var channels []*model.Channel
+	if common.MemoryCacheEnabled {
+		channels = model.CacheGetAllChannels()
 	}
+	if len(channels) == 0 {
+		channels, err = model.GetAllChannels(0, 0, true, false)
+		if err != nil {
+			common.SysLog("auto-test: failed to get channels: " + err.Error())
+			return
+		}
+	}
+
+	// Drop tracking state for channels that no longer exist.
+	activeIDs := make(map[int]bool, len(channels))
+	for _, channel := range channels {
+		activeIDs[channel.Id] = true
+	}
+	testTracking.cleanup(activeIDs)
 
 	for _, channel := range channels {
 		// Skip channels that are disabled (not auto-disabled)

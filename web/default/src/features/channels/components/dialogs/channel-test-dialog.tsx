@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ColumnDef,
   type RowSelectionState,
@@ -143,6 +143,8 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'jina-rerank',
   'openai-response-compact',
 ])
+
+const BATCH_TEST_CONCURRENCY = 6
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
@@ -300,6 +302,7 @@ export function ChannelTestDialog({
   const queryClient = useQueryClient()
   const [endpointType, setEndpointType] = useState('auto')
   const [isStreamTest, setIsStreamTest] = useState(true)
+  const userStreamPreferenceRef = useRef(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
@@ -319,6 +322,7 @@ export function ChannelTestDialog({
   const resetState = useCallback(() => {
     setEndpointType('auto')
     setIsStreamTest(true)
+    userStreamPreferenceRef.current = true
     setSearchTerm('')
     setTestResults({})
     setRowSelection({})
@@ -341,8 +345,15 @@ export function ChannelTestDialog({
   useEffect(() => {
     if (streamDisabled) {
       setIsStreamTest(false)
+    } else {
+      setIsStreamTest(userStreamPreferenceRef.current)
     }
   }, [streamDisabled])
+
+  const handleStreamToggle = useCallback((checked: boolean) => {
+    userStreamPreferenceRef.current = checked
+    setIsStreamTest(checked)
+  }, [])
 
   const modelsValue = currentRow?.models ?? ''
   const defaultTestModel = currentRow?.test_model?.trim()
@@ -445,14 +456,29 @@ export function ChannelTestDialog({
 
       setIsBatchTesting(true)
       try {
-        const settled = await Promise.allSettled(
-          modelsToTest.map((modelName) => testSingleModel(modelName, true))
+        const results: TestResult[] = []
+        let cursor = 0
+
+        const runWorker = async () => {
+          while (cursor < modelsToTest.length) {
+            const index = cursor
+            cursor += 1
+            const modelName = modelsToTest[index]
+            const result = await testSingleModel(modelName, true)
+            if (result) {
+              results.push(result)
+            }
+          }
+        }
+
+        const workerCount = Math.min(
+          BATCH_TEST_CONCURRENCY,
+          modelsToTest.length
         )
-        const results = settled
-          .map((result) =>
-            result.status === 'fulfilled' ? result.value : undefined
-          )
-          .filter((result): result is TestResult => Boolean(result))
+        await Promise.all(
+          Array.from({ length: workerCount }, () => runWorker())
+        )
+
         const successCount = results.filter(
           (result) => result.status === 'success'
         ).length
@@ -460,7 +486,7 @@ export function ChannelTestDialog({
         if (failedCount > 0) {
           toast.error(
             t(
-              'Batch test completed: {{success}} succeeded, {{failed}} failed',
+              'Batch test completed: SS_VAR succeeded, FF_VAR failed'.replace('SS_VAR', '{' + '{success}' + '}').replace('FF_VAR', '{' + '{failed}' + '}'),
               {
                 success: successCount,
                 failed: failedCount,
@@ -469,7 +495,7 @@ export function ChannelTestDialog({
           )
         } else {
           toast.success(
-            t('Batch test completed: {{count}} succeeded', {
+            t('Batch test completed: CC_VAR succeeded'.replace('CC_VAR', '{' + '{count}' + '}'), {
               count: successCount,
             })
           )
@@ -523,7 +549,7 @@ export function ChannelTestDialog({
           <Checkbox
             checked={row.getIsSelected()}
             onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label={t('Select model {{model}}', {
+            aria-label={t('Select model MM_VAR'.replace('MM_VAR', '{' + '{model}' + '}'), {
               model: row.original.model,
             })}
           />
@@ -716,7 +742,7 @@ export function ChannelTestDialog({
                   <Switch
                     id='stream-toggle'
                     checked={isStreamTest}
-                    onCheckedChange={setIsStreamTest}
+                    onCheckedChange={handleStreamToggle}
                     disabled={streamDisabled}
                   />
                   <span className='text-sm'>
@@ -1150,7 +1176,7 @@ function TestModelsBulkActions({
 
   const buttonLabel =
     selectedModels.length > 0
-      ? t('Test {{count}} selected', { count: selectedModels.length })
+      ? t('Test CC_VAR selected'.replace('CC_VAR', '{' + '{count}' + '}'), { count: selectedModels.length })
       : t('Test selected models')
 
   return (
