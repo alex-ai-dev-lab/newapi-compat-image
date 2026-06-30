@@ -16,8 +16,10 @@ type ChannelTestSettingT struct {
 
 func defaultChannelTestSetting() ChannelTestSettingT {
 	return ChannelTestSettingT{
-		Prompt:     "hi",
-		MaxTokens:  16,
+		Prompt: "hi",
+		// 0 means "use the model-specific default" (e.g. 50 for thinking models,
+		// 3000 for gemini). A non-zero global value is treated as an explicit cap.
+		MaxTokens:  0,
 		StreamMode: "auto",
 	}
 }
