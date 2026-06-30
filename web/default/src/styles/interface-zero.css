@@ -351,8 +351,11 @@ body.menu-open {
 
 .iz-hero {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-height: 100svh;
-  padding: 0;
+  padding: 96px 0 72px;
   overflow: hidden;
   color: var(--white);
   background: var(--ink);
@@ -362,7 +365,7 @@ body.menu-open {
 .iz-hero .iz-wrap {
   position: relative;
   z-index: 1;
-  padding-top: 58px;
+  width: 100%;
 }
 
 .iz-hero-top {
