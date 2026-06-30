@@ -486,7 +486,7 @@ export function ChannelTestDialog({
         if (failedCount > 0) {
           toast.error(
             t(
-              'Batch test completed: SUCCESS_PLACEHOLDER succeeded, FAILED_PLACEHOLDER failed',
+              'Batch test completed: SS_VAR succeeded, FF_VAR failed'.replace('SS_VAR', '{' + '{success}' + '}').replace('FF_VAR', '{' + '{failed}' + '}'),
               {
                 success: successCount,
                 failed: failedCount,
@@ -495,7 +495,7 @@ export function ChannelTestDialog({
           )
         } else {
           toast.success(
-            t('Batch test completed: COUNT_PLACEHOLDER succeeded', {
+            t('Batch test completed: CC_VAR succeeded'.replace('CC_VAR', '{' + '{count}' + '}'), {
               count: successCount,
             })
           )
@@ -549,7 +549,7 @@ export function ChannelTestDialog({
           <Checkbox
             checked={row.getIsSelected()}
             onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label={t('Select model MODEL_PLACEHOLDER', {
+            aria-label={t('Select model MM_VAR'.replace('MM_VAR', '{' + '{model}' + '}'), {
               model: row.original.model,
             })}
           />
@@ -1176,7 +1176,7 @@ function TestModelsBulkActions({
 
   const buttonLabel =
     selectedModels.length > 0
-      ? t('Test COUNT_PLACEHOLDER selected', { count: selectedModels.length })
+      ? t('Test CC_VAR selected'.replace('CC_VAR', '{' + '{count}' + '}'), { count: selectedModels.length })
       : t('Test selected models')
 
   return (
