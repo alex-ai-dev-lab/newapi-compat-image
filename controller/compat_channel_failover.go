@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	compatUpstream5xxFailureThreshold = 2
+	compatUpstream5xxFailureThreshold = 3
 	compatUpstream5xxFailureTTL       = 10 * time.Minute
 )
 

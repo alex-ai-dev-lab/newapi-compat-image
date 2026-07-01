@@ -306,6 +306,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				relayInfo.LastError = nil
 				clearCompatChannelFailure(channel.Id, relayInfo)
 				service.ClearRouterCooldown(channel.Id, relayInfo)
+				service.ClearChannelConsecutiveFailure(channel.Id, relayInfo.OriginModelName)
 				service.RecordChannelModelSuccess(channel.Id, relayInfo.UsingGroup, relayInfo.OriginModelName, relayModeName(relayInfo.RelayMode), relayInfo.RequestId)
 				firstByteLatency := relayInfo.FirstResponseTime.Sub(relayInfo.StartTime)
 				if firstByteLatency < 0 {
@@ -889,22 +890,11 @@ func isTruncationFallbackError(err *types.NewAPIError) bool {
 }
 
 func compatRelayRetryBudget(info *relaycommon.RelayInfo, relayFormat types.RelayFormat) int {
-	if info == nil || relayFormat == types.RelayFormatOpenAIRealtime {
-		return common.RetryTimes
-	}
-	switch info.RelayMode {
-	case relayconstant.RelayModeChatCompletions,
-		relayconstant.RelayModeCompletions,
-		relayconstant.RelayModeResponses,
-		relayconstant.RelayModeResponsesCompact:
-		return maxInt(common.RetryTimes, 10)
-	}
-	switch relayFormat {
-	case types.RelayFormatClaude, types.RelayFormatGemini:
-		return maxInt(common.RetryTimes, 10)
-	default:
-		return common.RetryTimes
-	}
+	// The retry budget is authoritative from the operator-configured RetryTimes so
+	// that it reflects the configured cross-channel failure tolerance rather than an
+	// implicit per-format floor. RetryTimes counts how many failover attempts are
+	// allowed, not how many times a single channel is retried.
+	return common.RetryTimes
 }
 
 func shouldCompatRetryByError(openaiErr *types.NewAPIError) bool {
@@ -940,12 +930,15 @@ func disableChannelForCompatRetry(c *gin.Context, channel *model.Channel, relayI
 	if !shouldCompatRetryByError(openaiErr) {
 		return
 	}
-	shouldDisable := shouldCompatDisableChannel(openaiErr)
-	if !shouldDisable && shouldTrackCompatUpstream5xxFailure(openaiErr) {
-		failures := recordCompatChannelFailure(channel.Id, relayInfo)
-		shouldDisable = failures >= compatUpstream5xxFailureThreshold
+	// Only upstream 5xx failures accumulate toward auto-disable here, and only once
+	// the unified consecutive-failure threshold is reached. Transient errors (e.g.
+	// 408/timeout) trigger failover + cooldown but no longer immediately hard-disable
+	// the channel.
+	if !shouldTrackCompatUpstream5xxFailure(openaiErr) {
+		return
 	}
-	if !shouldDisable {
+	failures := recordCompatChannelFailure(channel.Id, relayInfo)
+	if failures < compatUpstream5xxFailureThreshold {
 		return
 	}
 	channelError := *types.NewChannelError(
@@ -1100,9 +1093,15 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			})
 		}
 	} else if service.ShouldDisableChannel(err) && channelError.AutoBan {
-		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
-		})
+		// Unified 3-strike disable: a single failure no longer hard-disables the
+		// channel. We only auto-disable once the same channel+model has failed with a
+		// disable-worthy error ChannelConsecutiveDisableThreshold times in a row.
+		modelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+		if service.RecordChannelConsecutiveFailure(channelError.ChannelId, modelName) >= service.ChannelConsecutiveDisableThreshold {
+			gopool.Go(func() {
+				service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			})
+		}
 	}
 
 	if shouldRecordRelayErrorLog(c, err, antiPoisonRisk) {
@@ -1364,6 +1363,7 @@ func RelayTask(c *gin.Context) {
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			service.ClearChannelConsecutiveFailure(channel.Id, relayInfo.OriginModelName)
 			break
 		}
 
