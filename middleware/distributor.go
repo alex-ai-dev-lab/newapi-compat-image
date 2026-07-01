@@ -204,6 +204,11 @@ func channelAffinityFallbackOnly() bool {
 
 // higherPriorityChannelAvailable reports whether a strictly higher priority channel
 // than the affinity channel is currently selectable for the given group+model.
+//
+// It reuses the in-memory cache selection path (GetRandomSatisfiedChannelExcludingWithPolicy),
+// the same one Distribute uses to pick the actual channel. This keeps the fallback
+// decision consistent with the channel that would really be selected and avoids
+// issuing synchronous ability/channel DB queries on every affinity-preferred request.
 func higherPriorityChannelAvailable(group, modelName string, affinityChannel *model.Channel, policy *service.ProviderRoutingPolicy) bool {
 	if affinityChannel == nil {
 		return false
@@ -212,7 +217,7 @@ func higherPriorityChannelAvailable(group, modelName string, affinityChannel *mo
 	if policy != nil && !policy.Empty() {
 		routingPolicy = policy
 	}
-	topChannel, err := model.GetChannelExcludingWithPolicy(group, modelName, 0, nil, routingPolicy)
+	topChannel, err := model.GetRandomSatisfiedChannelExcludingWithPolicy(group, modelName, 0, nil, routingPolicy)
 	if err != nil || topChannel == nil {
 		return false
 	}
