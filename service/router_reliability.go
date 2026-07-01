@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	defaultRouterCooldownThreshold = 2
-	defaultRouterCooldownSeconds   = 600
+	defaultRouterCooldownThreshold = 1
+	defaultRouterCooldownSeconds   = 45
 	defaultRouterBackoffBaseMs     = 200
 	defaultRouterBackoffMaxMs      = 2000
 )
@@ -35,7 +35,7 @@ var routerCooldownTracker = struct {
 }
 
 func RouterCooldownEnabled() bool {
-	return common.GetEnvOrDefaultBool("ROUTER_COOLDOWN_ENABLED", false)
+	return common.GetEnvOrDefaultBool("ROUTER_COOLDOWN_ENABLED", true)
 }
 
 func RouterRetryBackoffEnabled() bool {
