@@ -131,18 +131,26 @@ func Distribute() func(c *gin.Context) {
 							for _, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) &&
 									!model.IsChannelModelDisabledForGroup(preferred.Id, g, modelRequest.Model) {
-									selectGroup = g
-									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
-									channel = preferred
-									service.MarkChannelAffinityUsed(c, g, preferred.Id)
+									if channelAffinityFallbackOnly() && higherPriorityChannelAvailable(g, modelRequest.Model, preferred, modelRequest.ProviderPolicy) {
+										common.SysLog(fmt.Sprintf("affinity channel deferred: higher priority channel available for group=%s model=%s affinity_channel=%d", g, modelRequest.Model, preferred.Id))
+									} else {
+										selectGroup = g
+										common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
+										channel = preferred
+										service.MarkChannelAffinityUsed(c, g, preferred.Id)
+									}
 									break
 								}
 							}
 						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) &&
 							!model.IsChannelModelDisabledForGroup(preferred.Id, usingGroup, modelRequest.Model) {
-							channel = preferred
-							selectGroup = usingGroup
-							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
+							if channelAffinityFallbackOnly() && higherPriorityChannelAvailable(usingGroup, modelRequest.Model, preferred, modelRequest.ProviderPolicy) {
+								common.SysLog(fmt.Sprintf("affinity channel deferred: higher priority channel available for group=%s model=%s affinity_channel=%d", usingGroup, modelRequest.Model, preferred.Id))
+							} else {
+								channel = preferred
+								selectGroup = usingGroup
+								service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
+							}
 						}
 					}
 				}
@@ -183,6 +191,32 @@ func Distribute() func(c *gin.Context) {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+// channelAffinityFallbackOnly reports whether channel affinity should only be used
+// as a fallback. When enabled (default), an affinity-preferred channel is only used
+// if no strictly higher priority channel is currently available for the group+model.
+// This prevents a session from being stuck on a lower priority channel due to cache
+// affinity once a higher priority channel becomes healthy again.
+func channelAffinityFallbackOnly() bool {
+	return common.GetEnvOrDefaultBool("CHANNEL_AFFINITY_FALLBACK_ONLY", true)
+}
+
+// higherPriorityChannelAvailable reports whether a strictly higher priority channel
+// than the affinity channel is currently selectable for the given group+model.
+func higherPriorityChannelAvailable(group, modelName string, affinityChannel *model.Channel, policy *service.ProviderRoutingPolicy) bool {
+	if affinityChannel == nil {
+		return false
+	}
+	var routingPolicy model.ChannelRoutingPolicy
+	if policy != nil && !policy.Empty() {
+		routingPolicy = policy
+	}
+	topChannel, err := model.GetChannelExcludingWithPolicy(group, modelName, 0, nil, routingPolicy)
+	if err != nil || topChannel == nil {
+		return false
+	}
+	return topChannel.GetPriority() > affinityChannel.GetPriority()
 }
 
 // getModelFromRequest 从请求中读取模型信息
