@@ -43,12 +43,29 @@ func (ModelEndpoint) TableName() string {
 }
 
 var (
-	modelEndpointCache     map[int]map[string]*ModelEndpoint
-	modelEndpointCacheLock sync.RWMutex
-	modelEndpointSyncOnce  sync.Once
+	modelEndpointCache      map[int]map[string]*ModelEndpoint
+	modelEndpointCacheLock  sync.RWMutex
+	modelEndpointSyncOnce   sync.Once
+	modelEndpointSchemaOnce sync.Once
 )
 
+// ensureModelEndpointSchema creates or upgrades the model_endpoints table on
+// first use. This keeps the feature self-contained rather than editing the
+// shared AutoMigrate lists, and is safe to call from any code path because
+// AutoMigrate is idempotent and DB is initialized long before requests run.
+func ensureModelEndpointSchema() {
+	modelEndpointSchemaOnce.Do(func() {
+		if DB == nil {
+			return
+		}
+		if err := DB.AutoMigrate(&ModelEndpoint{}); err != nil {
+			common.SysError("failed to auto-migrate model_endpoints table: " + err.Error())
+		}
+	})
+}
+
 func loadModelEndpointsFromDB() (map[int]map[string]*ModelEndpoint, error) {
+	ensureModelEndpointSchema()
 	var endpoints []*ModelEndpoint
 	if err := DB.Find(&endpoints).Error; err != nil {
 		return nil, err
@@ -104,6 +121,7 @@ func GetModelEndpoint(channelId int, modelName string) *ModelEndpoint {
 		return nil
 	}
 	if !common.MemoryCacheEnabled {
+		ensureModelEndpointSchema()
 		var ep ModelEndpoint
 		if err := DB.Where("channel_id = ? AND model = ?", channelId, modelName).First(&ep).Error; err != nil {
 			return nil
@@ -192,6 +210,7 @@ func GetChannelModelEndpoints(channelId int) ([]*ModelEndpoint, error) {
 	if channelId <= 0 {
 		return endpoints, nil
 	}
+	ensureModelEndpointSchema()
 	err := DB.Where("channel_id = ?", channelId).Order("model asc").Find(&endpoints).Error
 	return endpoints, err
 }
@@ -203,6 +222,7 @@ func ReplaceChannelModelEndpoints(channelId int, endpoints []*ModelEndpoint) err
 	if channelId <= 0 {
 		return errors.New("invalid channel id")
 	}
+	ensureModelEndpointSchema()
 	now := time.Now().Unix()
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("channel_id = ?", channelId).Delete(&ModelEndpoint{}).Error; err != nil {
@@ -248,6 +268,7 @@ func DeleteChannelModelEndpoints(channelId int) error {
 	if channelId <= 0 {
 		return errors.New("invalid channel id")
 	}
+	ensureModelEndpointSchema()
 	if err := DB.Where("channel_id = ?", channelId).Delete(&ModelEndpoint{}).Error; err != nil {
 		return err
 	}
